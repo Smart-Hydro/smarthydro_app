@@ -34,7 +34,7 @@ class _PortfolioNetworkState extends State<PortfolioNetwork>
   late final AnimationController _animation = AnimationController(
     vsync: this,
     duration: const Duration(seconds: 18),
-  );
+  )..addListener(_ease);
 
   /// Entrada escalonada de los puntos al montar la tarjeta.
   late final AnimationController _entrance = AnimationController(
@@ -42,9 +42,34 @@ class _PortfolioNetworkState extends State<PortfolioNetwork>
     duration: const Duration(milliseconds: 1100),
   );
 
-  /// Inclinación de la cámara (-1 a 1) al arrastrar horizontal/vertical.
+  /// Inclinación de la cámara (-1 a 1): arrastre más paralaje del puntero,
+  /// suavizada cuadro a cuadro.
   double _tiltX = 0;
   double _tiltY = 0;
+  double _dragX = 0;
+  double _dragY = 0;
+  Offset _pointer = Offset.zero;
+  bool _dragging = false;
+
+  double get _targetX => (_dragX + _pointer.dx * 0.35).clamp(-1, 1).toDouble();
+  double get _targetY => (_dragY + _pointer.dy * 0.25).clamp(-1, 1).toDouble();
+
+  void _ease() {
+    if (!_dragging) {
+      _dragX *= 0.95;
+      _dragY *= 0.95;
+    }
+    _tiltX += (_targetX - _tiltX) * 0.12;
+    _tiltY += (_targetY - _tiltY) * 0.12;
+  }
+
+  void _settleIfStatic() {
+    if (_animation.isAnimating) return;
+    setState(() {
+      _tiltX = _targetX;
+      _tiltY = _targetY;
+    });
+  }
 
   @override
   void didChangeDependencies() {
@@ -69,16 +94,29 @@ class _PortfolioNetworkState extends State<PortfolioNetwork>
   }
 
   void _onPan(DragUpdateDetails d) {
-    setState(() {
-      _tiltX = (_tiltX + d.delta.dx * 0.004).clamp(-1, 1);
-      _tiltY = (_tiltY + d.delta.dy * 0.004).clamp(-1, 1);
-    });
+    _dragging = true;
+    _dragX = (_dragX + d.delta.dx * 0.006).clamp(-1, 1).toDouble();
+    _dragY = (_dragY + d.delta.dy * 0.006).clamp(-1, 1).toDouble();
+    _settleIfStatic();
   }
 
-  void _resetTilt() => setState(() {
-    _tiltX = 0;
-    _tiltY = 0;
-  });
+  void _releaseTilt() {
+    _dragging = false;
+    if (!_animation.isAnimating) {
+      _dragX = 0;
+      _dragY = 0;
+      _settleIfStatic();
+    }
+  }
+
+  void _onHover(Offset local, Size size) {
+    if (_dragging || size.isEmpty) return;
+    _pointer = Offset(
+      (local.dx / size.width) * 2 - 1,
+      (local.dy / size.height) * 2 - 1,
+    );
+    _settleIfStatic();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -129,31 +167,39 @@ class _PortfolioNetworkState extends State<PortfolioNetwork>
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final size = Size(constraints.maxWidth, constraints.maxHeight);
-                return GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onPanUpdate: _onPan,
-                  onPanEnd: (_) => _resetTilt(),
-                  onTapUp: (details) {
-                    final index = _WaterScenePainter.nearestPoint(
-                      size,
-                      nodes.length,
-                      details.localPosition,
-                      _tiltX,
-                      _tiltY,
-                    );
-                    if (index != null) widget.onPointSelected(nodes[index]);
+                return MouseRegion(
+                  onHover: (event) => _onHover(event.localPosition, size),
+                  onExit: (_) {
+                    _pointer = Offset.zero;
+                    _settleIfStatic();
                   },
-                  child: AnimatedBuilder(
-                    animation: Listenable.merge([_animation, _entrance]),
-                    builder: (context, _) => CustomPaint(
-                      painter: _WaterScenePainter(
-                        points: nodes,
-                        phase: _animation.value,
-                        entrance: _entrance.value,
-                        tiltX: _tiltX,
-                        tiltY: _tiltY,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onPanUpdate: _onPan,
+                    onPanEnd: (_) => _releaseTilt(),
+                    onPanCancel: _releaseTilt,
+                    onTapUp: (details) {
+                      final index = _WaterScenePainter.nearestPoint(
+                        size,
+                        nodes.length,
+                        details.localPosition,
+                        _tiltX,
+                        _tiltY,
+                      );
+                      if (index != null) widget.onPointSelected(nodes[index]);
+                    },
+                    child: AnimatedBuilder(
+                      animation: Listenable.merge([_animation, _entrance]),
+                      builder: (context, _) => CustomPaint(
+                        painter: _WaterScenePainter(
+                          points: nodes,
+                          phase: _animation.value,
+                          entrance: _entrance.value,
+                          tiltX: _tiltX,
+                          tiltY: _tiltY,
+                        ),
+                        child: const SizedBox.expand(),
                       ),
-                      child: const SizedBox.expand(),
                     ),
                   ),
                 );
