@@ -99,6 +99,22 @@ class SmartHydroApi {
     return nested is Map ? _map(nested) : data;
   }
 
+  /// Variables configuradas del punto (CAUDAL, NIVEL, TOTALIZADO…). Define
+  /// qué lecturas existen de verdad, independientemente de la telemetría.
+  Future<List<Map<String, dynamic>>> pointVariables(
+    String token,
+    int pointId,
+  ) async {
+    final response = await _authorizedGet(
+      '/api/ik/point/$pointId/variables/',
+      token,
+    );
+    final data = _map(response.data);
+    final list = data['variables'];
+    if (list is List) return list.map(_map).toList(growable: false);
+    return const [];
+  }
+
   Future<List<Map<String, dynamic>>> pointCalendar(
     String token,
     int pointId, {

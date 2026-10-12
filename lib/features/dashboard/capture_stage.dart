@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/brand.dart';
 import 'point_link.dart';
+import 'point_meta.dart';
 
 /// Tipo de captación. Expone la figura mínima para que otras presentaciones
 /// puedan reutilizarla.
@@ -115,6 +116,7 @@ class CaptureStage extends StatefulWidget {
     this.playing = false,
     this.flowMax,
     this.totalCubicMeters,
+    this.loggerInfo,
     this.topInset = 56,
     super.key,
   });
@@ -136,6 +138,9 @@ class CaptureStage extends StatefulWidget {
 
   /// Volumen totalizado del flujómetro (m³).
   final double? totalCubicMeters;
+
+  /// Ficha del tablero/logger (token, modelo, variables, DGA si aplica).
+  final LoggerInfo? loggerInfo;
 
   /// Espacio reservado arriba para controles superpuestos.
   final double topInset;
@@ -162,6 +167,7 @@ class _CaptureStageState extends State<CaptureStage>
   );
 
   final _SceneHits _hits = _SceneHits();
+  Size _viewSize = Size.zero;
   bool _hovered = false;
   bool _touched = false;
   Offset _pointer = Offset.zero;
@@ -302,7 +308,28 @@ class _CaptureStageState extends State<CaptureStage>
 
   void _onTapUp(TapUpDetails details) {
     final part = _hits.at(details.localPosition);
-    setState(() => _pinnedPart = part == _pinnedPart ? null : part);
+    setState(() {
+      final next = part == _pinnedPart ? null : part;
+      _pinnedPart = next;
+      if (next == ScenePart.logger || next == ScenePart.power) {
+        _focusLogger();
+      }
+    });
+  }
+
+  /// Acerca la cámara al tablero para leer su ficha con comodidad.
+  void _focusLogger() {
+    final rect = _hits.boundsOf(ScenePart.logger);
+    final size = _viewSize;
+    if (size.isEmpty) {
+      _setZoom(2.05);
+      return;
+    }
+    _setZoom(2.05);
+    final target =
+        rect?.center ?? Offset(size.width * 0.28, size.height * 0.38);
+    final center = Offset(size.width * 0.5, size.height * 0.42);
+    _panTarget = (center - target) * 0.85;
   }
 
   void _onScaleStart(ScaleStartDetails details) {
@@ -378,16 +405,14 @@ class _CaptureStageState extends State<CaptureStage>
 
   String _m(double v) => '${v.toStringAsFixed(v >= 100 ? 0 : 1)} m';
 
-  ({String title, String? value, String body, Color color}) _explain(
-    ScenePart part,
-  ) {
+  _SceneInfo _explain(ScenePart part) {
     final p = widget.profile;
     final level = widget.levelMeters;
     final flow = widget.flowLitersPerSecond;
     switch (part) {
       case ScenePart.level:
         return widget.isSurface
-            ? (
+            ? _SceneInfo(
                 title: 'Altura de agua',
                 value: level == null ? null : '${level.toStringAsFixed(2)} m',
                 body:
@@ -395,7 +420,7 @@ class _CaptureStageState extends State<CaptureStage>
                     'sensor. Sube con crecidas y baja en estiaje.',
                 color: _Palette.level,
               )
-            : (
+            : _SceneInfo(
                 title: 'Nivel freático',
                 value: level == null ? null : '${level.toStringAsFixed(2)} m',
                 body:
@@ -405,7 +430,7 @@ class _CaptureStageState extends State<CaptureStage>
                 color: _Palette.level,
               );
       case ScenePart.sensor:
-        return (
+        return _SceneInfo(
           title: 'Sensor de nivel',
           value: p.sensorDepth == null
               ? null
@@ -421,7 +446,7 @@ class _CaptureStageState extends State<CaptureStage>
         final submergence = (p.pumpDepth != null && level != null)
             ? p.pumpDepth! - level
             : null;
-        return (
+        return _SceneInfo(
           title: 'Bomba',
           value: p.pumpDepth == null
               ? null
@@ -437,14 +462,14 @@ class _CaptureStageState extends State<CaptureStage>
           color: _Palette.pump,
         );
       case ScenePart.depth:
-        return (
+        return _SceneInfo(
           title: 'Fondo del pozo',
           value: p.depth == null ? null : _m(p.depth!),
           body: 'Profundidad total perforada, medida desde la superficie.',
           color: _Palette.fog,
         );
       case ScenePart.casing:
-        return (
+        return _SceneInfo(
           title: 'Entubación',
           value: null,
           body:
@@ -453,7 +478,7 @@ class _CaptureStageState extends State<CaptureStage>
           color: _Palette.steel,
         );
       case ScenePart.aquifer:
-        return (
+        return _SceneInfo(
           title: 'Acuífero · zona saturada',
           value: null,
           body:
@@ -462,7 +487,7 @@ class _CaptureStageState extends State<CaptureStage>
           color: _Palette.aquifer,
         );
       case ScenePart.soil:
-        return (
+        return _SceneInfo(
           title: 'Zona no saturada',
           value: null,
           body:
@@ -471,25 +496,29 @@ class _CaptureStageState extends State<CaptureStage>
           color: _Palette.soilText,
         );
       case ScenePart.rock:
-        return (
+        return _SceneInfo(
           title: 'Bajo el fondo',
           value: null,
           body: 'Terreno bajo la perforación, fuera del alcance del pozo.',
           color: _Palette.faint,
         );
       case ScenePart.logger:
-        return (
+        final info = widget.loggerInfo;
+        return _SceneInfo(
           title: 'Tablero eléctrico con datalogger',
           value: pointLinkLabel(widget.link),
           body:
               'Gabinete que instalamos en terreno: recibe la energía y aloja '
-              'el datalogger, que registra las mediciones del sensor y del '
-              'flujómetro y las transmite a SmartHydro.',
+              'el datalogger. Aquí están el token, el modelo y las variables '
+              'que el equipo envía a SmartHydro.',
           color: _Palette.linkColor(widget.link),
+          fields: info?.fields ?? const [],
+          sectionTitle: info?.dga == null ? null : 'Cumplimiento DGA',
+          sectionFields: info?.dga?.fields ?? const [],
         );
       case ScenePart.flowmeter:
         final total = widget.totalCubicMeters;
-        return (
+        return _SceneInfo(
           title: 'Flujómetro',
           value: flow == null
               ? null
@@ -502,7 +531,7 @@ class _CaptureStageState extends State<CaptureStage>
           color: _Palette.flow,
         );
       case ScenePart.water:
-        return (
+        return _SceneInfo(
           title: 'Cauce',
           value: null,
           body:
@@ -511,7 +540,7 @@ class _CaptureStageState extends State<CaptureStage>
           color: _Palette.surfaceWater,
         );
       case ScenePart.power:
-        return (
+        return _SceneInfo(
           title: 'Alimentación eléctrica',
           value: null,
           body:
@@ -520,7 +549,7 @@ class _CaptureStageState extends State<CaptureStage>
           color: _Palette.sensor,
         );
       case ScenePart.overview:
-        return (
+        return _SceneInfo(
           title: 'Representación de tu instalación',
           value: null,
           body:
@@ -531,7 +560,7 @@ class _CaptureStageState extends State<CaptureStage>
           color: _Palette.fog,
         );
       case ScenePart.intake:
-        return (
+        return _SceneInfo(
           title: 'Toma',
           value: flow == null ? null : '${flow.toStringAsFixed(2)} L/s',
           body: 'Punto donde se capta el agua del cauce hacia la impulsión.',
@@ -550,6 +579,7 @@ class _CaptureStageState extends State<CaptureStage>
       child: LayoutBuilder(
         builder: (context, constraints) {
           final size = constraints.biggest;
+          _viewSize = size;
           return MouseRegion(
             cursor: _hoverPart == null
                 ? SystemMouseCursors.grab
@@ -696,8 +726,9 @@ class _ViewControls extends StatelessWidget {
         );
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: _Palette.card.withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(12),
+        color: _Palette.card.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -710,6 +741,26 @@ class _ViewControls extends StatelessWidget {
       ),
     );
   }
+}
+
+class _SceneInfo {
+  const _SceneInfo({
+    required this.title,
+    this.value,
+    required this.body,
+    required this.color,
+    this.fields = const [],
+    this.sectionTitle,
+    this.sectionFields = const [],
+  });
+
+  final String title;
+  final String? value;
+  final String body;
+  final Color color;
+  final List<({String label, String value})> fields;
+  final String? sectionTitle;
+  final List<({String label, String value})> sectionFields;
 }
 
 class _HintRow extends StatelessWidget {
@@ -745,36 +796,28 @@ class _InfoCard extends StatelessWidget {
     super.key,
   });
 
-  final ({String title, String? value, String body, Color color}) info;
+  final _SceneInfo info;
   final bool pinned;
   final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context) {
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 440),
+      constraints: const BoxConstraints(maxWidth: 460),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: _Palette.card.withValues(alpha: 0.96),
-          borderRadius: BorderRadius.circular(14),
+          color: _Palette.card.withValues(alpha: 0.78),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
           boxShadow: const [
-            BoxShadow(color: Color(0x66000000), blurRadius: 18),
+            BoxShadow(color: Color(0x66000000), blurRadius: 22),
           ],
         ),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
+          padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 4,
-                height: 34,
-                margin: const EdgeInsets.only(top: 2, right: 10),
-                decoration: BoxDecoration(
-                  color: info.color,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -812,6 +855,25 @@ class _InfoCard extends StatelessWidget {
                         height: 1.3,
                       ),
                     ),
+                    if (info.fields.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      ...info.fields.map(_fieldRow),
+                    ],
+                    if (info.sectionTitle != null &&
+                        info.sectionFields.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        info.sectionTitle!,
+                        style: TextStyle(
+                          color: info.color.withValues(alpha: 0.95),
+                          fontWeight: FontWeight.w800,
+                          fontSize: 11,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      ...info.sectionFields.map(_fieldRow),
+                    ],
                   ],
                 ),
               ),
@@ -829,6 +891,36 @@ class _InfoCard extends StatelessWidget {
       ),
     );
   }
+
+  Widget _fieldRow(({String label, String value}) field) => Padding(
+    padding: const EdgeInsets.only(bottom: 3),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 118,
+          child: Text(
+            field.label,
+            style: TextStyle(
+              color: _Palette.faint.withValues(alpha: 0.95),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            field.value,
+            style: const TextStyle(
+              color: _Palette.fog,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 abstract final class _Palette {
@@ -869,6 +961,13 @@ class _SceneHits {
   ScenePart? at(Offset point) {
     for (final (part, path) in _regions.reversed) {
       if (path.contains(point)) return part;
+    }
+    return null;
+  }
+
+  Rect? boundsOf(ScenePart part) {
+    for (final (p, path) in _regions.reversed) {
+      if (p == part) return path.getBounds();
     }
     return null;
   }
@@ -1025,6 +1124,16 @@ class _CaptureStagePainter extends CustomPainter {
   /// Vida del agua: base + replay + movimiento real del nivel.
   double get _agitation => (0.25 + alive * 0.5 + levelMotion).clamp(0.0, 1.4);
 
+  /// Color del agua: más cian y vivo con más caudal; más apagado si hay poco.
+  Color get _waterTone {
+    final n = _flowing ? _flowNorm : 0.0;
+    return Color.lerp(
+      const Color(0xFF3A5866),
+      isSurface ? _Palette.surfaceWater : _Palette.wellWater,
+      (0.28 + n * 0.72).clamp(0.0, 1.0),
+    )!;
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     _size = size;
@@ -1158,9 +1267,11 @@ class _CaptureStagePainter extends CustomPainter {
     );
     // Flujo subterráneo: ondas tenues que se desplazan sin reiniciarse.
     final current = Paint()
-      ..color = const Color(0xFFA9DBFF).withValues(alpha: 0.14)
+      ..color = const Color(
+        0xFFA9DBFF,
+      ).withValues(alpha: 0.07 + _flowNorm * 0.05)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
+      ..strokeWidth = 0.9;
     for (var row = 0; row < 3; row++) {
       final v = 0.24 + row * 0.26;
       final line = Path();
@@ -1495,7 +1606,10 @@ class _CaptureStagePainter extends CustomPainter {
     final dry =
         pumpDepth != null && levelMeters != null && pumpDepth < levelMeters!;
     if (pumpY != null) {
-      final jitter = _flowing ? math.sin(phase * _tau * 40) * 0.5 : 0.0;
+      final jitter = _flowing
+          ? math.sin(phase * _tau * (14 + _flowNorm * 36)) *
+                (0.25 + _flowNorm * 1.15)
+          : 0.0;
       final at = iso.p(pumpX, pumpY, 0) + Offset(jitter, 0);
       final body = RRect.fromRectAndRadius(
         Rect.fromCenter(
@@ -1732,16 +1846,16 @@ class _CaptureStagePainter extends CustomPainter {
       surface.right,
       floor.bottom,
     );
-    const water = _Palette.wellWater;
+    final water = _waterTone;
     canvas.drawPath(
       body,
       Paint()
         ..shader = LinearGradient(
           colors: [
-            water.withValues(alpha: 0.22),
-            water.withValues(alpha: 0.62),
-            water.withValues(alpha: 0.40),
-            water.withValues(alpha: 0.14),
+            water.withValues(alpha: 0.16 + _flowNorm * 0.10),
+            water.withValues(alpha: 0.42 + _flowNorm * 0.28),
+            water.withValues(alpha: 0.28 + _flowNorm * 0.18),
+            water.withValues(alpha: 0.10 + _flowNorm * 0.08),
           ],
           stops: const [0, 0.38, 0.7, 1],
         ).createShader(bounds),
@@ -1773,8 +1887,10 @@ class _CaptureStagePainter extends CustomPainter {
       canvas.drawOval(
         band,
         Paint()
-          ..color = _Palette.fog.withValues(alpha: 0.07 * math.sin(t * math.pi))
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
+          ..color = _Palette.fog.withValues(
+            alpha: (0.03 + _flowNorm * 0.05) * math.sin(t * math.pi),
+          )
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
       );
     }
     canvas.restore();
@@ -1804,9 +1920,9 @@ class _CaptureStagePainter extends CustomPainter {
         ..shader = RadialGradient(
           center: const Alignment(-0.3, -0.4),
           colors: [
-            _Palette.fog.withValues(alpha: 0.55),
-            water.withValues(alpha: 0.65),
-            water.withValues(alpha: 0.40),
+            _Palette.fog.withValues(alpha: 0.35 + _flowNorm * 0.2),
+            water.withValues(alpha: 0.45 + _flowNorm * 0.25),
+            water.withValues(alpha: 0.28 + _flowNorm * 0.15),
           ],
           stops: const [0, 0.45, 1],
         ).createShader(surface),
@@ -1822,7 +1938,7 @@ class _CaptureStagePainter extends CustomPainter {
           height: surface.height * (0.15 + t * 0.95),
         ),
         Paint()
-          ..color = _Palette.fog.withValues(alpha: (1 - t) * t * 0.9)
+          ..color = _Palette.fog.withValues(alpha: (1 - t) * t * 0.45)
           ..style = PaintingStyle.stroke,
       );
     }
@@ -2037,20 +2153,7 @@ class _CaptureStagePainter extends CustomPainter {
         ..color = _Palette.steel
         ..strokeWidth = 1.4,
     );
-    canvas.drawCircle(tip, 2.2, Paint()..color = color);
-    if (link == PointLink.connected) {
-      final t = (phase * 2) % 1;
-      canvas.drawArc(
-        Rect.fromCircle(center: tip, radius: 5 + t * 10),
-        -math.pi * 0.85,
-        math.pi * 0.7,
-        false,
-        Paint()
-          ..color = color.withValues(alpha: (1 - t) * 0.8)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.3,
-      );
-    }
+    canvas.drawCircle(tip, 2.0 * iso.scale, Paint()..color = color);
     final area = cabinet.expandToInclude(
       Rect.fromCircle(center: tip, radius: 6),
     );
@@ -2421,19 +2524,12 @@ class _CaptureStagePainter extends CustomPainter {
             ? Color.lerp(_Palette.card, _Palette.fog, 0.12)!
             : _Palette.card.withValues(alpha: 0.95),
     );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(rect.left + 5, rect.top + 6, 3, rect.height - 12),
-        const Radius.circular(1.5),
-      ),
-      Paint()..color = tag.color,
-    );
     var y = rect.top + 5;
-    layout.caption.paint(canvas, Offset(rect.left + 13, y));
+    layout.caption.paint(canvas, Offset(rect.left + 10, y));
     y += layout.caption.height;
-    layout.value.paint(canvas, Offset(rect.left + 13, y));
+    layout.value.paint(canvas, Offset(rect.left + 10, y));
     y += layout.value.height;
-    layout.detail?.paint(canvas, Offset(rect.left + 13, y));
+    layout.detail?.paint(canvas, Offset(rect.left + 10, y));
   }
 
   void _text(
@@ -2512,7 +2608,7 @@ class _CaptureStagePainter extends CustomPainter {
         ? (levelMeters! / scaleMax).clamp(0.06, 0.95).toDouble()
         : 0.0;
     final waterY = bedY * (1 - fill);
-    const water = _Palette.surfaceWater;
+    final water = _waterTone;
 
     canvas.drawOval(
       Rect.fromCenter(
@@ -2575,9 +2671,9 @@ class _CaptureStagePainter extends CustomPainter {
       canvas.clipPath(sheetPath);
       // Corriente: líneas largas que avanzan de forma continua y se
       // desvanecen en los extremos, sin cortes ni reinicios.
-      final lanes = [-0.62, -0.2, 0.22, 0.6];
-      const period = 0.42;
-      const dash = 0.16;
+      final lanes = [-0.55, -0.18, 0.2, 0.55];
+      const period = 0.58;
+      const dash = 0.28;
       for (var i = 0; i < lanes.length; i++) {
         final offset = (travel * 0.9 + i * 0.13) % period;
         for (var u0 = -period + offset; u0 < 1; u0 += period) {
@@ -2599,10 +2695,10 @@ class _CaptureStagePainter extends CustomPainter {
             line,
             Paint()
               ..color = _Palette.fog.withValues(
-                alpha: 0.22 * math.sin(mid * math.pi),
+                alpha: (0.10 + _flowNorm * 0.14) * math.sin(mid * math.pi),
               )
               ..style = PaintingStyle.stroke
-              ..strokeWidth = 1.2
+              ..strokeWidth = 1.0
               ..strokeCap = StrokeCap.round,
           );
         }

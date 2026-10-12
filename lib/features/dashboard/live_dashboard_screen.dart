@@ -19,6 +19,7 @@ import '../../shared/widgets/liquid_nav.dart';
 import '../../shared/widgets/water_atmosphere.dart';
 import 'capture_stage.dart';
 import 'point_link.dart';
+import 'point_meta.dart';
 import 'widgets/portfolio_network.dart';
 
 class LiveDashboardScreen extends ConsumerStatefulWidget {
@@ -1106,6 +1107,9 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
   );
   Timer? _replayTimer;
   CaptureProfile _profile = const CaptureProfile();
+  PointVariables _variables = PointVariables.unknownCatalog;
+  String? _loggerToken;
+  bool _configTelemetry = false;
 
   @override
   void initState() {
@@ -1115,18 +1119,27 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
     _loadProfile();
   }
 
-  /// La ficha estática es opcional: si falla, la escena usa proporciones
-  /// estimadas a partir de las lecturas.
+  /// Ficha estática + variables del punto. Si fallan, la escena estima y
+  /// las lecturas se validan solo con telemetría.
   Future<void> _loadProfile() async {
+    final id = _int(widget.point['id']);
     try {
-      final config = await widget.api.pointConfig(
-        widget.token,
-        _int(widget.point['id']),
-      );
+      final results = await Future.wait([
+        widget.api.pointConfig(widget.token, id),
+        widget.api.pointVariables(widget.token, id),
+      ]);
       if (!mounted) return;
-      setState(() => _profile = CaptureProfile.fromConfig(config));
+      final config = results[0] as Map<String, dynamic>;
+      final vars = results[1] as List<Map<String, dynamic>>;
+      setState(() {
+        _profile = CaptureProfile.fromConfig(config);
+        _loggerToken = _str(config['token_service']);
+        _configTelemetry = config['is_telemetry'] == true;
+        _variables = PointVariables.fromJson(vars);
+      });
     } on SmartHydroApiException {
-      return;
+      if (!mounted) return;
+      setState(() => _variables = PointVariables.unknownCatalog);
     }
   }
 
@@ -1333,13 +1346,25 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
         ? null
         : DateTime.tryParse(selectedRecord['date_time']?.toString() ?? '');
     final title = data['title'] as String? ?? 'Punto de captación';
-    final liveFlow = _optionalNumber(
+    final rawFlow = _optionalNumber(
       selectedRecord?['flow'] ?? telemetry['flow'],
     );
-    final liveTotal = _optionalNumber(
+    final rawTotal = _optionalNumber(
       selectedRecord?['total_raw'] ??
           selectedRecord?['total'] ??
           telemetry['total'],
+    );
+    // Solo lecturas cuya variable está configurada en el punto.
+    final liveFlow = _variables.hasFlow ? rawFlow : null;
+    final liveTotal = _variables.hasTotal ? rawTotal : null;
+    final liveLevel = _variables.hasLevel ? level : null;
+    final loggerInfo = LoggerInfo(
+      token: _loggerToken,
+      model: loggerModelOf(data),
+      frequency: _str(data['frecuency'] ?? data['frequency']),
+      telemetry: _configTelemetry || data['is_telemetry'] == true,
+      variables: _variables.items,
+      dga: DgaInfo.tryParse(dga),
     );
     final replayFlows = _replayRecords
         .map((record) => _optionalNumber(record['flow']))
@@ -1350,11 +1375,11 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
     final levelRange = (minimumLevel != null && maximumLevel != null)
         ? maximumLevel - minimumLevel
         : 0.0;
-    final levelFill = level == null
+    final levelFill = liveLevel == null
         ? null
         : levelRange.abs() < 0.0001
         ? 0.55
-        : ((level - minimumLevel!) / levelRange).clamp(0.0, 1.0);
+        : ((liveLevel - minimumLevel!) / levelRange).clamp(0.0, 1.0);
     return Scaffold(
       backgroundColor: const Color(0xFF071114),
       body: Column(
@@ -1364,17 +1389,20 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
               fit: StackFit.expand,
               children: [
                 CaptureStage(
-                  levelMeters: level,
+                  levelMeters: liveLevel,
                   levelFill: levelFill,
-                  levelMin: minimumLevel,
-                  levelMax: maximumLevel,
+                  levelMin: _variables.hasLevel ? minimumLevel : null,
+                  levelMax: _variables.hasLevel ? maximumLevel : null,
                   flowLitersPerSecond: liveFlow,
                   isSurface: isSurface,
                   link: pointLinkOf(data),
                   profile: _profile,
                   playing: _replayTimer != null,
-                  flowMax: flowMax != null && flowMax > 0 ? flowMax : null,
+                  flowMax: _variables.hasFlow && flowMax != null && flowMax > 0
+                      ? flowMax
+                      : null,
                   totalCubicMeters: liveTotal,
+                  loggerInfo: loggerInfo,
                 ),
                 SafeArea(
                   bottom: false,
@@ -1400,149 +1428,62 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
               ],
             ),
           ),
-          Material(
-            color: const Color(0xFF102328),
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (_error != null)
-                      _InlineError(message: _error!, onRetry: _load),
-                    if (_replayError != null)
-                      _InlineError(
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _InlineError(message: _error!, onRetry: _load),
+                    ),
+                  if (_replayError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _InlineError(
                         message: _replayError!,
                         onRetry: _loadReplay,
                       ),
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 17,
-                        letterSpacing: -0.2,
-                      ),
                     ),
-                    if ((data['project_name'] as String? ?? '').isNotEmpty)
-                      Text(
-                        data['project_name'] as String,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Color(0xFF9AB0B1),
-                          fontSize: 11.5,
-                        ),
-                      ),
-                    const SizedBox(height: 12),
-                    _ReadoutStrip(
-                      flow: liveFlow,
-                      total: liveTotal,
-                      level: level,
-                      stamp: startedAt == null
-                          ? 'Última medición ${_formatTimestamp(telemetry['date_time_medition'])}'
+                  _PointGlassDock(
+                    title: title,
+                    subtitle: data['project_name'] as String? ?? '',
+                    link: pointLinkOf(data),
+                    dgaActive: loggerInfo.dga != null,
+                    playing: _replayTimer != null,
+                    canReplay: _replayRecords.length > 1,
+                    atStart: _selectedReplayIndex <= 0,
+                    onToggleReplay: _toggleReplay,
+                    onRestart: _replayRestart,
+                    onPickRange: _chooseReplayRange,
+                    onHistory: _openHistory,
+                    onAnalysis: _openAnalysisForPoint,
+                    onCompliance: _openComplianceForPoint,
+                    onReports: _openReportsForPoint,
+                    onSupport: _createTicketForPoint,
+                  ),
+                  if (_replayTimer != null && _replayRecords.length > 1) ...[
+                    const SizedBox(height: 8),
+                    _ReplayScrubber(
+                      index: _selectedReplayIndex,
+                      total: _replayRecords.length,
+                      label: startedAt == null
+                          ? null
                           : _formatTimestamp(startedAt.toIso8601String()),
-                    ),
-                    const SizedBox(height: 12),
-                    _ReplayBar(
-                      playing: _replayTimer != null,
-                      canReplay: _replayRecords.length > 1,
-                      atStart: _selectedReplayIndex <= 0,
-                      onToggle: _toggleReplay,
-                      onRestart: _replayRestart,
-                      onPickRange: _chooseReplayRange,
-                      onHistory: _openHistory,
-                    ),
-                    if (_replayRecords.length > 1) ...[
-                      SliderTheme(
-                        data: SliderTheme.of(context).copyWith(
-                          activeTrackColor: IkoluColors.cyan,
-                          inactiveTrackColor: const Color(0xFF26383A),
-                          thumbColor: IkoluColors.cyan,
-                          overlayColor: const Color(
-                            0xFF00C8FF,
-                          ).withValues(alpha: 0.2),
-                          trackHeight: 3,
-                          thumbShape: const RoundSliderThumbShape(
-                            enabledThumbRadius: 7,
-                          ),
-                        ),
-                        child: Slider(
-                          value: _selectedReplayIndex.toDouble(),
-                          min: 0,
-                          max: (_replayRecords.length - 1).toDouble(),
-                          divisions: _replayRecords.length - 1,
-                          label: startedAt == null
-                              ? null
-                              : _formatTimestamp(startedAt.toIso8601String()),
-                          semanticFormatterCallback: (value) =>
-                              'Registro ${value.round() + 1} de ${_replayRecords.length}',
-                          onChanged: (value) => setState(
-                            () => _selectedReplayIndex = value.round(),
-                          ),
-                        ),
+                      startLabel: _formatTimestamp(
+                        _replayRecords.first['date_time']?.toString(),
                       ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              _formatTimestamp(
-                                _replayRecords.first['date_time']?.toString(),
-                              ),
-                              style: const TextStyle(
-                                color: Color(0xFF8FA8A8),
-                                fontSize: 11,
-                              ),
-                            ),
-                            Text(
-                              '${_selectedReplayIndex + 1}/${_replayRecords.length}',
-                              style: const TextStyle(
-                                color: IkoluColors.cyan,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            Text(
-                              _formatTimestamp(
-                                _replayRecords.last['date_time']?.toString(),
-                              ),
-                              style: const TextStyle(
-                                color: Color(0xFF8FA8A8),
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
-                        ),
+                      endLabel: _formatTimestamp(
+                        _replayRecords.last['date_time']?.toString(),
                       ),
-                    ] else
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Text(
-                          isSurface
-                              ? 'Sin lecturas en este período. Se muestra la última telemetría del agua superficial.'
-                              : 'Sin lecturas en este período. Se muestra la última telemetría del pozo.',
-                          style: const TextStyle(
-                            color: Color(0xFF8FA8A8),
-                            fontSize: 11,
-                          ),
-                        ),
-                      ),
-                    const SizedBox(height: 12),
-                    const Divider(height: 1),
-                    const SizedBox(height: 10),
-                    _PointQuickActions(
-                      isSurface: isSurface,
-                      onAnalysis: _openAnalysisForPoint,
-                      onCompliance: _openComplianceForPoint,
-                      onSupport: _createTicketForPoint,
-                      onReports: _openReportsForPoint,
+                      onChanged: (value) =>
+                          setState(() => _selectedReplayIndex = value.round()),
                     ),
                   ],
-                ),
+                ],
               ),
             ),
           ),
@@ -1735,123 +1676,325 @@ class _FloatingIconButtonState extends State<_FloatingIconButton> {
 }
 
 /// Barra de reproducción del Replay 4D con botón de inicio y efecto hover.
-class _ReplayBar extends StatelessWidget {
-  const _ReplayBar({
+class _PointGlassDock extends StatelessWidget {
+  const _PointGlassDock({
+    required this.title,
+    required this.subtitle,
+    required this.link,
+    required this.dgaActive,
     required this.playing,
     required this.canReplay,
     required this.atStart,
-    required this.onToggle,
+    required this.onToggleReplay,
     required this.onRestart,
     required this.onPickRange,
     required this.onHistory,
+    required this.onAnalysis,
+    required this.onCompliance,
+    required this.onReports,
+    required this.onSupport,
   });
 
+  final String title;
+  final String subtitle;
+  final PointLink link;
+  final bool dgaActive;
   final bool playing;
   final bool canReplay;
   final bool atStart;
-  final VoidCallback onToggle;
+  final VoidCallback onToggleReplay;
   final VoidCallback onRestart;
   final VoidCallback onPickRange;
   final VoidCallback onHistory;
+  final VoidCallback onAnalysis;
+  final VoidCallback onCompliance;
+  final VoidCallback onReports;
+  final VoidCallback onSupport;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        _HoverIconButton(
-          tooltip: 'Volver al inicio del período',
-          onPressed: canReplay && !atStart ? onRestart : null,
-          icon: Icons.skip_previous_rounded,
+    final linkColor = switch (link) {
+      PointLink.connected => IkoluColors.connected,
+      PointLink.gap => const Color(0xFFFFC46B),
+      PointLink.incident => const Color(0xFFFF847A),
+    };
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F2227).withValues(alpha: 0.82),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x66000000),
+            blurRadius: 18,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15.5,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      if (subtitle.isNotEmpty)
+                        Text(
+                          subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFF9AB0B1),
+                            fontSize: 11,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: linkColor.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    pointLinkLabel(link),
+                    style: TextStyle(
+                      color: linkColor,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                if (dgaActive) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: IkoluColors.cyan.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: const Text(
+                      'DGA',
+                      style: TextStyle(
+                        color: IkoluColors.cyan,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _DockAction(
+                    icon: playing
+                        ? Icons.pause_rounded
+                        : Icons.play_arrow_rounded,
+                    label: playing ? 'Pausa' : 'Replay',
+                    onTap: canReplay ? onToggleReplay : null,
+                    accent: IkoluColors.cyan,
+                  ),
+                  _DockAction(
+                    icon: Icons.skip_previous_rounded,
+                    label: 'Inicio',
+                    onTap: !atStart && canReplay ? onRestart : null,
+                  ),
+                  _DockAction(
+                    icon: Icons.date_range_rounded,
+                    label: 'Rango',
+                    onTap: onPickRange,
+                  ),
+                  _DockAction(
+                    icon: Icons.history_rounded,
+                    label: 'Historial',
+                    onTap: onHistory,
+                  ),
+                  _DockAction(
+                    icon: Icons.query_stats_rounded,
+                    label: 'Análisis',
+                    onTap: onAnalysis,
+                  ),
+                  _DockAction(
+                    icon: Icons.balance_rounded,
+                    label: 'Cumplim.',
+                    onTap: onCompliance,
+                  ),
+                  _DockAction(
+                    icon: Icons.table_view_outlined,
+                    label: 'Registros',
+                    onTap: onReports,
+                  ),
+                  _DockAction(
+                    icon: Icons.support_agent_rounded,
+                    label: 'Soporte',
+                    onTap: onSupport,
+                    accent: const Color(0xFFFFC46B),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
-        const SizedBox(width: 4),
-        _HoverIconButton(
-          filled: true,
-          tooltip: playing ? 'Pausar' : 'Recorrer el caudal del período',
-          onPressed: canReplay ? onToggle : null,
-          icon: playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-        ),
-        const Spacer(),
-        _HoverIconButton(
-          tooltip: 'Cambiar período',
-          onPressed: onPickRange,
-          icon: Icons.calendar_month_rounded,
-        ),
-        const SizedBox(width: 4),
-        _HoverIconButton(
-          tooltip: 'Historial diario',
-          onPressed: onHistory,
-          icon: Icons.history_rounded,
-        ),
-      ],
+      ),
     );
   }
 }
 
-/// Botón de icono con realce al pasar el mouse, sin sombras ni paneles.
-class _HoverIconButton extends StatefulWidget {
-  const _HoverIconButton({
+class _DockAction extends StatelessWidget {
+  const _DockAction({
     required this.icon,
-    required this.tooltip,
-    required this.onPressed,
-    this.filled = false,
+    required this.label,
+    required this.onTap,
+    this.accent,
   });
 
   final IconData icon;
-  final String tooltip;
-  final VoidCallback? onPressed;
-  final bool filled;
-
-  @override
-  State<_HoverIconButton> createState() => _HoverIconButtonState();
-}
-
-class _HoverIconButtonState extends State<_HoverIconButton> {
-  bool _hovered = false;
+  final String label;
+  final VoidCallback? onTap;
+  final Color? accent;
 
   @override
   Widget build(BuildContext context) {
-    final enabled = widget.onPressed != null;
-    const accent = IkoluColors.cyan;
-    final base = widget.filled
-        ? accent.withValues(alpha: 0.2)
-        : const Color(0xFF0C1B20).withValues(alpha: 0.6);
-    final hover = accent.withValues(alpha: widget.filled ? 0.34 : 0.14);
-    final color = enabled
-        ? (_hovered ? hover : base)
-        : base.withValues(alpha: 0.4);
-    final iconColor = enabled
-        ? (_hovered || widget.filled ? accent : const Color(0xFFB4C7C8))
-        : const Color(0xFF5A6B6D);
-    return MouseRegion(
-      onEnter: enabled ? (_) => setState(() => _hovered = true) : null,
-      onExit: enabled ? (_) => setState(() => _hovered = false) : null,
-      child: Tooltip(
-        message: widget.tooltip,
-        child: Material(
-          color: color,
-          borderRadius: BorderRadius.circular(12),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: widget.onPressed,
-            child: AnimatedScale(
-              scale: _hovered && enabled ? 1.06 : 1,
-              duration: const Duration(milliseconds: 140),
-              curve: Curves.easeOut,
-              child: Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: _hovered && enabled
-                        ? accent.withValues(alpha: 0.5)
-                        : Colors.white.withValues(alpha: 0.06),
-                    width: 1,
+    final enabled = onTap != null;
+    final color = (accent ?? const Color(0xFFE8F2F1)).withValues(
+      alpha: enabled ? 0.95 : 0.35,
+    );
+    return Padding(
+      padding: const EdgeInsets.only(right: 4),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: SizedBox(
+          width: 52,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 20, color: color),
+                const SizedBox(height: 3),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: color.withValues(alpha: enabled ? 0.8 : 0.35),
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-                child: Icon(widget.icon, size: 20, color: iconColor),
-              ),
+              ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReplayScrubber extends StatelessWidget {
+  const _ReplayScrubber({
+    required this.index,
+    required this.total,
+    required this.onChanged,
+    this.label,
+    required this.startLabel,
+    required this.endLabel,
+  });
+
+  final int index;
+  final int total;
+  final String? label;
+  final String startLabel;
+  final String endLabel;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F2227).withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 2, 8, 6),
+        child: Column(
+          children: [
+            SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                activeTrackColor: IkoluColors.cyan,
+                inactiveTrackColor: const Color(0xFF26383A),
+                thumbColor: IkoluColors.cyan,
+                overlayColor: const Color(0xFF00C8FF).withValues(alpha: 0.2),
+                trackHeight: 3,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+              ),
+              child: Slider(
+                value: index.toDouble(),
+                min: 0,
+                max: (total - 1).toDouble(),
+                divisions: total - 1,
+                label: label,
+                onChanged: onChanged,
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    startLabel,
+                    style: const TextStyle(
+                      color: Color(0xFF8FA8A8),
+                      fontSize: 10.5,
+                    ),
+                  ),
+                  Text(
+                    '${index + 1}/$total',
+                    style: const TextStyle(
+                      color: IkoluColors.cyan,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  Text(
+                    endLabel,
+                    style: const TextStyle(
+                      color: Color(0xFF8FA8A8),
+                      fontSize: 10.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1861,227 +2004,6 @@ class _HoverIconButtonState extends State<_HoverIconButton> {
 /// Acciones rápidas desde el detalle del punto: navegación a análisis,
 /// cumplimiento, reportes y soporte, ya acotados al punto en pantalla.
 /// Diseño minimal: una fila de iconos con etiqueta debajo, sin tarjetas.
-class _PointQuickActions extends StatelessWidget {
-  const _PointQuickActions({
-    required this.isSurface,
-    required this.onAnalysis,
-    required this.onCompliance,
-    required this.onSupport,
-    required this.onReports,
-  });
-
-  final bool isSurface;
-  final VoidCallback onAnalysis;
-  final VoidCallback onCompliance;
-  final VoidCallback onSupport;
-  final VoidCallback onReports;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        _QuickAction(
-          icon: Icons.query_stats_rounded,
-          label: 'Análisis',
-          onTap: onAnalysis,
-        ),
-        _QuickAction(
-          icon: Icons.balance_rounded,
-          label: 'Cumplim.',
-          onTap: onCompliance,
-        ),
-        _QuickAction(
-          icon: Icons.table_view_outlined,
-          label: 'Registros',
-          onTap: onReports,
-        ),
-        _QuickAction(
-          icon: Icons.support_agent_rounded,
-          label: 'Soporte',
-          onTap: onSupport,
-          accent: const Color(0xFFFFC46B),
-        ),
-      ],
-    );
-  }
-}
-
-class _QuickAction extends StatefulWidget {
-  const _QuickAction({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.accent,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final Color? accent;
-
-  @override
-  State<_QuickAction> createState() => _QuickActionState();
-}
-
-class _QuickActionState extends State<_QuickAction> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = widget.accent ?? IkoluColors.cyan;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: widget.onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              AnimatedScale(
-                scale: _hovered ? 1.12 : 1,
-                duration: const Duration(milliseconds: 150),
-                curve: Curves.easeOut,
-                child: Icon(widget.icon, size: 22, color: color),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                widget.label,
-                style: TextStyle(
-                  color: _hovered ? color : const Color(0xFF8FA8A8),
-                  fontSize: 10.5,
-                  fontWeight: _hovered ? FontWeight.w800 : FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Franja de lectura minimal: caudal, total y nivel en una sola línea,
-/// sin tarjeta contenedora. Los valores destacan con su acento.
-class _ReadoutStrip extends StatelessWidget {
-  const _ReadoutStrip({
-    required this.flow,
-    required this.total,
-    required this.level,
-    required this.stamp,
-  });
-
-  final double? flow;
-  final double? total;
-  final double? level;
-  final String stamp;
-
-  @override
-  Widget build(BuildContext context) {
-    final readouts = [
-      if (flow != null)
-        _Readout(
-          label: 'Caudal',
-          value: flow!.toStringAsFixed(2),
-          unit: 'L/s',
-          accent: IkoluColors.cyan,
-        ),
-      if (total != null)
-        _Readout(
-          label: 'Total',
-          value: total!.toStringAsFixed(1),
-          unit: 'm³',
-          accent: const Color(0xFF69B9FF),
-        ),
-      if (level != null)
-        _Readout(
-          label: 'Nivel',
-          value: level!.toStringAsFixed(2),
-          unit: 'm',
-          accent: const Color(0xFFB39DDB),
-        ),
-    ];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (readouts.isEmpty)
-          const Text(
-            'Sin lecturas disponibles para este punto.',
-            style: TextStyle(color: Color(0xFF8FA8A8), fontSize: 12),
-          )
-        else
-          Row(children: readouts),
-        const SizedBox(height: 6),
-        Text(
-          stamp,
-          style: const TextStyle(color: Color(0xFF8FA8A8), fontSize: 10.5),
-        ),
-      ],
-    );
-  }
-}
-
-class _Readout extends StatelessWidget {
-  const _Readout({
-    required this.label,
-    required this.value,
-    required this.unit,
-    required this.accent,
-  });
-
-  final String label;
-  final String value;
-  final String unit;
-  final Color accent;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: accent.withValues(alpha: 0.8),
-              fontSize: 9.5,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.4,
-            ),
-          ),
-          const SizedBox(height: 3),
-          RichText(
-            text: TextSpan(
-              children: [
-                TextSpan(
-                  text: value,
-                  style: const TextStyle(
-                    color: Color(0xFFF4FBF8),
-                    fontSize: 20,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -0.4,
-                  ),
-                ),
-                TextSpan(
-                  text: ' $unit',
-                  style: TextStyle(
-                    color: accent.withValues(alpha: 0.75),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _HistoryDayCard extends StatelessWidget {
   const _HistoryDayCard({required this.day});
 
@@ -2404,7 +2326,7 @@ class _TicketNotificationCard extends StatelessWidget {
                   _formatTimestamp(notification['created']),
                   style: const TextStyle(
                     color: Color(0xFF81999A),
-                    fontSize: 10,
+                    fontSize: 9.5,
                   ),
                 ),
               ],
@@ -2482,7 +2404,7 @@ class _SystemEventCard extends StatelessWidget {
                   '$pointName · ${_formatTimestamp(event['created'] ?? event['created_at'])}',
                   style: const TextStyle(
                     color: Color(0xFF81999A),
-                    fontSize: 10,
+                    fontSize: 9.5,
                   ),
                 ),
               ],
@@ -2856,6 +2778,13 @@ class _BrandCompact extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => const IkoluBrand(size: 26);
+}
+
+String? _str(dynamic value) {
+  if (value == null) return null;
+  final text = '$value'.trim();
+  if (text.isEmpty || text == 'null') return null;
+  return text;
 }
 
 double? _optionalNumber(dynamic value) {

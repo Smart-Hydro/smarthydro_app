@@ -2,35 +2,41 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smarthydro_app/features/dashboard/capture_stage.dart';
 import 'package:smarthydro_app/features/dashboard/point_link.dart';
+import 'package:smarthydro_app/features/dashboard/point_meta.dart';
 
-Widget _stage({required bool surface, double? flow = 8.2, double? total}) =>
-    MaterialApp(
-      home: Scaffold(
-        body: SizedBox(
-          width: 390,
-          height: 520,
-          child: CaptureStage(
-            levelMeters: surface ? 0.45 : 12.45,
-            levelFill: 0.5,
-            flowLitersPerSecond: flow,
-            totalCubicMeters: total,
-            flowMax: 10,
-            isSurface: surface,
-            link: PointLink.connected,
-            profile: surface
-                ? const CaptureProfile()
-                : const CaptureProfile(
-                    depth: 80,
-                    pumpDepth: 55,
-                    sensorDepth: 60,
-                    ductInches: 4,
-                    flowmeterInches: 4,
-                    maxFlow: 20,
-                  ),
-          ),
-        ),
+Widget _stage({
+  required bool surface,
+  double? flow = 8.2,
+  double? total,
+  LoggerInfo? loggerInfo,
+}) => MaterialApp(
+  home: Scaffold(
+    body: SizedBox(
+      width: 390,
+      height: 520,
+      child: CaptureStage(
+        levelMeters: surface ? 0.45 : 12.45,
+        levelFill: 0.5,
+        flowLitersPerSecond: flow,
+        totalCubicMeters: total,
+        flowMax: 10,
+        isSurface: surface,
+        link: PointLink.connected,
+        loggerInfo: loggerInfo,
+        profile: surface
+            ? const CaptureProfile()
+            : const CaptureProfile(
+                depth: 80,
+                pumpDepth: 55,
+                sensorDepth: 60,
+                ductInches: 4,
+                flowmeterInches: 4,
+                maxFlow: 20,
+              ),
       ),
-    );
+    ),
+  ),
+);
 
 /// Toca una grilla sobre la escena hasta que aparezca la explicación.
 Future<bool> _tapUntil(WidgetTester tester, String text) async {
@@ -97,6 +103,38 @@ void main() {
     expect(find.text('Representación de tu instalación'), findsOneWidget);
 
     expect(await _tapUntil(tester, 'total 12345.6 m³'), isTrue);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('al tocar el tablero acerca y muestra token, modelo y DGA', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _stage(
+        surface: false,
+        loggerInfo: LoggerInfo(
+          token: 'abc-token-9',
+          model: 'Twin',
+          frequency: '15',
+          telemetry: true,
+          variables: const [
+            PointVariable(type: 'CAUDAL', label: 'Caudal'),
+            PointVariable(type: 'NIVEL', label: 'Nivel'),
+          ],
+          dga: const DgaInfo(
+            type: 'SUBTERRANEO',
+            code: 'OB-123',
+            standard: 'MEDIO',
+            flowGranted: 20,
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(await _tapUntil(tester, 'abc-token-9'), isTrue);
+    expect(find.textContaining('Twin'), findsWidgets);
+    expect(find.textContaining('Cumplimiento DGA'), findsOneWidget);
+    expect(find.textContaining('OB-123'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 
