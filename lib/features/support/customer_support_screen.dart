@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/smarthydro_api.dart';
+import '../../core/brand.dart';
 import '../../shared/navigation/hydro_page_route.dart';
 import '../../shared/widgets/hydro_glass.dart';
 
@@ -618,7 +619,7 @@ class _SupportEmpty extends StatelessWidget {
   Widget build(BuildContext context) => const _SupportCard(
     child: Column(
       children: [
-        Icon(Icons.inbox_outlined, color: Color(0xFF66E0C2), size: 30),
+        Icon(Icons.inbox_outlined, color: IkoluColors.cyan, size: 30),
         SizedBox(height: 9),
         Text('No tienes solicitudes de soporte activas.'),
       ],

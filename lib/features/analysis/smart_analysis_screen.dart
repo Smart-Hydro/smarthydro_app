@@ -1,6 +1,7 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/brand.dart';
 import '../../shared/widgets/hydro_glass.dart';
 
 import '../../core/api/smarthydro_api.dart';
@@ -199,7 +200,7 @@ class _SmartAnalysisScreenState extends State<SmartAnalysisScreen> {
                                       borderRadius: BorderRadius.circular(4),
                                       color:
                                           _calendar[index]['has_data'] == true
-                                          ? const Color(0xFF66E0C2)
+                                          ? IkoluColors.cyan
                                           : const Color(0xFF26383A),
                                     ),
                                   ],

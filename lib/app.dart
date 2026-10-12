@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/api/smarthydro_api.dart';
+import 'core/brand.dart';
 import 'core/session/session_provider.dart';
 import 'features/auth/login_screen.dart';
 import 'features/dashboard/live_dashboard_screen.dart';
@@ -11,19 +12,18 @@ class SmartHydroApp extends ConsumerWidget {
 
   static const _ocean = Color(0xFF0B171B);
   static const _surface = Color(0xFF12252A);
-  static const _mint = Color(0xFF66E0C2);
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionProvider);
     final scheme = ColorScheme.fromSeed(
-      seedColor: _mint,
+      seedColor: IkoluColors.cyan,
       brightness: Brightness.dark,
       surface: _surface,
     );
 
     return MaterialApp(
-      title: 'SmartHydro',
+      title: 'Ikolu · Smart Hydro',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/smarthydro_api.dart';
+import '../../core/brand.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({
@@ -168,7 +169,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               Text(
                 '${widget.pointCount}',
                 style: const TextStyle(
-                  color: Color(0xFF66E0C2),
+                  color: IkoluColors.cyan,
                   fontWeight: FontWeight.w800,
                   fontSize: 18,
                 ),

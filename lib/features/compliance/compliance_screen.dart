@@ -2,6 +2,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/smarthydro_api.dart';
+import '../../core/brand.dart';
 import '../../shared/navigation/hydro_page_route.dart';
 import '../../shared/widgets/chile_shield.dart';
 import '../../shared/widgets/hydro_glass.dart';
@@ -178,7 +179,7 @@ class _TypeChip extends StatelessWidget {
     label: Text(label, style: const TextStyle(fontSize: 12)),
     selected: selected,
     onSelected: (_) => onTap(),
-    selectedColor: const Color(0xFF66E0C2),
+    selectedColor: IkoluColors.cyan,
     labelStyle: TextStyle(
       color: selected ? const Color(0xFF081316) : const Color(0xFFB7C8C7),
       fontWeight: FontWeight.w700,
@@ -697,8 +698,8 @@ class _ComplianceDetailScreenState extends State<_ComplianceDetailScreen> {
                                 0,
                           ),
                     ],
-                    color: const Color(0xFF66E0C2),
-                    fillColor: const Color(0xFF66E0C2),
+                    color: IkoluColors.cyan,
+                    fillColor: IkoluColors.cyan,
                     maxY: _chartMax(
                       sorted
                           .map(
@@ -779,7 +780,7 @@ class _ComplianceDetailScreenState extends State<_ComplianceDetailScreen> {
                     dense: true,
                     leading: const Icon(
                       Icons.water_drop_outlined,
-                      color: Color(0xFF66E0C2),
+                      color: IkoluColors.cyan,
                     ),
                     title: Text(
                       _formatTimestamp(

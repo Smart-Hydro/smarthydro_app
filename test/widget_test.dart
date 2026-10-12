@@ -20,6 +20,11 @@ void main() {
   ) async {
     await tester.pumpWidget(const ProviderScope(child: SmartHydroApp()));
 
+    // El lockup de marca hace más alto el formulario: hay que hacerlo
+    // visible antes de pulsar (como haría un usuario al hacer scroll).
+    await tester.ensureVisible(find.text('Iniciar sesión'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(find.text('Iniciar sesión'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));

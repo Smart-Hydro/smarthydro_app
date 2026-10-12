@@ -170,7 +170,7 @@ class _GeoSmartScreenState extends State<GeoSmartScreen> {
                                       Container(
                                         width: 2,
                                         height: 9,
-                                        color: const Color(0xFF66E0C2),
+                                        color: _linkColor(item.point),
                                       ),
                                     ],
                                   ),
