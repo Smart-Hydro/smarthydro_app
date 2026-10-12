@@ -1,5 +1,7 @@
 import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class LiquidDestination {
   const LiquidDestination({required this.icon, required this.label});
@@ -43,7 +45,6 @@ class LiquidNavBar extends StatelessWidget {
               height: 66,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(28),
-                // Gradiente acuático traslúcido: luz que viene de arriba difuminada
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
@@ -76,11 +77,10 @@ class LiquidNavBar extends StatelessWidget {
                   final slot = constraints.maxWidth / count;
                   return Stack(
                     children: [
-                      // Cápsula iluminada debajo del ítem activo
                       AnimatedPositioned(
                         duration: reduce
                             ? Duration.zero
-                            : const Duration(milliseconds: 460),
+                            : const Duration(milliseconds: 420),
                         curve: Curves.easeOutCubic,
                         left: slot * selectedIndex + (slot - 54) / 2,
                         top: 8,
@@ -96,7 +96,12 @@ class LiquidNavBar extends StatelessWidget {
                                 destination: liquidDestinations[index],
                                 selected: index == selectedIndex,
                                 badge: index == 2 ? unreadCount : 0,
-                                onTap: () => onSelect(index),
+                                onTap: () {
+                                  if (index != selectedIndex) {
+                                    HapticFeedback.selectionClick();
+                                  }
+                                  onSelect(index);
+                                },
                               ),
                             ),
                         ],
@@ -130,45 +135,68 @@ class LiquidNavRail extends StatelessWidget {
     final reduce = MediaQuery.of(context).disableAnimations;
     const slot = 72.0;
     const top = 20.0;
-    return Container(
-      width: 92,
-      decoration: BoxDecoration(
-        color: const Color(0xFF0C1C21).withValues(alpha: 0.72),
-        border: Border(
-          right: BorderSide(color: Colors.white.withValues(alpha: 0.07)),
-        ),
-      ),
-      child: Stack(
-        children: [
-          AnimatedPositioned(
-            duration: reduce
-                ? Duration.zero
-                : const Duration(milliseconds: 460),
-            curve: Curves.easeOutCubic,
-            top: top + slot * selectedIndex + 4,
-            left: 10,
-            right: 10,
-            height: slot - 8,
-            child: const _LiquidBlob(),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(top: top),
-            child: Column(
-              children: [
-                for (var index = 0; index < liquidDestinations.length; index++)
-                  SizedBox(
-                    height: slot,
-                    child: _LiquidHit(
-                      destination: liquidDestinations[index],
-                      selected: index == selectedIndex,
-                      badge: index == 2 ? unreadCount : 0,
-                      onTap: () => onSelect(index),
-                    ),
-                  ),
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+        child: Container(
+          width: 92,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                const Color(0xFF163E44).withValues(alpha: 0.42),
+                const Color(0xFF0C1C21).withValues(alpha: 0.78),
               ],
             ),
+            border: Border(
+              right: BorderSide(
+                color: const Color(0xFF66E0C2).withValues(alpha: 0.14),
+              ),
+            ),
           ),
-        ],
+          child: Stack(
+            children: [
+              AnimatedPositioned(
+                duration: reduce
+                    ? Duration.zero
+                    : const Duration(milliseconds: 420),
+                curve: Curves.easeOutCubic,
+                top: top + slot * selectedIndex + 4,
+                left: 10,
+                right: 10,
+                height: slot - 8,
+                child: const _LiquidBlob(),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(top: top),
+                child: Column(
+                  children: [
+                    for (
+                      var index = 0;
+                      index < liquidDestinations.length;
+                      index++
+                    )
+                      SizedBox(
+                        height: slot,
+                        child: _LiquidHit(
+                          destination: liquidDestinations[index],
+                          selected: index == selectedIndex,
+                          badge: index == 2 ? unreadCount : 0,
+                          onTap: () {
+                            if (index != selectedIndex) {
+                              HapticFeedback.selectionClick();
+                            }
+                            onSelect(index);
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -222,24 +250,49 @@ class _LiquidHit extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final reduce = MediaQuery.of(context).disableAnimations;
     final color = selected ? const Color(0xFFEFFFFA) : const Color(0xFF8AA09F);
-    final icon = Icon(destination.icon, size: 22, color: color);
     return InkWell(
       onTap: onTap,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Badge(isLabelVisible: badge > 0, child: icon),
-          const SizedBox(height: 2),
-          Text(
-            destination.label,
-            style: TextStyle(
-              color: color,
-              fontSize: 10,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+      borderRadius: BorderRadius.circular(20),
+      splashColor: const Color(0xFF66E0C2).withValues(alpha: 0.12),
+      highlightColor: const Color(0xFF66E0C2).withValues(alpha: 0.06),
+      child: AnimatedScale(
+        scale: selected ? 1.04 : 1,
+        duration: reduce ? Duration.zero : const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Badge(
+              isLabelVisible: badge > 0,
+              child: AnimatedSwitcher(
+                duration: reduce
+                    ? Duration.zero
+                    : const Duration(milliseconds: 220),
+                child: Icon(
+                  destination.icon,
+                  key: ValueKey('${destination.label}-$selected'),
+                  size: selected ? 23 : 22,
+                  color: color,
+                ),
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 2),
+            AnimatedDefaultTextStyle(
+              duration: reduce
+                  ? Duration.zero
+                  : const Duration(milliseconds: 240),
+              curve: Curves.easeOutCubic,
+              style: TextStyle(
+                color: color,
+                fontSize: 10,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              ),
+              child: Text(destination.label),
+            ),
+          ],
+        ),
       ),
     );
   }

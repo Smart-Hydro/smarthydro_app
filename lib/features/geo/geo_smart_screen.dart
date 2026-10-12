@@ -138,39 +138,54 @@ class _GeoSmartScreenState extends State<GeoSmartScreen> {
                                     );
                                     _focus(item.location);
                                   },
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Container(
-                                        width: 38,
-                                        height: 38,
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFF102328),
-                                          shape: BoxShape.circle,
-                                          border: Border.all(
-                                            color: _linkColor(item.point),
-                                            width: 2.5,
-                                          ),
-                                          boxShadow: const [
-                                            BoxShadow(
-                                              color: Color(0x44000000),
-                                              blurRadius: 9,
-                                              offset: Offset(0, 3),
+                                  child: AnimatedScale(
+                                    scale: _intId(item.point['id']) ==
+                                            _selectedId
+                                        ? 1.12
+                                        : 1,
+                                    duration: MediaQuery.of(context)
+                                            .disableAnimations
+                                        ? Duration.zero
+                                        : const Duration(milliseconds: 240),
+                                    curve: Curves.easeOutCubic,
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Container(
+                                          width: 38,
+                                          height: 38,
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFF102328),
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                              color: _linkColor(item.point),
+                                              width:
+                                                  _intId(item.point['id']) ==
+                                                      _selectedId
+                                                  ? 3
+                                                  : 2.5,
                                             ),
-                                          ],
+                                            boxShadow: const [
+                                              BoxShadow(
+                                                color: Color(0x44000000),
+                                                blurRadius: 9,
+                                                offset: Offset(0, 3),
+                                              ),
+                                            ],
+                                          ),
+                                          child: Icon(
+                                            Icons.water_drop_rounded,
+                                            color: _linkColor(item.point),
+                                            size: 19,
+                                          ),
                                         ),
-                                        child: Icon(
-                                          Icons.water_drop_rounded,
+                                        Container(
+                                          width: 2,
+                                          height: 9,
                                           color: _linkColor(item.point),
-                                          size: 19,
                                         ),
-                                      ),
-                                      Container(
-                                        width: 2,
-                                        height: 9,
-                                        color: const Color(0xFF66E0C2),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
@@ -187,11 +202,31 @@ class _GeoSmartScreenState extends State<GeoSmartScreen> {
                     ],
                   ),
                 ),
-                if (selected != null)
-                  _MapInfo(
-                    point: selected.point,
-                    onOpen: () => widget.onSelectPoint(selected!.point),
+                AnimatedSwitcher(
+                  duration: MediaQuery.of(context).disableAnimations
+                      ? Duration.zero
+                      : const Duration(milliseconds: 280),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  transitionBuilder: (child, animation) => FadeTransition(
+                    opacity: animation,
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(0, 0.08),
+                        end: Offset.zero,
+                      ).animate(animation),
+                      child: child,
+                    ),
                   ),
+                  child: selected == null
+                      ? const SizedBox.shrink(key: ValueKey('map-info-empty'))
+                      : _MapInfo(
+                          key: ValueKey(_selectedId),
+                          point: selected.point,
+                          onOpen: () =>
+                              widget.onSelectPoint(selected!.point),
+                        ),
+                ),
                 SizedBox(
                   height: 86,
                   child: ListView.separated(
@@ -281,7 +316,7 @@ class _MapPointCard extends StatelessWidget {
 }
 
 class _MapInfo extends StatelessWidget {
-  const _MapInfo({required this.point, required this.onOpen});
+  const _MapInfo({required this.point, required this.onOpen, super.key});
 
   final Map<String, dynamic> point;
   final VoidCallback onOpen;

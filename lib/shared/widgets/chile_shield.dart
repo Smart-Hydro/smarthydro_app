@@ -2,22 +2,32 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../theme/chile_palette.dart';
+
 /// Arma del Estado de Chile (escudo estilizado con estrella) para dar
 /// contexto normativo al módulo de cumplimiento DGA / SMA.
 class ChileShield extends StatelessWidget {
-  const ChileShield({this.size = 30, super.key});
+  const ChileShield({this.size = 30, this.soft = false, super.key});
 
   final double size;
 
+  /// Si es true, baja saturación para no competir con telemetría.
+  final bool soft;
+
   @override
-  Widget build(BuildContext context) => CustomPaint(
-    size: Size(size, size * 1.12),
-    painter: _ChileShieldPainter(),
+  Widget build(BuildContext context) => Opacity(
+    opacity: soft ? 0.88 : 1,
+    child: CustomPaint(
+      size: Size(size, size * 1.12),
+      painter: _ChileShieldPainter(soft: soft),
+    ),
   );
 }
 
 class _ChileShieldPainter extends CustomPainter {
-  const _ChileShieldPainter();
+  const _ChileShieldPainter({required this.soft});
+
+  final bool soft;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -34,16 +44,19 @@ class _ChileShieldPainter extends CustomPainter {
     canvas.save();
     canvas.clipPath(shield);
 
-    final white = Paint()..color = const Color(0xFFF5F5F5);
-    final blue = Paint()..color = const Color(0xFF0039A6);
-    final red = Paint()..color = const Color(0xFFD52B1E);
+    final white = Paint()
+      ..color = ChilePalette.white.withValues(alpha: soft ? 0.92 : 1);
+    final blue = Paint()
+      ..color = ChilePalette.blue.withValues(alpha: soft ? 0.85 : 1);
+    final red = Paint()
+      ..color = ChilePalette.red.withValues(alpha: soft ? 0.82 : 1);
 
     canvas.drawRect(Rect.fromLTWH(0, 0, width, height / 2), white);
     canvas.drawRect(Rect.fromLTWH(0, height / 2, width, height / 2), red);
     canvas.drawRect(Rect.fromLTWH(0, 0, width / 2, height / 2), blue);
     canvas.drawPath(
       _star(Offset(width * 0.25, height * 0.25), width * 0.17),
-      Paint()..color = const Color(0xFFF5F5F5),
+      Paint()..color = ChilePalette.white,
     );
     canvas.restore();
 
@@ -52,7 +65,7 @@ class _ChileShieldPainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = math.max(1, width * 0.05)
-        ..color = const Color(0xFFC9A227),
+        ..color = ChilePalette.gold.withValues(alpha: soft ? 0.75 : 1),
     );
   }
 
@@ -76,5 +89,6 @@ class _ChileShieldPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _ChileShieldPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _ChileShieldPainter oldDelegate) =>
+      oldDelegate.soft != soft;
 }

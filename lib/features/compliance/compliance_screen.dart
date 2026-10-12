@@ -1,9 +1,12 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/api/smarthydro_api.dart';
 import '../../shared/navigation/hydro_page_route.dart';
+import '../../shared/theme/chile_palette.dart';
 import '../../shared/widgets/chile_shield.dart';
+import '../../shared/widgets/hydro_entrance.dart';
 import '../../shared/widgets/hydro_glass.dart';
 import 'flow_bands.dart';
 
@@ -90,9 +93,16 @@ class _ComplianceScreenState extends State<ComplianceScreen> {
   @override
   Widget build(BuildContext context) {
     final types = _availableTypes;
+    final visible = _visiblePoints;
     return Scaffold(
       appBar: AppBar(
-        title: Text(_title),
+        title: Row(
+          children: [
+            const ChileShield(size: 22, soft: true),
+            const SizedBox(width: 10),
+            Expanded(child: Text(_title)),
+          ],
+        ),
         actions: [
           IconButton(
             onPressed: _load,
@@ -103,62 +113,146 @@ class _ComplianceScreenState extends State<ComplianceScreen> {
       ),
       body: HydroFrame(
         child: ListView(
-        padding: const EdgeInsets.all(18),
-        children: [
-          SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Solo cumplimiento activo'),
-            value: _activeOnly,
-            onChanged: (value) {
-              setState(() => _activeOnly = value);
-              _load();
-            },
-          ),
-          if (types.length > 1) ...[
-            const SizedBox(height: 4),
-            Wrap(
-              spacing: 8,
-              children: [
-                _TypeChip(
-                  label: 'Todos',
-                  selected: _typeFilter == 'ALL',
-                  onTap: () => setState(() => _typeFilter = 'ALL'),
-                ),
-                for (final type in ['DGA', 'SMA'])
-                  if (types.contains(type))
-                    _TypeChip(
-                      label: type,
-                      selected: _typeFilter == type,
-                      onTap: () => setState(() => _typeFilter = type),
-                    ),
-              ],
-            ),
-          ],
-          const SizedBox(height: 10),
-          if (_loading) const LinearProgressIndicator(),
-          if (_error != null) _ErrorCard(message: _error!, onRetry: _load),
-          if (!_loading && _error == null && _points.isEmpty)
-            const _EmptyCompliance(),
-          for (final point in _visiblePoints) ...[
-            _CompliancePointCard(
-              point: point,
-              onTap: () => Navigator.of(context).push<void>(
-                hydroPageRoute(
-                  _ComplianceDetailScreen(
-                    api: widget.api,
-                    token: widget.token,
-                    point: point,
-                  ),
-                ),
+          padding: const EdgeInsets.all(18),
+          children: [
+            HydroEntrance(
+              child: _ComplianceHero(
+                title: _title,
+                pointCount: visible.length,
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 14),
+            HydroEntrance(
+              delay: const Duration(milliseconds: 60),
+              child: SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Solo cumplimiento activo'),
+                subtitle: const Text(
+                  'Oculta autorizaciones fuera de vigencia',
+                  style: TextStyle(color: Color(0xFF9AB0B1), fontSize: 12),
+                ),
+                activeTrackColor: ChilePalette.inkBlue.withValues(alpha: 0.55),
+                value: _activeOnly,
+                onChanged: (value) {
+                  HapticFeedback.selectionClick();
+                  setState(() => _activeOnly = value);
+                  _load();
+                },
+              ),
+            ),
+            if (types.length > 1) ...[
+              const SizedBox(height: 4),
+              HydroEntrance(
+                delay: const Duration(milliseconds: 90),
+                child: Wrap(
+                  spacing: 8,
+                  children: [
+                    _TypeChip(
+                      label: 'Todos',
+                      selected: _typeFilter == 'ALL',
+                      onTap: () => setState(() => _typeFilter = 'ALL'),
+                    ),
+                    for (final type in ['DGA', 'SMA'])
+                      if (types.contains(type))
+                        _TypeChip(
+                          label: type,
+                          selected: _typeFilter == type,
+                          agency: type,
+                          onTap: () => setState(() => _typeFilter = type),
+                        ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            if (_loading) const HydroLoading(),
+            if (_error != null) _ErrorCard(message: _error!, onRetry: _load),
+            if (!_loading && _error == null && _points.isEmpty)
+              const _EmptyCompliance(),
+            for (var i = 0; i < visible.length; i++) ...[
+              HydroEntrance(
+                delay: Duration(milliseconds: 110 + i * 45),
+                child: _CompliancePointCard(
+                  point: visible[i],
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    Navigator.of(context).push<void>(
+                      hydroPageRoute(
+                        _ComplianceDetailScreen(
+                          api: widget.api,
+                          token: widget.token,
+                          point: visible[i],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
           ],
-        ],
         ),
       ),
     );
   }
+}
+
+class _ComplianceHero extends StatelessWidget {
+  const _ComplianceHero({required this.title, required this.pointCount});
+
+  final String title;
+  final int pointCount;
+
+  @override
+  Widget build(BuildContext context) => HydroGlass(
+    padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+    radius: 18,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const ChileAccentBar(height: 3, opacity: 0.5),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: ChilePalette.blueWash(0.16),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: ChilePalette.goldWash(0.35)),
+              ),
+              child: const ChileShield(size: 28, soft: true),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    pointCount == 1
+                        ? '1 punto con configuración normativa'
+                        : '$pointCount puntos con configuración normativa',
+                    style: const TextStyle(
+                      color: Color(0xFF9AB0B1),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
 }
 
 class _TypeChip extends StatelessWidget {
@@ -166,26 +260,42 @@ class _TypeChip extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.agency,
   });
 
   final String label;
   final bool selected;
   final VoidCallback onTap;
+  final String? agency;
 
   @override
-  Widget build(BuildContext context) => ChoiceChip(
-    visualDensity: VisualDensity.compact,
-    label: Text(label, style: const TextStyle(fontSize: 12)),
-    selected: selected,
-    onSelected: (_) => onTap(),
-    selectedColor: const Color(0xFF66E0C2),
-    labelStyle: TextStyle(
-      color: selected ? const Color(0xFF081316) : const Color(0xFFB7C8C7),
-      fontWeight: FontWeight.w700,
-    ),
-    backgroundColor: const Color(0xFF1A3035),
-    side: BorderSide.none,
-  );
+  Widget build(BuildContext context) {
+    final accent = switch (agency) {
+      'DGA' => ChilePalette.inkBlue,
+      'SMA' => ChilePalette.inkRed,
+      _ => const Color(0xFF66E0C2),
+    };
+    return ChoiceChip(
+      visualDensity: VisualDensity.compact,
+      label: Text(label, style: const TextStyle(fontSize: 12)),
+      selected: selected,
+      onSelected: (_) {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
+      selectedColor: accent,
+      labelStyle: TextStyle(
+        color: selected ? const Color(0xFF081316) : const Color(0xFFB7C8C7),
+        fontWeight: FontWeight.w700,
+      ),
+      backgroundColor: const Color(0xFF1A3035),
+      side: BorderSide(
+        color: selected
+            ? accent.withValues(alpha: 0.0)
+            : accent.withValues(alpha: 0.22),
+      ),
+    );
+  }
 }
 
 class _CompliancePointCard extends StatelessWidget {
@@ -205,84 +315,108 @@ class _CompliancePointCard extends StatelessWidget {
     final pctTotal = _numOrNull(point['pct_consumed']);
     final types = point['compliance_type'];
     return Material(
-      color: const Color(0xFF112328),
-      borderRadius: BorderRadius.circular(16),
+      color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const ChileShield(size: 24),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      point['point_name']?.toString() ?? 'Punto',
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                  ),
-                  _WarningBadge(level: warning),
-                  const SizedBox(width: 4),
-                  const Icon(
-                    Icons.chevron_right_rounded,
-                    color: Color(0xFF91A8AA),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 5),
-              Text(
-                '${point['client_name'] ?? 'Cliente'} · '
-                '${point['project_id'] ?? 'Proyecto'}'
-                '${point['code'] != null ? ' · ${point['code']}' : ''}',
-                style: const TextStyle(color: Color(0xFF9AB0B1), fontSize: 11),
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 7,
-                children: [
-                  if (types is List)
-                    for (final type in types) _AgencyChip(label: '$type'),
-                  if (point['standard'] != null)
-                    Chip(
-                      visualDensity: VisualDensity.compact,
-                      label: Text(
-                        '${point['standard']}',
-                        style: const TextStyle(fontSize: 10),
-                      ),
-                      backgroundColor: const Color(0xFF1A3035),
-                      side: BorderSide.none,
-                    ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              _LimitRow(
-                label: 'Caudal actual / autorizado',
-                value:
-                    '${_fmt(currentFlow)} L/s · '
-                    '${authFlow == null ? 'sin límite' : '${_fmt(authFlow)} L/s'}',
-                ratio: flowRatio,
-                color: _warningColor(warning),
-              ),
-              if (pctTotal != null) ...[
-                const SizedBox(height: 10),
-                _LimitRow(
-                  label: 'Totalizado consumido / autorizado',
-                  value:
-                      '${_fmt(point['annual_consumption'])} m³ · '
-                      '${pctTotal.toStringAsFixed(1)}%',
-                  ratio: (pctTotal / 100).clamp(0.0, 1.0).toDouble(),
-                  color: pctTotal >= 100
-                      ? const Color(0xFFFF847A)
-                      : pctTotal >= 85
-                      ? const Color(0xFFFFC46B)
-                      : const Color(0xFF66E0C2),
-                ),
+        splashColor: ChilePalette.blueWash(0.12),
+        highlightColor: ChilePalette.blueWash(0.06),
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                const Color(0xFF132E35).withValues(alpha: 0.9),
+                Color.lerp(
+                      const Color(0xFF09171B),
+                      ChilePalette.blue,
+                      0.06,
+                    ) ??
+                    const Color(0xFF09171B),
               ],
+            ),
+            border: Border.all(
+              color: ChilePalette.blueWash(0.22),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.22),
+                blurRadius: 14,
+                offset: const Offset(0, 6),
+              ),
             ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const ChileAccentBar(height: 2.5, opacity: 0.42),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    const ChileShield(size: 24, soft: true),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        point['point_name']?.toString() ?? 'Punto',
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                    _WarningBadge(level: warning),
+                    const SizedBox(width: 4),
+                    const Icon(
+                      Icons.chevron_right_rounded,
+                      color: Color(0xFF91A8AA),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  '${point['client_name'] ?? 'Cliente'} · '
+                  '${point['project_id'] ?? 'Proyecto'}'
+                  '${point['code'] != null ? ' · ${point['code']}' : ''}',
+                  style: const TextStyle(color: Color(0xFF9AB0B1), fontSize: 11),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 7,
+                  runSpacing: 6,
+                  children: [
+                    if (types is List)
+                      for (final type in types) _AgencyChip(label: '$type'),
+                    if (point['standard'] != null)
+                      _AgencyChip(label: '${point['standard']}', muted: true),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _LimitRow(
+                  label: 'Caudal actual / autorizado',
+                  value:
+                      '${_fmt(currentFlow)} L/s · '
+                      '${authFlow == null ? 'sin límite' : '${_fmt(authFlow)} L/s'}',
+                  ratio: flowRatio,
+                  color: _warningColor(warning),
+                ),
+                if (pctTotal != null) ...[
+                  const SizedBox(height: 10),
+                  _LimitRow(
+                    label: 'Totalizado consumido / autorizado',
+                    value:
+                        '${_fmt(point['annual_consumption'])} m³ · '
+                        '${pctTotal.toStringAsFixed(1)}%',
+                    ratio: (pctTotal / 100).clamp(0.0, 1.0).toDouble(),
+                    color: pctTotal >= 100
+                        ? const Color(0xFFFF847A)
+                        : pctTotal >= 85
+                        ? const Color(0xFFFFC46B)
+                        : const Color(0xFF66E0C2),
+                  ),
+                ],
+              ],
+            ),
           ),
         ),
       ),
@@ -314,6 +448,7 @@ class _WarningBadge extends StatelessWidget {
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
       ),
       child: Text(
         label,
@@ -341,37 +476,51 @@ class _LimitRow extends StatelessWidget {
   final Color color;
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Row(
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(color: Color(0xFF9AB0B1), fontSize: 11),
+  Widget build(BuildContext context) {
+    final reduce = MediaQuery.of(context).disableAnimations;
+    final target = ratio ?? 0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(color: Color(0xFF9AB0B1), fontSize: 11),
+              ),
+            ),
+            Flexible(
+              child: Text(
+                value,
+                textAlign: TextAlign.end,
+                style: TextStyle(color: color, fontWeight: FontWeight.w800),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: target),
+            duration: reduce
+                ? Duration.zero
+                : const Duration(milliseconds: 700),
+            curve: Curves.easeOutCubic,
+            builder: (context, value, _) => LinearProgressIndicator(
+              value: value,
+              minHeight: 7,
+              backgroundColor: const Color(0xFF26383A),
+              valueColor: AlwaysStoppedAnimation<Color>(
+                ratio == null ? const Color(0xFF3A4E50) : color,
+              ),
             ),
           ),
-          Text(
-            value,
-            style: TextStyle(color: color, fontWeight: FontWeight.w800),
-          ),
-        ],
-      ),
-      const SizedBox(height: 6),
-      ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: LinearProgressIndicator(
-          value: ratio ?? 0,
-          minHeight: 7,
-          backgroundColor: const Color(0xFF26383A),
-          valueColor: AlwaysStoppedAnimation<Color>(
-            ratio == null ? const Color(0xFF3A4E50) : color,
-          ),
         ),
-      ),
-    ],
-  );
+      ],
+    );
+  }
 }
 
 class _ComplianceDetailScreen extends StatefulWidget {
@@ -494,248 +643,308 @@ class _ComplianceDetailScreenState extends State<_ComplianceDetailScreen> {
       ..sort((a, b) => _dateOf(a).compareTo(_dateOf(b)));
     return Scaffold(
       appBar: AppBar(
-        title: Text(point['point_name']?.toString() ?? 'Cumplimiento'),
+        title: Row(
+          children: [
+            const ChileShield(size: 20, soft: true),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                point['point_name']?.toString() ?? 'Cumplimiento',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
       ),
       body: HydroFrame(
         child: ListView(
-        padding: const EdgeInsets.all(18),
-        children: [
-          Row(
-            children: [
-              const ChileShield(size: 30),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  point['code']?.toString() ?? 'Autorización',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
-                  ),
-                ),
-              ),
-              _WarningBadge(level: warning),
-            ],
-          ),
-          const SizedBox(height: 14),
-          if (_loading) const LinearProgressIndicator(),
-          if (_error != null) _ErrorCard(message: _error!, onRetry: _load),
-          _ComplianceSection(
-            title: 'Estado actual',
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _LimitRow(
-                  label: 'Caudal',
-                  value:
-                      '${_fmt(currentFlow)} L/s de '
-                      '${authFlow == null ? 'sin límite' : '${_fmt(authFlow)} L/s autorizados'}',
-                  ratio: authFlow != null && authFlow > 0
-                      ? (currentFlow / authFlow).clamp(0.0, 1.0).toDouble()
-                      : null,
-                  color: _warningColor(warning),
-                ),
-                if (pctTotal != null) ...[
-                  const SizedBox(height: 14),
-                  _LimitRow(
-                    label: 'Totalizado anual',
-                    value:
-                        '${_fmt(annual)} m³ de '
-                        '${authTotal == null ? '—' : '${_fmt(authTotal)} m³'}',
-                    ratio: (pctTotal / 100).clamp(0.0, 1.0).toDouble(),
-                    color: pctTotal >= 100
-                        ? const Color(0xFFFF847A)
-                        : pctTotal >= 85
-                        ? const Color(0xFFFFC46B)
-                        : const Color(0xFF66E0C2),
-                  ),
-                ],
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+          padding: const EdgeInsets.all(18),
+          children: [
+            HydroEntrance(
+              child: HydroGlass(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                radius: 18,
+                child: Column(
                   children: [
-                    _AgencyChip(label: 'Estándar: ${point['standard'] ?? '—'}'),
-                    _AgencyChip(label: 'Origen: ${point['type_dga'] ?? '—'}'),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          SegmentedButton<int>(
-            segments: const [
-              ButtonSegment(value: 7, label: Text('7 días')),
-              ButtonSegment(value: 30, label: Text('30 días')),
-              ButtonSegment(value: 90, label: Text('90 días')),
-            ],
-            selected: {_days},
-            onSelectionChanged: (selection) {
-              setState(() => _days = selection.first);
-              _load();
-            },
-          ),
-          const SizedBox(height: 12),
-          _ComplianceSection(
-            title: 'Cumplimiento de los últimos $_days días',
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (authFlow == null || authFlow <= 0)
-                  const Text(
-                    'Este punto no tiene caudal autorizado configurado, '
-                    'por lo que no es posible evaluar el período.',
-                    style: TextStyle(color: Color(0xFF9AB0B1)),
-                  )
-                else ...[
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          stats.compliancePct == null
-                              ? 'Sin datos en el período'
-                              : '${stats.compliancePct!.toStringAsFixed(1)}% '
-                                    'dentro del límite',
-                          style: TextStyle(
-                            fontSize: 19,
-                            fontWeight: FontWeight.w800,
-                            color: stats.compliancePct == null
-                                ? const Color(0xFF91A8AA)
-                                : stats.exceeded > 0
-                                ? const Color(0xFFFF847A)
-                                : const Color(0xFF66E0C2),
+                    const ChileAccentBar(height: 2.5, opacity: 0.45),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        const ChileShield(size: 30, soft: true),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            point['code']?.toString() ?? 'Autorización',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 16,
+                            ),
                           ),
                         ),
+                        _WarningBadge(level: warning),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            if (_loading) const HydroLoading(),
+            if (_error != null) _ErrorCard(message: _error!, onRetry: _load),
+            HydroEntrance(
+              delay: const Duration(milliseconds: 70),
+              child: _ComplianceSection(
+                title: 'Estado actual',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _LimitRow(
+                      label: 'Caudal',
+                      value:
+                          '${_fmt(currentFlow)} L/s de '
+                          '${authFlow == null ? 'sin límite' : '${_fmt(authFlow)} L/s autorizados'}',
+                      ratio: authFlow != null && authFlow > 0
+                          ? (currentFlow / authFlow).clamp(0.0, 1.0).toDouble()
+                          : null,
+                      color: _warningColor(warning),
+                    ),
+                    if (pctTotal != null) ...[
+                      const SizedBox(height: 14),
+                      _LimitRow(
+                        label: 'Totalizado anual',
+                        value:
+                            '${_fmt(annual)} m³ de '
+                            '${authTotal == null ? '—' : '${_fmt(authTotal)} m³'}',
+                        ratio: (pctTotal / 100).clamp(0.0, 1.0).toDouble(),
+                        color: pctTotal >= 100
+                            ? const Color(0xFFFF847A)
+                            : pctTotal >= 85
+                            ? const Color(0xFFFFC46B)
+                            : const Color(0xFF66E0C2),
                       ),
-                      Text(
-                        '${stats.total} registros',
-                        style: const TextStyle(
-                          color: Color(0xFF9AB0B1),
-                          fontSize: 12,
+                    ],
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _AgencyChip(
+                          label: 'Estándar: ${point['standard'] ?? '—'}',
+                          muted: true,
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _StatChip(
-                        label: 'Dentro del límite',
-                        value: '${stats.within}',
-                        color: const Color(0xFF66E0C2),
-                      ),
-                      _StatChip(
-                        label: 'Cerca del límite',
-                        value: '${stats.near}',
-                        color: const Color(0xFFFFC46B),
-                      ),
-                      _StatChip(
-                        label: 'Excedidos',
-                        value: '${stats.exceeded}',
-                        color: const Color(0xFFFF847A),
-                      ),
-                      _StatChip(
-                        label: 'Excedencias ($_days d)',
-                        value: '${_flowHistory['count'] ?? 0}',
-                        color: const Color(0xFFFF847A),
-                      ),
-                    ],
-                  ),
+                        _AgencyChip(
+                          label: 'Origen: ${point['type_dga'] ?? '—'}',
+                          muted: true,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            HydroEntrance(
+              delay: const Duration(milliseconds: 100),
+              child: SegmentedButton<int>(
+                segments: const [
+                  ButtonSegment(value: 7, label: Text('7 días')),
+                  ButtonSegment(value: 30, label: Text('30 días')),
+                  ButtonSegment(value: 90, label: Text('90 días')),
                 ],
-              ],
+                selected: {_days},
+                onSelectionChanged: (selection) {
+                  HapticFeedback.selectionClick();
+                  setState(() => _days = selection.first);
+                  _load();
+                },
+              ),
             ),
-          ),
-          if (sorted.isNotEmpty && authFlow != null && authFlow > 0) ...[
             const SizedBox(height: 12),
-            _ComplianceSection(
-              title: 'Caudal vs límite autorizado',
-              child: SizedBox(
-                height: 200,
-                child: _SeriesChart(
-                  spots: [
-                    for (var i = 0; i < sorted.length; i++)
-                      FlSpot(i.toDouble(), _numOrNull(sorted[i]['flow']) ?? 0),
+            HydroEntrance(
+              delay: const Duration(milliseconds: 130),
+              child: _ComplianceSection(
+                title: 'Cumplimiento de los últimos $_days días',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (authFlow == null || authFlow <= 0)
+                      const Text(
+                        'Este punto no tiene caudal autorizado configurado, '
+                        'por lo que no es posible evaluar el período.',
+                        style: TextStyle(color: Color(0xFF9AB0B1)),
+                      )
+                    else ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              stats.compliancePct == null
+                                  ? 'Sin datos en el período'
+                                  : '${stats.compliancePct!.toStringAsFixed(1)}% '
+                                        'dentro del límite',
+                              style: TextStyle(
+                                fontSize: 19,
+                                fontWeight: FontWeight.w800,
+                                color: stats.compliancePct == null
+                                    ? const Color(0xFF91A8AA)
+                                    : stats.exceeded > 0
+                                    ? const Color(0xFFFF847A)
+                                    : const Color(0xFF66E0C2),
+                              ),
+                            ),
+                          ),
+                          Text(
+                            '${stats.total} registros',
+                            style: const TextStyle(
+                              color: Color(0xFF9AB0B1),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _StatChip(
+                            label: 'Dentro del límite',
+                            value: '${stats.within}',
+                            color: const Color(0xFF66E0C2),
+                          ),
+                          _StatChip(
+                            label: 'Cerca del límite',
+                            value: '${stats.near}',
+                            color: const Color(0xFFFFC46B),
+                          ),
+                          _StatChip(
+                            label: 'Excedidos',
+                            value: '${stats.exceeded}',
+                            color: const Color(0xFFFF847A),
+                          ),
+                          _StatChip(
+                            label: 'Excedencias ($_days d)',
+                            value: '${_flowHistory['count'] ?? 0}',
+                            color: ChilePalette.inkRed,
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
-                  color: const Color(0xFF69B9FF),
-                  fillColor: const Color(0xFF69B9FF),
-                  maxY: _chartMax(
-                    sorted.map((r) => _numOrNull(r['flow'])).whereType<num>(),
-                    authFlow,
-                  ),
-                  limit: authFlow,
                 ),
               ),
             ),
-          ],
-          if (sorted.any(
-            (r) => _numOrNull(r['water_table'] ?? r['nivel']) != null,
-          )) ...[
-            const SizedBox(height: 12),
-            _ComplianceSection(
-              title: 'Nivel freático del período',
-              child: SizedBox(
-                height: 170,
-                child: _SeriesChart(
-                  spots: [
-                    for (var i = 0; i < sorted.length; i++)
-                      if (_numOrNull(
-                            sorted[i]['water_table'] ?? sorted[i]['nivel'],
-                          ) !=
-                          null)
-                        FlSpot(
-                          i.toDouble(),
-                          _numOrNull(
+            if (sorted.isNotEmpty && authFlow != null && authFlow > 0) ...[
+              const SizedBox(height: 12),
+              HydroEntrance(
+                delay: const Duration(milliseconds: 160),
+                child: _ComplianceSection(
+                  title: 'Caudal vs límite autorizado',
+                  child: SizedBox(
+                    height: 200,
+                    child: _SeriesChart(
+                      spots: [
+                        for (var i = 0; i < sorted.length; i++)
+                          FlSpot(
+                            i.toDouble(),
+                            _numOrNull(sorted[i]['flow']) ?? 0,
+                          ),
+                      ],
+                      color: ChilePalette.inkBlue,
+                      fillColor: ChilePalette.inkBlue,
+                      maxY: _chartMax(
+                        sorted
+                            .map((r) => _numOrNull(r['flow']))
+                            .whereType<num>(),
+                        authFlow,
+                      ),
+                      limit: authFlow,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+            if (sorted.any(
+              (r) => _numOrNull(r['water_table'] ?? r['nivel']) != null,
+            )) ...[
+              const SizedBox(height: 12),
+              HydroEntrance(
+                delay: const Duration(milliseconds: 190),
+                child: _ComplianceSection(
+                  title: 'Nivel freático del período',
+                  child: SizedBox(
+                    height: 170,
+                    child: _SeriesChart(
+                      spots: [
+                        for (var i = 0; i < sorted.length; i++)
+                          if (_numOrNull(
                                 sorted[i]['water_table'] ?? sorted[i]['nivel'],
-                              ) ??
-                              0,
-                        ),
-                  ],
-                  color: const Color(0xFF66E0C2),
-                  fillColor: const Color(0xFF66E0C2),
-                  maxY: _chartMax(
-                    sorted
-                        .map((r) => _numOrNull(r['water_table'] ?? r['nivel']))
-                        .whereType<num>(),
-                    null,
+                              ) !=
+                              null)
+                            FlSpot(
+                              i.toDouble(),
+                              _numOrNull(
+                                    sorted[i]['water_table'] ??
+                                        sorted[i]['nivel'],
+                                  ) ??
+                                  0,
+                            ),
+                      ],
+                      color: const Color(0xFF66E0C2),
+                      fillColor: const Color(0xFF66E0C2),
+                      maxY: _chartMax(
+                        sorted
+                            .map(
+                              (r) =>
+                                  _numOrNull(r['water_table'] ?? r['nivel']),
+                            )
+                            .whereType<num>(),
+                        null,
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
-          const SizedBox(height: 12),
-          if (_bandError != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Text(
-                'El detalle remoto no respondió. Se muestran las mediciones ya cargadas del período. $_bandError',
-                style: const TextStyle(color: Color(0xFFFFC46B), fontSize: 12),
+            ],
+            const SizedBox(height: 12),
+            if (_bandError != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(
+                  'El detalle remoto no respondió. Se muestran las mediciones ya cargadas del período. $_bandError',
+                  style: const TextStyle(color: Color(0xFFFFC46B), fontSize: 12),
+                ),
+              ),
+            HydroEntrance(
+              delay: const Duration(milliseconds: 210),
+              child: _measurementList(
+                'Sobre caudal autorizado',
+                visibleBandReadings(
+                  periodRecords: _records,
+                  remoteRows: _mapList(_flowHistory['results']),
+                  authorized: authFlow,
+                  band: FlowBand.over,
+                ),
+                authorized: authFlow,
+                remoteCount: _intOrNull(_flowHistory['count']),
               ),
             ),
-          _measurementList(
-            'Sobre caudal autorizado',
-            visibleBandReadings(
-              periodRecords: _records,
-              remoteRows: _mapList(_flowHistory['results']),
-              authorized: authFlow,
-              band: FlowBand.over,
+            const SizedBox(height: 12),
+            HydroEntrance(
+              delay: const Duration(milliseconds: 240),
+              child: _measurementList(
+                'Cercano al límite',
+                visibleBandReadings(
+                  periodRecords: _records,
+                  remoteRows: _mapList(_nearLimit['results']),
+                  authorized: authFlow,
+                  band: FlowBand.near,
+                ),
+                authorized: authFlow,
+                remoteCount: _intOrNull(_nearLimit['count']),
+              ),
             ),
-            authorized: authFlow,
-            remoteCount: _intOrNull(_flowHistory['count']),
-          ),
-          const SizedBox(height: 12),
-          _measurementList(
-            'Cercano al límite',
-            visibleBandReadings(
-              periodRecords: _records,
-              remoteRows: _mapList(_nearLimit['results']),
-              authorized: authFlow,
-              band: FlowBand.near,
-            ),
-            authorized: authFlow,
-            remoteCount: _intOrNull(_nearLimit['count']),
-          ),
-        ],
+          ],
         ),
       ),
     );
@@ -766,9 +975,11 @@ class _ComplianceDetailScreenState extends State<_ComplianceDetailScreen> {
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     dense: true,
-                    leading: const Icon(
+                    leading: Icon(
                       Icons.water_drop_outlined,
-                      color: Color(0xFF66E0C2),
+                      color: title.contains('Sobre')
+                          ? ChilePalette.inkRed
+                          : ChilePalette.inkBlue,
                     ),
                     title: Text(
                       _formatTimestamp(
@@ -831,27 +1042,44 @@ class _SeriesChart extends StatelessWidget {
           if (limit != null)
             HorizontalLine(
               y: limit!,
-              color: const Color(0xFFFF847A),
+              color: ChilePalette.red.withValues(alpha: 0.72),
               strokeWidth: 1.4,
-              dashArray: [6, 5],
+              dashArray: const [6, 5],
             ),
         ],
       ),
-      lineTouchData: const LineTouchData(enabled: false),
+      lineTouchData: LineTouchData(
+        enabled: true,
+        touchTooltipData: LineTouchTooltipData(
+          getTooltipColor: (_) => const Color(0xFF12252A),
+          getTooltipItems: (spots) => [
+            for (final spot in spots)
+              LineTooltipItem(
+                spot.y.toStringAsFixed(spot.y >= 100 ? 0 : 2),
+                TextStyle(color: color, fontWeight: FontWeight.w700),
+              ),
+          ],
+        ),
+      ),
       lineBarsData: [
         LineChartBarData(
           spots: spots,
-          isCurved: false,
+          isCurved: true,
+          curveSmoothness: 0.18,
           color: color,
-          barWidth: 2,
+          barWidth: 2.2,
           dotData: const FlDotData(show: false),
           belowBarData: BarAreaData(
             show: true,
-            color: fillColor.withValues(alpha: 0.1),
+            color: fillColor.withValues(alpha: 0.12),
           ),
         ),
       ],
     ),
+    duration: MediaQuery.of(context).disableAnimations
+        ? Duration.zero
+        : const Duration(milliseconds: 520),
+    curve: Curves.easeOutCubic,
   );
 
   static Widget _leftTitle(double value, TitleMeta meta) => Text(
@@ -877,6 +1105,7 @@ class _StatChip extends StatelessWidget {
     decoration: BoxDecoration(
       color: color.withValues(alpha: 0.1),
       borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: color.withValues(alpha: 0.22)),
     ),
     child: Text(
       '$value $label',
@@ -886,17 +1115,51 @@ class _StatChip extends StatelessWidget {
 }
 
 class _AgencyChip extends StatelessWidget {
-  const _AgencyChip({required this.label});
+  const _AgencyChip({required this.label, this.muted = false});
 
   final String label;
+  final bool muted;
 
   @override
-  Widget build(BuildContext context) => Chip(
-    visualDensity: VisualDensity.compact,
-    label: Text(label, style: const TextStyle(fontSize: 10)),
-    backgroundColor: const Color(0xFF1A3035),
-    side: BorderSide.none,
-  );
+  Widget build(BuildContext context) {
+    final upper = label.toUpperCase();
+    final Color fill;
+    final Color border;
+    final Color text;
+    if (upper == 'DGA') {
+      fill = ChilePalette.blueWash(0.18);
+      border = ChilePalette.blueWash(0.4);
+      text = ChilePalette.inkBlue;
+    } else if (upper == 'SMA') {
+      fill = ChilePalette.redWash(0.14);
+      border = ChilePalette.redWash(0.35);
+      text = ChilePalette.inkRed;
+    } else if (muted) {
+      fill = const Color(0xFF1A3035);
+      border = Colors.white.withValues(alpha: 0.06);
+      text = const Color(0xFFB7C8C7);
+    } else {
+      fill = const Color(0xFF1A3035);
+      border = ChilePalette.goldWash(0.25);
+      text = const Color(0xFFE8F2F1);
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: fill,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: border),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: text,
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
 }
 
 class _ComplianceSection extends StatelessWidget {
@@ -907,15 +1170,17 @@ class _ComplianceSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(16),
+    padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
     decoration: BoxDecoration(
       color: const Color(0xFF112328),
       borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
+      border: Border.all(color: ChilePalette.blueWash(0.16)),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        const ChileAccentBar(height: 2, opacity: 0.35),
+        const SizedBox(height: 10),
         Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
         const SizedBox(height: 10),
         child,
@@ -928,10 +1193,20 @@ class _EmptyCompliance extends StatelessWidget {
   const _EmptyCompliance();
 
   @override
-  Widget build(BuildContext context) => const Center(
-    child: Padding(
-      padding: EdgeInsets.all(28),
-      child: Text('No hay puntos con configuración DGA/SMA para mostrar.'),
+  Widget build(BuildContext context) => HydroEntrance(
+    child: HydroGlass(
+      padding: const EdgeInsets.all(28),
+      child: Column(
+        children: [
+          const ChileShield(size: 36, soft: true),
+          const SizedBox(height: 14),
+          const Text(
+            'No hay puntos con configuración DGA/SMA para mostrar.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Color(0xFF9AB0B1), height: 1.4),
+          ),
+        ],
+      ),
     ),
   );
 }
@@ -943,9 +1218,9 @@ class _ErrorCard extends StatelessWidget {
   final VoidCallback onRetry;
 
   @override
-  Widget build(BuildContext context) => Card(
-    color: const Color(0xFF112328),
+  Widget build(BuildContext context) => HydroGlass(
     child: ListTile(
+      contentPadding: EdgeInsets.zero,
       leading: const Icon(
         Icons.error_outline_rounded,
         color: Color(0xFFFF847A),

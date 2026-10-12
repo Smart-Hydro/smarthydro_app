@@ -7,10 +7,13 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(const ProviderScope(child: SmartHydroApp()));
+    // WaterAtmosphere loops forever; advance past staggered HydroEntrance.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 900));
 
-    expect(find.text('Bienvenido de vuelta'), findsOneWidget);
-    expect(find.text('Correo electrónico'), findsOneWidget);
-    expect(find.text('Contraseña'), findsOneWidget);
+    expect(find.text('Control de Captaciones'), findsOneWidget);
+    expect(find.text('Correo corporativo'), findsOneWidget);
+    expect(find.text('Contraseña de acceso'), findsOneWidget);
     expect(find.text('Iniciar sesión'), findsOneWidget);
   });
 
@@ -18,6 +21,8 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(const ProviderScope(child: SmartHydroApp()));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 900));
 
     await tester.tap(find.text('Iniciar sesión'));
     await tester.pump();

@@ -1,6 +1,7 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
+import '../../shared/widgets/hydro_entrance.dart';
 import '../../shared/widgets/hydro_glass.dart';
 
 import '../../core/api/smarthydro_api.dart';
@@ -91,130 +92,156 @@ class _SmartAnalysisScreenState extends State<SmartAnalysisScreen> {
       appBar: AppBar(title: const Text('Smart Análisis')),
       body: HydroFrame(
         child: ListView(
-        padding: const EdgeInsets.all(18),
-        children: [
-          DropdownButtonFormField<int>(
-            initialValue: _pointId,
-            decoration: const InputDecoration(labelText: 'Punto de captación'),
-            items: [
-              for (final point in widget.points)
-                DropdownMenuItem<int>(
-                  value: _toInt(point['id']),
-                  child: Text(point['title']?.toString() ?? 'Punto'),
+          padding: const EdgeInsets.all(18),
+          children: [
+            HydroEntrance(
+              child: DropdownButtonFormField<int>(
+                initialValue: _pointId,
+                decoration: const InputDecoration(
+                  labelText: 'Punto de captación',
                 ),
-            ],
-            onChanged: (value) {
-              setState(() => _pointId = value);
-              _load();
-            },
-          ),
-          const SizedBox(height: 12),
-          SegmentedButton<int>(
-            segments: const [
-              ButtonSegment(value: 7, label: Text('7 días')),
-              ButtonSegment(value: 30, label: Text('30 días')),
-            ],
-            selected: {_days},
-            onSelectionChanged: (selection) {
-              setState(() => _days = selection.first);
-              _load();
-            },
-          ),
-          const SizedBox(height: 18),
-          if (_loading)
-            const Padding(
-              padding: EdgeInsets.all(28),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (_error != null)
-            _AnalysisError(message: _error!, onRetry: _load)
-          else if (_calendar.isEmpty)
-            const _AnalysisEmpty()
-          else ...[
-            _AnalysisSummary(
-              pointName: selectedPoint?['title']?.toString() ?? 'Punto',
-              daysWithData: chartRows.length,
-              totalVolume: chartRows.fold<double>(
-                0,
-                (sum, day) => sum + _number(day['consumption_m3']),
-              ),
-              latestDate: _calendar.last['date']?.toString() ?? '',
-            ),
-            const SizedBox(height: 14),
-            _AnalysisCard(
-              title: 'Consumo diario',
-              subtitle:
-                  'Los días sin registro se muestran aparte; no se interpolan.',
-              child: SizedBox(
-                height: 235,
-                child: chartRows.isEmpty
-                    ? const Center(
-                        child: Text(
-                          'No hay registros de consumo en este período.',
-                        ),
-                      )
-                    : BarChart(
-                        BarChartData(
-                          maxY: maxConsumption <= 0 ? 1 : maxConsumption * 1.2,
-                          minY: 0,
-                          gridData: const FlGridData(
-                            show: true,
-                            drawVerticalLine: false,
-                          ),
-                          borderData: FlBorderData(show: false),
-                          titlesData: const FlTitlesData(
-                            topTitles: AxisTitles(
-                              sideTitles: SideTitles(showTitles: false),
-                            ),
-                            rightTitles: AxisTitles(
-                              sideTitles: SideTitles(showTitles: false),
-                            ),
-                            leftTitles: AxisTitles(
-                              sideTitles: SideTitles(showTitles: false),
-                            ),
-                            bottomTitles: AxisTitles(
-                              sideTitles: SideTitles(showTitles: false),
-                            ),
-                          ),
-                          barGroups: [
-                            for (
-                              var index = 0;
-                              index < _calendar.length;
-                              index++
-                            )
-                              BarChartGroupData(
-                                x: index,
-                                barRods: [
-                                  BarChartRodData(
-                                    toY: _calendar[index]['has_data'] == true
-                                        ? _number(
-                                            _calendar[index]['consumption_m3'],
-                                          )
-                                        : 0,
-                                    width: _calendar.length > 20 ? 5 : 11,
-                                    borderRadius: BorderRadius.circular(4),
-                                    color: _calendar[index]['has_data'] == true
-                                        ? const Color(0xFF66E0C2)
-                                        : const Color(0xFF26383A),
-                                  ),
-                                ],
-                              ),
-                          ],
-                        ),
-                      ),
+                items: [
+                  for (final point in widget.points)
+                    DropdownMenuItem<int>(
+                      value: _toInt(point['id']),
+                      child: Text(point['title']?.toString() ?? 'Punto'),
+                    ),
+                ],
+                onChanged: (value) {
+                  setState(() => _pointId = value);
+                  _load();
+                },
               ),
             ),
             const SizedBox(height: 12),
-            _AnalysisCard(
-              title: 'Detalle por día',
-              subtitle: 'Caudal, nivel y consumo reportados por Core API.',
-              child: Column(
-                children: [for (final day in _calendar) _DayRow(day: day)],
+            HydroEntrance(
+              delay: const Duration(milliseconds: 60),
+              child: SegmentedButton<int>(
+                segments: const [
+                  ButtonSegment(value: 7, label: Text('7 días')),
+                  ButtonSegment(value: 30, label: Text('30 días')),
+                ],
+                selected: {_days},
+                onSelectionChanged: (selection) {
+                  setState(() => _days = selection.first);
+                  _load();
+                },
               ),
             ),
+            const SizedBox(height: 18),
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.all(28),
+                child: HydroLoading(),
+              )
+            else if (_error != null)
+              HydroEntrance(child: _AnalysisError(message: _error!, onRetry: _load))
+            else if (_calendar.isEmpty)
+              const HydroEntrance(child: _AnalysisEmpty())
+            else ...[
+              HydroEntrance(
+                delay: const Duration(milliseconds: 90),
+                child: _AnalysisSummary(
+                  pointName: selectedPoint?['title']?.toString() ?? 'Punto',
+                  daysWithData: chartRows.length,
+                  totalVolume: chartRows.fold<double>(
+                    0,
+                    (sum, day) => sum + _number(day['consumption_m3']),
+                  ),
+                  latestDate: _calendar.last['date']?.toString() ?? '',
+                ),
+              ),
+              const SizedBox(height: 14),
+              HydroEntrance(
+                delay: const Duration(milliseconds: 130),
+                child: _AnalysisCard(
+                  title: 'Consumo diario',
+                  subtitle:
+                      'Los días sin registro se muestran aparte; no se interpolan.',
+                  child: SizedBox(
+                    height: 235,
+                    child: chartRows.isEmpty
+                        ? const Center(
+                            child: Text(
+                              'No hay registros de consumo en este período.',
+                            ),
+                          )
+                        : BarChart(
+                            BarChartData(
+                              maxY: maxConsumption <= 0
+                                  ? 1
+                                  : maxConsumption * 1.2,
+                              minY: 0,
+                              gridData: const FlGridData(
+                                show: true,
+                                drawVerticalLine: false,
+                              ),
+                              borderData: FlBorderData(show: false),
+                              titlesData: const FlTitlesData(
+                                topTitles: AxisTitles(
+                                  sideTitles: SideTitles(showTitles: false),
+                                ),
+                                rightTitles: AxisTitles(
+                                  sideTitles: SideTitles(showTitles: false),
+                                ),
+                                leftTitles: AxisTitles(
+                                  sideTitles: SideTitles(showTitles: false),
+                                ),
+                                bottomTitles: AxisTitles(
+                                  sideTitles: SideTitles(showTitles: false),
+                                ),
+                              ),
+                              barGroups: [
+                                for (
+                                  var index = 0;
+                                  index < _calendar.length;
+                                  index++
+                                )
+                                  BarChartGroupData(
+                                    x: index,
+                                    barRods: [
+                                      BarChartRodData(
+                                        toY:
+                                            _calendar[index]['has_data'] == true
+                                            ? _number(
+                                                _calendar[index]['consumption_m3'],
+                                              )
+                                            : 0,
+                                        width: _calendar.length > 20 ? 5 : 11,
+                                        borderRadius: BorderRadius.circular(4),
+                                        color:
+                                            _calendar[index]['has_data'] == true
+                                            ? const Color(0xFF66E0C2)
+                                            : const Color(0xFF26383A),
+                                      ),
+                                    ],
+                                  ),
+                              ],
+                            ),
+                            duration: MediaQuery.of(context).disableAnimations
+                                ? Duration.zero
+                                : const Duration(milliseconds: 480),
+                            curve: Curves.easeOutCubic,
+                          ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              HydroEntrance(
+                delay: const Duration(milliseconds: 170),
+                child: _AnalysisCard(
+                  title: 'Detalle por día',
+                  subtitle: 'Caudal, nivel y consumo reportados por Core API.',
+                  child: Column(
+                    children: [
+                      for (final day in _calendar) _DayRow(day: day),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ],
-        ],
-      ),
+        ),
       ),
     );
   }
@@ -345,13 +372,9 @@ class _AnalysisCard extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) => HydroGlass(
     padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      color: const Color(0xFF112328),
-      borderRadius: BorderRadius.circular(17),
-      border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
-    ),
+    radius: 17,
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

@@ -96,36 +96,45 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 420),
-                  child: HydroEntrance(
-                    delay: const Duration(milliseconds: 100),
-                    duration: const Duration(milliseconds: 600),
-                    child: Form(
+                  child: Form(
                       key: _formKey,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          const _LoginBrand(),
+                          const HydroEntrance(
+                            duration: Duration(milliseconds: 560),
+                            child: _LoginBrand(),
+                          ),
                           const SizedBox(height: 48),
-                          const Text(
-                            'Control de Captaciones',
-                            style: TextStyle(
-                              fontSize: 32,
-                              fontWeight: FontWeight.w900,
-                              color: Color(0xFFF4FBF8),
-                              letterSpacing: -0.8,
+                          const HydroEntrance(
+                            delay: Duration(milliseconds: 80),
+                            duration: Duration(milliseconds: 520),
+                            child: Text(
+                              'Control de Captaciones',
+                              style: TextStyle(
+                                fontSize: 32,
+                                fontWeight: FontWeight.w900,
+                                color: Color(0xFFF4FBF8),
+                                letterSpacing: -0.8,
+                              ),
                             ),
                           ),
                           const SizedBox(height: 10),
-                          const Text(
-                            'Monitoreo telemétrico de pozos y fuentes de agua en tiempo real.',
-                            style: TextStyle(
-                              color: Color(0xFF8FA8A8),
-                              fontSize: 14,
-                              height: 1.5,
+                          const HydroEntrance(
+                            delay: Duration(milliseconds: 140),
+                            child: Text(
+                              'Monitoreo telemétrico de pozos y fuentes de agua en tiempo real.',
+                              style: TextStyle(
+                                color: Color(0xFF8FA8A8),
+                                fontSize: 14,
+                                height: 1.5,
+                              ),
                             ),
                           ),
                           const SizedBox(height: 38),
-                          TextFormField(
+                          HydroEntrance(
+                            delay: const Duration(milliseconds: 200),
+                            child: TextFormField(
                             controller: _emailController,
                             enabled: !busy,
                             keyboardType: TextInputType.emailAddress,
@@ -146,8 +155,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               return null;
                             },
                           ),
+                          ),
                           const SizedBox(height: 18),
-                          TextFormField(
+                          HydroEntrance(
+                            delay: const Duration(milliseconds: 260),
+                            child: TextFormField(
                             controller: _passwordController,
                             enabled: !busy,
                             obscureText: _obscurePassword,
@@ -181,8 +193,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 ? 'Ingresa tu contraseña.'
                                 : null,
                           ),
+                          ),
                           const SizedBox(height: 10),
-                          Align(
+                          HydroEntrance(
+                            delay: const Duration(milliseconds: 300),
+                            child: Align(
                             alignment: Alignment.centerRight,
                             child: TextButton(
                               onPressed: busy ? null : _forgotPassword,
@@ -191,6 +206,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               ),
                               child: const Text('¿Olvidaste tu contraseña?'),
                             ),
+                          ),
                           ),
                           const SizedBox(height: 12),
                           AnimatedSize(
@@ -238,7 +254,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                     ),
                                   ),
                           ),
-                          FilledButton(
+                          HydroEntrance(
+                            delay: const Duration(milliseconds: 340),
+                            child: FilledButton(
                             onPressed: busy ? null : _signIn,
                             style: FilledButton.styleFrom(
                               minimumSize: const Size.fromHeight(52),
@@ -280,13 +298,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                     ),
                             ),
                           ),
+                          ),
                           const SizedBox(height: 22),
-                          const Text(
-                            'Accede con tu cuenta actual de SmartHydro.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Color(0xFFA9BFC0),
-                              fontSize: 13,
+                          const HydroEntrance(
+                            delay: Duration(milliseconds: 380),
+                            child: Text(
+                              'Accede con tu cuenta actual de SmartHydro.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Color(0xFFA9BFC0),
+                                fontSize: 13,
+                              ),
                             ),
                           ),
                         ],
@@ -296,7 +318,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
               ),
             ),
-          ),
         ],
       ),
     );

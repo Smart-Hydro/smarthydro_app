@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/smarthydro_api.dart';
+import '../../shared/widgets/hydro_entrance.dart';
+import '../../shared/widgets/hydro_glass.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({
@@ -126,10 +128,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final username = widget.session.user['username']?.toString() ?? '';
-    return ListView(
+    return HydroFrame(
+      child: ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
       children: [
-        _Card(
+        HydroEntrance(
+          child: _Card(
           child: Row(
             children: [
               CircleAvatar(
@@ -177,8 +181,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ],
           ),
         ),
+        ),
         const SizedBox(height: 14),
-        _Card(
+        HydroEntrance(
+          delay: const Duration(milliseconds: 70),
+          child: _Card(
           child: Form(
             key: _profileKey,
             child: Column(
@@ -265,109 +272,120 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
         ),
+        ),
         const SizedBox(height: 14),
-        _Card(
-          child: Form(
-            key: _passwordKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text(
-                  'Contraseña',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _currentPassword,
-                  obscureText: _obscureCurrent,
-                  decoration: InputDecoration(
-                    labelText: 'Contraseña actual',
-                    suffixIcon: IconButton(
-                      onPressed: () =>
-                          setState(() => _obscureCurrent = !_obscureCurrent),
-                      icon: Icon(
-                        _obscureCurrent
-                            ? Icons.visibility_outlined
-                            : Icons.visibility_off_outlined,
+        HydroEntrance(
+          delay: const Duration(milliseconds: 120),
+          child: _Card(
+            child: Form(
+              key: _passwordKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'Contraseña',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _currentPassword,
+                    obscureText: _obscureCurrent,
+                    decoration: InputDecoration(
+                      labelText: 'Contraseña actual',
+                      suffixIcon: IconButton(
+                        onPressed: () =>
+                            setState(() => _obscureCurrent = !_obscureCurrent),
+                        icon: Icon(
+                          _obscureCurrent
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                        ),
                       ),
                     ),
+                    validator: (value) => (value ?? '').isEmpty
+                        ? 'Ingresa tu contraseña actual.'
+                        : null,
                   ),
-                  validator: (value) => (value ?? '').isEmpty
-                      ? 'Ingresa tu contraseña actual.'
-                      : null,
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: _newPassword,
-                  obscureText: _obscureNew,
-                  decoration: InputDecoration(
-                    labelText: 'Nueva contraseña',
-                    suffixIcon: IconButton(
-                      onPressed: () =>
-                          setState(() => _obscureNew = !_obscureNew),
-                      icon: Icon(
-                        _obscureNew
-                            ? Icons.visibility_outlined
-                            : Icons.visibility_off_outlined,
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    controller: _newPassword,
+                    obscureText: _obscureNew,
+                    decoration: InputDecoration(
+                      labelText: 'Nueva contraseña',
+                      suffixIcon: IconButton(
+                        onPressed: () =>
+                            setState(() => _obscureNew = !_obscureNew),
+                        icon: Icon(
+                          _obscureNew
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                        ),
                       ),
                     ),
+                    validator: (value) {
+                      if ((value ?? '').length < 8) {
+                        return 'Usa al menos 8 caracteres.';
+                      }
+                      return null;
+                    },
                   ),
-                  validator: (value) {
-                    if ((value ?? '').length < 8) {
-                      return 'Usa al menos 8 caracteres.';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: _confirmPassword,
-                  obscureText: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Confirmar contraseña',
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    controller: _confirmPassword,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Confirmar contraseña',
+                    ),
+                    validator: (value) {
+                      if (value != _newPassword.text) {
+                        return 'Las contraseñas no coinciden.';
+                      }
+                      return null;
+                    },
                   ),
-                  validator: (value) {
-                    if (value != _newPassword.text) {
-                      return 'Las contraseñas no coinciden.';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 12),
-                FilledButton(
-                  onPressed: _savingPassword ? null : _savePassword,
-                  child: Text(
-                    _savingPassword ? 'Actualizando…' : 'Cambiar contraseña',
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: _savingPassword ? null : _savePassword,
+                    child: Text(
+                      _savingPassword ? 'Actualizando…' : 'Cambiar contraseña',
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
         const SizedBox(height: 14),
-        _Card(
-          child: SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            value: widget.notifyEmail,
-            onChanged: widget.savingEmailPreference
-                ? null
-                : widget.onNotifyEmailChanged,
-            title: const Text('Avisos por correo'),
-            subtitle: const Text(
-              'Comentarios y cambios de tus solicitudes de soporte.',
+        HydroEntrance(
+          delay: const Duration(milliseconds: 160),
+          child: _Card(
+            child: SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: widget.notifyEmail,
+              onChanged: widget.savingEmailPreference
+                  ? null
+                  : widget.onNotifyEmailChanged,
+              title: const Text('Avisos por correo'),
+              subtitle: const Text(
+                'Comentarios y cambios de tus solicitudes de soporte.',
+              ),
             ),
           ),
         ),
         const SizedBox(height: 18),
-        OutlinedButton.icon(
-          onPressed: widget.onSignOut,
-          icon: const Icon(Icons.logout_rounded),
-          label: const Text('Cerrar sesión'),
-          style: OutlinedButton.styleFrom(
-            minimumSize: const Size.fromHeight(50),
+        HydroEntrance(
+          delay: const Duration(milliseconds: 200),
+          child: OutlinedButton.icon(
+            onPressed: widget.onSignOut,
+            icon: const Icon(Icons.logout_rounded),
+            label: const Text('Cerrar sesión'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(50),
+            ),
           ),
         ),
       ],
+      ),
     );
   }
 }
@@ -408,13 +426,6 @@ class _Card extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      color: const Color(0xFF112328),
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
-    ),
-    child: child,
-  );
+  Widget build(BuildContext context) =>
+      HydroGlass(padding: const EdgeInsets.all(16), radius: 16, child: child);
 }

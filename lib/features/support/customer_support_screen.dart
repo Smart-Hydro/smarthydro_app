@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/smarthydro_api.dart';
 import '../../shared/navigation/hydro_page_route.dart';
+import '../../shared/widgets/hydro_entrance.dart';
 import '../../shared/widgets/hydro_glass.dart';
 
 Future<bool?> showSupportTicketSheet(
@@ -153,17 +154,23 @@ class _CustomerSupportScreenState extends State<CustomerSupportScreen> {
     ),
     body: HydroFrame(
       child: ListView(
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 92),
-      children: [
-        if (_loading) const LinearProgressIndicator(),
-        if (_error != null) _SupportError(message: _error!, onRetry: _load),
-        if (!_loading && _error == null && _tickets.isEmpty)
-          const _SupportEmpty(),
-        for (final ticket in _tickets) ...[
-          _TicketCard(ticket: ticket, onTap: () => _openTicket(ticket)),
-          const SizedBox(height: 10),
+        padding: const EdgeInsets.fromLTRB(18, 14, 18, 92),
+        children: [
+          if (_loading) const HydroLoading(),
+          if (_error != null) _SupportError(message: _error!, onRetry: _load),
+          if (!_loading && _error == null && _tickets.isEmpty)
+            const HydroEntrance(child: _SupportEmpty()),
+          for (var i = 0; i < _tickets.length; i++) ...[
+            HydroEntrance(
+              delay: Duration(milliseconds: 40 + (i.clamp(0, 8) * 40)),
+              child: _TicketCard(
+                ticket: _tickets[i],
+                onTap: () => _openTicket(_tickets[i]),
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
         ],
-      ],
       ),
     ),
   );
@@ -543,41 +550,35 @@ class _TicketCard extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: const Color(0xFF112328),
-    borderRadius: BorderRadius.circular(15),
-    child: InkWell(
-      borderRadius: BorderRadius.circular(15),
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.all(15),
-        child: Row(
-          children: [
-            const Icon(Icons.support_agent_rounded, color: Color(0xFFFFC46B)),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    ticket['title']?.toString() ?? 'Solicitud',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'N° ${ticket['id']} · ${ticket['status'] ?? ''} · ${ticket['priority'] ?? ''}',
-                    style: const TextStyle(
-                      color: Color(0xFF9AB0B1),
-                      fontSize: 10,
-                    ),
-                  ),
-                ],
+  Widget build(BuildContext context) => HydroGlass(
+    onTap: onTap,
+    padding: const EdgeInsets.all(15),
+    radius: 15,
+    child: Row(
+      children: [
+        const Icon(Icons.support_agent_rounded, color: Color(0xFFFFC46B)),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                ticket['title']?.toString() ?? 'Solicitud',
+                style: const TextStyle(fontWeight: FontWeight.w700),
               ),
-            ),
-            const Icon(Icons.chevron_right_rounded, color: Color(0xFF91A8AA)),
-          ],
+              const SizedBox(height: 4),
+              Text(
+                'N° ${ticket['id']} · ${ticket['status'] ?? ''} · ${ticket['priority'] ?? ''}',
+                style: const TextStyle(
+                  color: Color(0xFF9AB0B1),
+                  fontSize: 10,
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
+        const Icon(Icons.chevron_right_rounded, color: Color(0xFF91A8AA)),
+      ],
     ),
   );
 }

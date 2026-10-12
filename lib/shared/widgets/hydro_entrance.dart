@@ -7,12 +7,16 @@ class HydroEntrance extends StatefulWidget {
     required this.child,
     this.delay = Duration.zero,
     this.duration = const Duration(milliseconds: 420),
+    this.slideOffset = const Offset(0, 0.045),
     super.key,
   });
 
   final Widget child;
   final Duration delay;
   final Duration duration;
+
+  /// Desplazamiento relativo antes de aparecer (p. ej. lateral en tabs).
+  final Offset slideOffset;
 
   @override
   State<HydroEntrance> createState() => _HydroEntranceState();
@@ -49,7 +53,7 @@ class _HydroEntranceState extends State<HydroEntrance> {
       duration: duration,
       curve: Curves.easeOutCubic,
       child: AnimatedSlide(
-        offset: shown ? Offset.zero : const Offset(0, 0.045),
+        offset: shown ? Offset.zero : widget.slideOffset,
         duration: duration,
         curve: Curves.easeOutCubic,
         child: widget.child,
