@@ -379,7 +379,7 @@ class _CaptureStagePainter extends CustomPainter {
       );
       canvas.drawOval(
         meniscus,
-        Paint()..color = _fog.withValues(alpha: 0.22 + alive * 0.3),
+        Paint()..color = _fog.withValues(alpha: 0.26 + alive * 0.38),
       );
       // Burbujas ascendentes: solo cobran vida con el replay.
       if (alive > 0.05 && water.height > 24) {
@@ -392,9 +392,9 @@ class _CaptureStagePainter extends CustomPainter {
           final fade = math.sin(travel * math.pi);
           canvas.drawCircle(
             Offset(bx, by),
-            1 + fade * 1.6,
+            1.4 + fade * 2.2,
             Paint()
-              ..color = _fog.withValues(alpha: (0.1 + fade * 0.35) * alive),
+              ..color = _fog.withValues(alpha: (0.16 + fade * 0.45) * alive),
           );
         }
       }

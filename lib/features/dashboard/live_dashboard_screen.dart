@@ -1238,6 +1238,10 @@ class _PointDetailScreenState extends State<_PointDetailScreen> {
     setState(() => _selectedReplayIndex = 0);
   }
 
+  /// El índice se deriva del tiempo transcurrido (no de ticks contados): si el
+  /// navegador atrasa los timers (pestaña en segundo plano, render lento), el
+  /// replay se reposiciona según el reloj en vez de dispararse en ráfaga, y la
+  /// parada al final siempre se cumple.
   void _toggleReplay() {
     if (_replayTimer != null) {
       _replayTimer?.cancel();
@@ -1245,17 +1249,29 @@ class _PointDetailScreenState extends State<_PointDetailScreen> {
       return;
     }
     if (_replayRecords.length < 2) return;
-    _replayTimer = Timer.periodic(const Duration(milliseconds: 650), (timer) {
+    const stepMs = 650;
+    final last = _replayRecords.length - 1;
+    final startIndex = _selectedReplayIndex >= last ? 0 : _selectedReplayIndex;
+    if (startIndex != _selectedReplayIndex) {
+      setState(() => _selectedReplayIndex = startIndex);
+    }
+    final clock = Stopwatch()..start();
+    _replayTimer = Timer.periodic(const Duration(milliseconds: 120), (timer) {
       if (!mounted) {
         timer.cancel();
         return;
       }
-      if (_selectedReplayIndex >= _replayRecords.length - 1) {
+      final next = (startIndex + clock.elapsedMilliseconds ~/ stepMs).clamp(
+        0,
+        last,
+      );
+      if (next != _selectedReplayIndex) {
+        setState(() => _selectedReplayIndex = next);
+      }
+      if (next >= last) {
         timer.cancel();
         setState(() => _replayTimer = null);
-        return;
       }
-      setState(() => _selectedReplayIndex++);
     });
     setState(() {});
   }
