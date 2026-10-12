@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../core/brand.dart';
+
 /// Superficie translúcida. Sin borde: el brillo superior separa la pieza del fondo.
 class HydroGlass extends StatelessWidget {
   const HydroGlass({
@@ -21,10 +23,6 @@ class HydroGlass extends StatelessWidget {
   Widget build(BuildContext context) {
     final shape = RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(radius),
-      side: BorderSide(
-        color: const Color(0xFF66E0C2).withValues(alpha: 0.12),
-        width: 1,
-      ),
     );
     final body = Ink(
       decoration: BoxDecoration(
@@ -37,10 +35,6 @@ class HydroGlass extends StatelessWidget {
             const Color(0xFF09171B).withValues(alpha: 0.88),
           ],
         ),
-        border: Border.all(
-          color: const Color(0xFF66E0C2).withValues(alpha: 0.12),
-          width: 1,
-        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.28),
@@ -48,7 +42,7 @@ class HydroGlass extends StatelessWidget {
             offset: const Offset(0, 8),
           ),
           BoxShadow(
-            color: const Color(0xFF66E0C2).withValues(alpha: 0.03),
+            color: IkoluColors.cyan.withValues(alpha: 0.03),
             blurRadius: 10,
             offset: const Offset(0, -1),
           ),
@@ -62,8 +56,8 @@ class HydroGlass extends StatelessWidget {
       shape: shape,
       child: InkWell(
         customBorder: shape,
-        splashColor: const Color(0xFF66E0C2).withValues(alpha: 0.1),
-        highlightColor: const Color(0xFF66E0C2).withValues(alpha: 0.05),
+        splashColor: IkoluColors.cyan.withValues(alpha: 0.1),
+        highlightColor: IkoluColors.cyan.withValues(alpha: 0.05),
         onTap: onTap,
         child: body,
       ),
@@ -153,7 +147,7 @@ class _LoadingLinePainter extends CustomPainter {
       Offset(0, y),
       Offset(size.width, y),
       Paint()
-        ..color = const Color(0xFF66E0C2).withValues(alpha: 0.16)
+        ..color = IkoluColors.cyan.withValues(alpha: 0.16)
         ..strokeWidth = 2
         ..strokeCap = StrokeCap.round,
     );
@@ -162,7 +156,7 @@ class _LoadingLinePainter extends CustomPainter {
       Offset(head - 28, y),
       Offset(head, y),
       Paint()
-        ..color = const Color(0xFF66E0C2).withValues(alpha: 0.85)
+        ..color = IkoluColors.cyan.withValues(alpha: 0.85)
         ..strokeWidth = 2.4
         ..strokeCap = StrokeCap.round,
     );
@@ -173,7 +167,7 @@ class _LoadingLinePainter extends CustomPainter {
       oldDelegate.travel != travel;
 }
 
-/// Barra lineal de carga con identidad SmartHydro: una gota de menta que
+/// Barra lineal de carga con identidad Ikolu: una gota cyan que
 /// recorre una pista fina. Reemplaza al LinearProgressIndicator genérico
 /// en cabeceras y listas mientras se cargan datos.
 class HydroLinearBar extends StatefulWidget {
@@ -233,12 +227,12 @@ class _LinearBarPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final y = size.height / 2;
-    // Pista fina de menta muy tenue.
+    // Pista fina cyan muy tenue.
     canvas.drawLine(
       Offset(0, y),
       Offset(size.width, y),
       Paint()
-        ..color = const Color(0xFF66E0C2).withValues(alpha: 0.12)
+        ..color = IkoluColors.cyan.withValues(alpha: 0.12)
         ..strokeWidth = size.height
         ..strokeCap = StrokeCap.round,
     );
@@ -254,8 +248,8 @@ class _LinearBarPainter extends CustomPainter {
           begin: Alignment(tailStart, y),
           end: Alignment(head, y),
           colors: [
-            const Color(0xFF66E0C2).withValues(alpha: 0),
-            const Color(0xFF66E0C2).withValues(alpha: 0.9),
+            IkoluColors.cyan.withValues(alpha: 0),
+            IkoluColors.cyan.withValues(alpha: 0.9),
           ],
         ).createShader(Rect.fromPoints(Offset(tailStart, y), Offset(head, y)))
         ..strokeWidth = size.height
@@ -274,7 +268,7 @@ class _LinearBarPainter extends CustomPainter {
       oldDelegate.travel != travel;
 }
 
-/// Spinner circular marcado SmartHydro: anillo de menta con una gota
+/// Spinner circular de marca Ikolu: anillo cyan con una gota
 /// brillante en cabeza, para botones en estado de envío. Reemplaza al
 /// CircularProgressIndicator genérico.
 class HydroSpinner extends StatefulWidget {
@@ -347,19 +341,19 @@ class _SpinnerPainter extends CustomPainter {
       2 * math.pi,
       false,
       Paint()
-        ..color = const Color(0xFF66E0C2).withValues(alpha: 0.18)
+        ..color = IkoluColors.cyan.withValues(alpha: 0.18)
         ..style = PaintingStyle.stroke
         ..strokeWidth = stroke
         ..strokeCap = StrokeCap.round,
     );
-    // Arco de menta (~270°) que da la sensación de giro.
+    // Arco cyan (~270°) que da la sensación de giro.
     canvas.drawArc(
       rect.deflate(stroke / 2),
       -math.pi / 2,
       math.pi * 1.5,
       false,
       Paint()
-        ..color = const Color(0xFF66E0C2)
+        ..color = IkoluColors.cyan
         ..style = PaintingStyle.stroke
         ..strokeWidth = stroke
         ..strokeCap = StrokeCap.round,

@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../core/brand.dart';
 import 'point_link.dart';
 
 /// Tipo de captación. Expone la figura mínima para que otras presentaciones
@@ -191,7 +192,7 @@ class _CaptureStagePainter extends CustomPainter {
     PointLink.incident => const Color(0xFFFF847A),
   };
 
-  Color get _accent => isSurface ? _blue : _mint;
+  Color get _accent => isSurface ? _blue : IkoluColors.cyan;
 
   double get _fill {
     if (levelMeters == null || levelFill == null) return 0.12;
@@ -219,10 +220,10 @@ class _CaptureStagePainter extends CustomPainter {
       frame,
       Paint()
         ..color = hovered
-            ? _accent.withValues(alpha: 0.4)
-            : Colors.white.withValues(alpha: 0.06)
+            ? _accent.withValues(alpha: 0.22)
+            : Colors.white.withValues(alpha: 0.05)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = hovered ? 1.4 : 1,
+        ..strokeWidth = 1,
     );
     if (alive > 0.01) _paintBreathHalo(canvas, size);
     if (isSurface) {

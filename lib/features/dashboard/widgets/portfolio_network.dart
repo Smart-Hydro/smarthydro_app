@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../core/brand.dart';
 import '../../../shared/widgets/hydro_glass.dart';
 import '../point_link.dart';
 
@@ -287,15 +288,15 @@ class _WaterScenePainter extends CustomPainter {
     );
 
     final horizon = size.height * 0.30;
-    // Horizonte luminoso.
+    // Horizonte luminoso cyan Ikolu.
     canvas.drawRect(
       Rect.fromLTWH(0, horizon - 2, size.width, 4),
       Paint()
         ..shader = LinearGradient(
           colors: [
-            const Color(0xFF66E0C2).withValues(alpha: 0),
-            const Color(0xFF66E0C2).withValues(alpha: 0.35),
-            const Color(0xFF66E0C2).withValues(alpha: 0),
+            IkoluColors.cyan.withValues(alpha: 0),
+            IkoluColors.cyan.withValues(alpha: 0.35),
+            IkoluColors.cyan.withValues(alpha: 0),
           ],
         ).createShader(Rect.fromLTWH(0, horizon - 2, size.width, 4)),
     );
@@ -343,8 +344,7 @@ class _WaterScenePainter extends CustomPainter {
           width: width,
           height: 10 + t * 14,
         ),
-        Paint()
-          ..color = const Color(0xFF66E0C2).withValues(alpha: 0.05 + t * 0.05),
+        Paint()..color = IkoluColors.cyan.withValues(alpha: 0.05 + t * 0.05),
       );
     }
 
@@ -378,7 +378,9 @@ class _WaterScenePainter extends CustomPainter {
     final depthScale = 1.0 - depth * 0.55;
     final fade = 1.0 - depth * 0.5; // los lejanos se atenúan
     final p = _project(size, index, count, tiltX, tiltY);
-    final head = Offset(p.dx, p.dy - 34 * depthScale);
+    // Vaivén suave de boya: cada punto mece con su propia fase.
+    final bob = math.sin(phase * math.pi * 2 + index * 1.3) * 3.2 * depthScale;
+    final head = Offset(p.dx, p.dy - 34 * depthScale + bob);
 
     // Sombra/reflejo sobre el agua.
     canvas.drawOval(
@@ -458,14 +460,7 @@ class _WaterScenePainter extends CustomPainter {
       );
       canvas.drawRRect(
         rect,
-        Paint()..color = const Color(0xFF081619).withValues(alpha: 0.85),
-      );
-      canvas.drawRRect(
-        rect,
-        Paint()
-          ..color = color.withValues(alpha: 0.4 * fade)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1,
+        Paint()..color = const Color(0xFF081619).withValues(alpha: 0.72),
       );
       text.paint(
         canvas,

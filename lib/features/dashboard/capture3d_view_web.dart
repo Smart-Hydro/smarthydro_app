@@ -12,13 +12,14 @@ Widget buildPlatformView(String url) {
   if (!_registered.contains(viewType)) {
     _registered.add(viewType);
     ui_web.platformViewRegistry.registerViewFactory(viewType, (int viewId) {
-      final iframe = web.document.createElement('iframe') as web.HTMLIFrameElement
-        ..src = url
-        ..style.border = '0'
-        ..style.width = '100%'
-        ..style.height = '100%'
-        ..style.display = 'block'
-        ..allowFullscreen = true;
+      final iframe =
+          web.document.createElement('iframe') as web.HTMLIFrameElement
+            ..src = url
+            ..style.border = '0'
+            ..style.width = '100%'
+            ..style.height = '100%'
+            ..style.display = 'block'
+            ..allowFullscreen = true;
       return iframe;
     });
   }
