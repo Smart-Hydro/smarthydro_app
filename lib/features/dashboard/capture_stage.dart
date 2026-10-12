@@ -637,35 +637,38 @@ class _CaptureStageState extends State<CaptureStage>
                           final alive = widget.playing
                               ? 0.55 + _playPulse.value * 0.45
                               : _playPulse.value * 0.45;
-                          return CustomPaint(
-                            painter: _CaptureStagePainter(
-                              phase: _flow.value,
-                              yaw: _yaw,
-                              pitch: _pitch,
-                              layoutYaw: _baseYaw,
-                              layoutPitch: _basePitch,
-                              topInset: widget.topInset,
-                              levelMeters: _level,
-                              levelMotion: _levelMotion,
-                              levelMin: widget.levelMin,
-                              levelMax: widget.levelMax,
-                              textScaler: textScaler,
-                              flow: _shownFlow,
-                              isSurface: widget.isSurface,
-                              link: widget.link,
-                              profile: widget.profile,
-                              hovered: _hovered,
-                              alive: alive,
-                              focus: focus,
-                              hits: _hits,
-                              travel: _travel,
-                              drift: _drift,
-                              flowMax: widget.flowMax,
-                              totalCubicMeters: widget.totalCubicMeters,
-                              zoom: _zoom,
-                              pan: _pan,
+                          return ColoredBox(
+                            color: const Color(0xFF0A181D),
+                            child: CustomPaint(
+                              painter: _CaptureStagePainter(
+                                phase: _flow.value,
+                                yaw: _yaw,
+                                pitch: _pitch,
+                                layoutYaw: _baseYaw,
+                                layoutPitch: _basePitch,
+                                topInset: widget.topInset,
+                                levelMeters: _level,
+                                levelMotion: _levelMotion,
+                                levelMin: widget.levelMin,
+                                levelMax: widget.levelMax,
+                                textScaler: textScaler,
+                                flow: _shownFlow,
+                                isSurface: widget.isSurface,
+                                link: widget.link,
+                                profile: widget.profile,
+                                hovered: _hovered,
+                                alive: alive,
+                                focus: focus,
+                                hits: _hits,
+                                travel: _travel,
+                                drift: _drift,
+                                flowMax: widget.flowMax,
+                                totalCubicMeters: widget.totalCubicMeters,
+                                zoom: _zoom,
+                                pan: _pan,
+                              ),
+                              child: const SizedBox.expand(),
                             ),
-                            child: const SizedBox.expand(),
                           );
                         },
                       ),
@@ -929,8 +932,8 @@ class _InfoCard extends StatelessWidget {
               color: _Palette.faint.withValues(alpha: 0.95),
               fontSize: 11,
               fontWeight: FontWeight.w600,
-              fontFamily: 'monospace',
               height: 1.25,
+              letterSpacing: -0.2,
             ),
           ),
         ),
@@ -1168,6 +1171,20 @@ class _CaptureStagePainter extends CustomPainter {
     _size = size;
     hits.clear();
     final backdrop = Offset.zero & size;
+    // Fondo oscuro siempre: si algo falla al dibujar, no queda blanco.
+    canvas.drawRect(backdrop, Paint()..color = const Color(0xFF0A181D));
+    try {
+      _paintScene(canvas, size, backdrop);
+    } catch (error, stack) {
+      assert(() {
+        // ignore: avoid_print
+        print('CaptureStage paint error: $error\n$stack');
+        return true;
+      }());
+    }
+  }
+
+  void _paintScene(Canvas canvas, Size size, Rect backdrop) {
     canvas.drawRect(
       backdrop,
       Paint()

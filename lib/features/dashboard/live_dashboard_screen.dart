@@ -1119,28 +1119,32 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
     _loadProfile();
   }
 
-  /// Ficha estática + variables del punto. Si fallan, la escena estima y
-  /// las lecturas se validan solo con telemetría.
+  /// Ficha estática + variables del punto. Cada llamada es independiente:
+  /// si falla el catálogo de variables, igual se aplica la config del pozo.
   Future<void> _loadProfile() async {
     final id = _int(widget.point['id']);
+    Map<String, dynamic>? config;
+    var variables = PointVariables.unknownCatalog;
     try {
-      final results = await Future.wait([
-        widget.api.pointConfig(widget.token, id),
-        widget.api.pointVariables(widget.token, id),
-      ]);
-      if (!mounted) return;
-      final config = results[0] as Map<String, dynamic>;
-      final vars = results[1] as List<Map<String, dynamic>>;
-      setState(() {
+      config = await widget.api.pointConfig(widget.token, id);
+    } catch (_) {
+      config = null;
+    }
+    try {
+      final vars = await widget.api.pointVariables(widget.token, id);
+      variables = PointVariables.fromJson(vars);
+    } catch (_) {
+      variables = PointVariables.unknownCatalog;
+    }
+    if (!mounted) return;
+    setState(() {
+      if (config != null) {
         _profile = CaptureProfile.fromConfig(config);
         _loggerToken = _str(config['token_service']);
         _configTelemetry = config['is_telemetry'] == true;
-        _variables = PointVariables.fromJson(vars);
-      });
-    } on SmartHydroApiException {
-      if (!mounted) return;
-      setState(() => _variables = PointVariables.unknownCatalog);
-    }
+      }
+      _variables = variables;
+    });
   }
 
   Future<void> _load() async {
