@@ -103,58 +103,58 @@ class _ComplianceScreenState extends State<ComplianceScreen> {
       ),
       body: HydroFrame(
         child: ListView(
-        padding: const EdgeInsets.all(18),
-        children: [
-          SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Solo cumplimiento activo'),
-            value: _activeOnly,
-            onChanged: (value) {
-              setState(() => _activeOnly = value);
-              _load();
-            },
-          ),
-          if (types.length > 1) ...[
-            const SizedBox(height: 4),
-            Wrap(
-              spacing: 8,
-              children: [
-                _TypeChip(
-                  label: 'Todos',
-                  selected: _typeFilter == 'ALL',
-                  onTap: () => setState(() => _typeFilter = 'ALL'),
-                ),
-                for (final type in ['DGA', 'SMA'])
-                  if (types.contains(type))
-                    _TypeChip(
-                      label: type,
-                      selected: _typeFilter == type,
-                      onTap: () => setState(() => _typeFilter = type),
-                    ),
-              ],
+          padding: const EdgeInsets.all(18),
+          children: [
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Solo cumplimiento activo'),
+              value: _activeOnly,
+              onChanged: (value) {
+                setState(() => _activeOnly = value);
+                _load();
+              },
             ),
-          ],
-          const SizedBox(height: 10),
-          if (_loading) const LinearProgressIndicator(),
-          if (_error != null) _ErrorCard(message: _error!, onRetry: _load),
-          if (!_loading && _error == null && _points.isEmpty)
-            const _EmptyCompliance(),
-          for (final point in _visiblePoints) ...[
-            _CompliancePointCard(
-              point: point,
-              onTap: () => Navigator.of(context).push<void>(
-                hydroPageRoute(
-                  _ComplianceDetailScreen(
-                    api: widget.api,
-                    token: widget.token,
-                    point: point,
+            if (types.length > 1) ...[
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 8,
+                children: [
+                  _TypeChip(
+                    label: 'Todos',
+                    selected: _typeFilter == 'ALL',
+                    onTap: () => setState(() => _typeFilter = 'ALL'),
+                  ),
+                  for (final type in ['DGA', 'SMA'])
+                    if (types.contains(type))
+                      _TypeChip(
+                        label: type,
+                        selected: _typeFilter == type,
+                        onTap: () => setState(() => _typeFilter = type),
+                      ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 10),
+            if (_loading) const LinearProgressIndicator(),
+            if (_error != null) _ErrorCard(message: _error!, onRetry: _load),
+            if (!_loading && _error == null && _points.isEmpty)
+              const _EmptyCompliance(),
+            for (final point in _visiblePoints) ...[
+              _CompliancePointCard(
+                point: point,
+                onTap: () => Navigator.of(context).push<void>(
+                  hydroPageRoute(
+                    _ComplianceDetailScreen(
+                      api: widget.api,
+                      token: widget.token,
+                      point: point,
+                    ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(height: 10),
+              const SizedBox(height: 10),
+            ],
           ],
-        ],
         ),
       ),
     );
@@ -498,244 +498,255 @@ class _ComplianceDetailScreenState extends State<_ComplianceDetailScreen> {
       ),
       body: HydroFrame(
         child: ListView(
-        padding: const EdgeInsets.all(18),
-        children: [
-          Row(
-            children: [
-              const ChileShield(size: 30),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  point['code']?.toString() ?? 'Autorización',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
-                  ),
-                ),
-              ),
-              _WarningBadge(level: warning),
-            ],
-          ),
-          const SizedBox(height: 14),
-          if (_loading) const LinearProgressIndicator(),
-          if (_error != null) _ErrorCard(message: _error!, onRetry: _load),
-          _ComplianceSection(
-            title: 'Estado actual',
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          padding: const EdgeInsets.all(18),
+          children: [
+            Row(
               children: [
-                _LimitRow(
-                  label: 'Caudal',
-                  value:
-                      '${_fmt(currentFlow)} L/s de '
-                      '${authFlow == null ? 'sin límite' : '${_fmt(authFlow)} L/s autorizados'}',
-                  ratio: authFlow != null && authFlow > 0
-                      ? (currentFlow / authFlow).clamp(0.0, 1.0).toDouble()
-                      : null,
-                  color: _warningColor(warning),
-                ),
-                if (pctTotal != null) ...[
-                  const SizedBox(height: 14),
-                  _LimitRow(
-                    label: 'Totalizado anual',
-                    value:
-                        '${_fmt(annual)} m³ de '
-                        '${authTotal == null ? '—' : '${_fmt(authTotal)} m³'}',
-                    ratio: (pctTotal / 100).clamp(0.0, 1.0).toDouble(),
-                    color: pctTotal >= 100
-                        ? const Color(0xFFFF847A)
-                        : pctTotal >= 85
-                        ? const Color(0xFFFFC46B)
-                        : const Color(0xFF66E0C2),
+                const ChileShield(size: 30),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    point['code']?.toString() ?? 'Autorización',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                    ),
                   ),
-                ],
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _AgencyChip(label: 'Estándar: ${point['standard'] ?? '—'}'),
-                    _AgencyChip(label: 'Origen: ${point['type_dga'] ?? '—'}'),
-                  ],
                 ),
+                _WarningBadge(level: warning),
               ],
             ),
-          ),
-          const SizedBox(height: 12),
-          SegmentedButton<int>(
-            segments: const [
-              ButtonSegment(value: 7, label: Text('7 días')),
-              ButtonSegment(value: 30, label: Text('30 días')),
-              ButtonSegment(value: 90, label: Text('90 días')),
-            ],
-            selected: {_days},
-            onSelectionChanged: (selection) {
-              setState(() => _days = selection.first);
-              _load();
-            },
-          ),
-          const SizedBox(height: 12),
-          _ComplianceSection(
-            title: 'Cumplimiento de los últimos $_days días',
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (authFlow == null || authFlow <= 0)
-                  const Text(
-                    'Este punto no tiene caudal autorizado configurado, '
-                    'por lo que no es posible evaluar el período.',
-                    style: TextStyle(color: Color(0xFF9AB0B1)),
-                  )
-                else ...[
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          stats.compliancePct == null
-                              ? 'Sin datos en el período'
-                              : '${stats.compliancePct!.toStringAsFixed(1)}% '
-                                    'dentro del límite',
-                          style: TextStyle(
-                            fontSize: 19,
-                            fontWeight: FontWeight.w800,
-                            color: stats.compliancePct == null
-                                ? const Color(0xFF91A8AA)
-                                : stats.exceeded > 0
-                                ? const Color(0xFFFF847A)
-                                : const Color(0xFF66E0C2),
-                          ),
-                        ),
-                      ),
-                      Text(
-                        '${stats.total} registros',
-                        style: const TextStyle(
-                          color: Color(0xFF9AB0B1),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
+            const SizedBox(height: 14),
+            if (_loading) const LinearProgressIndicator(),
+            if (_error != null) _ErrorCard(message: _error!, onRetry: _load),
+            _ComplianceSection(
+              title: 'Estado actual',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _LimitRow(
+                    label: 'Caudal',
+                    value:
+                        '${_fmt(currentFlow)} L/s de '
+                        '${authFlow == null ? 'sin límite' : '${_fmt(authFlow)} L/s autorizados'}',
+                    ratio: authFlow != null && authFlow > 0
+                        ? (currentFlow / authFlow).clamp(0.0, 1.0).toDouble()
+                        : null,
+                    color: _warningColor(warning),
                   ),
-                  const SizedBox(height: 10),
+                  if (pctTotal != null) ...[
+                    const SizedBox(height: 14),
+                    _LimitRow(
+                      label: 'Totalizado anual',
+                      value:
+                          '${_fmt(annual)} m³ de '
+                          '${authTotal == null ? '—' : '${_fmt(authTotal)} m³'}',
+                      ratio: (pctTotal / 100).clamp(0.0, 1.0).toDouble(),
+                      color: pctTotal >= 100
+                          ? const Color(0xFFFF847A)
+                          : pctTotal >= 85
+                          ? const Color(0xFFFFC46B)
+                          : const Color(0xFF66E0C2),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      _StatChip(
-                        label: 'Dentro del límite',
-                        value: '${stats.within}',
-                        color: const Color(0xFF66E0C2),
+                      _AgencyChip(
+                        label: 'Estándar: ${point['standard'] ?? '—'}',
                       ),
-                      _StatChip(
-                        label: 'Cerca del límite',
-                        value: '${stats.near}',
-                        color: const Color(0xFFFFC46B),
-                      ),
-                      _StatChip(
-                        label: 'Excedidos',
-                        value: '${stats.exceeded}',
-                        color: const Color(0xFFFF847A),
-                      ),
-                      _StatChip(
-                        label: 'Excedencias ($_days d)',
-                        value: '${_flowHistory['count'] ?? 0}',
-                        color: const Color(0xFFFF847A),
-                      ),
+                      _AgencyChip(label: 'Origen: ${point['type_dga'] ?? '—'}'),
                     ],
                   ),
                 ],
-              ],
-            ),
-          ),
-          if (sorted.isNotEmpty && authFlow != null && authFlow > 0) ...[
-            const SizedBox(height: 12),
-            _ComplianceSection(
-              title: 'Caudal vs límite autorizado',
-              child: SizedBox(
-                height: 200,
-                child: _SeriesChart(
-                  spots: [
-                    for (var i = 0; i < sorted.length; i++)
-                      FlSpot(i.toDouble(), _numOrNull(sorted[i]['flow']) ?? 0),
-                  ],
-                  color: const Color(0xFF69B9FF),
-                  fillColor: const Color(0xFF69B9FF),
-                  maxY: _chartMax(
-                    sorted.map((r) => _numOrNull(r['flow'])).whereType<num>(),
-                    authFlow,
-                  ),
-                  limit: authFlow,
-                ),
               ),
             ),
-          ],
-          if (sorted.any(
-            (r) => _numOrNull(r['water_table'] ?? r['nivel']) != null,
-          )) ...[
+            const SizedBox(height: 12),
+            SegmentedButton<int>(
+              segments: const [
+                ButtonSegment(value: 7, label: Text('7 días')),
+                ButtonSegment(value: 30, label: Text('30 días')),
+                ButtonSegment(value: 90, label: Text('90 días')),
+              ],
+              selected: {_days},
+              onSelectionChanged: (selection) {
+                setState(() => _days = selection.first);
+                _load();
+              },
+            ),
             const SizedBox(height: 12),
             _ComplianceSection(
-              title: 'Nivel freático del período',
-              child: SizedBox(
-                height: 170,
-                child: _SeriesChart(
-                  spots: [
-                    for (var i = 0; i < sorted.length; i++)
-                      if (_numOrNull(
-                            sorted[i]['water_table'] ?? sorted[i]['nivel'],
-                          ) !=
-                          null)
+              title: 'Cumplimiento de los últimos $_days días',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (authFlow == null || authFlow <= 0)
+                    const Text(
+                      'Este punto no tiene caudal autorizado configurado, '
+                      'por lo que no es posible evaluar el período.',
+                      style: TextStyle(color: Color(0xFF9AB0B1)),
+                    )
+                  else ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            stats.compliancePct == null
+                                ? 'Sin datos en el período'
+                                : '${stats.compliancePct!.toStringAsFixed(1)}% '
+                                      'dentro del límite',
+                            style: TextStyle(
+                              fontSize: 19,
+                              fontWeight: FontWeight.w800,
+                              color: stats.compliancePct == null
+                                  ? const Color(0xFF91A8AA)
+                                  : stats.exceeded > 0
+                                  ? const Color(0xFFFF847A)
+                                  : const Color(0xFF66E0C2),
+                            ),
+                          ),
+                        ),
+                        Text(
+                          '${stats.total} registros',
+                          style: const TextStyle(
+                            color: Color(0xFF9AB0B1),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _StatChip(
+                          label: 'Dentro del límite',
+                          value: '${stats.within}',
+                          color: const Color(0xFF66E0C2),
+                        ),
+                        _StatChip(
+                          label: 'Cerca del límite',
+                          value: '${stats.near}',
+                          color: const Color(0xFFFFC46B),
+                        ),
+                        _StatChip(
+                          label: 'Excedidos',
+                          value: '${stats.exceeded}',
+                          color: const Color(0xFFFF847A),
+                        ),
+                        _StatChip(
+                          label: 'Excedencias ($_days d)',
+                          value: '${_flowHistory['count'] ?? 0}',
+                          color: const Color(0xFFFF847A),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (sorted.isNotEmpty && authFlow != null && authFlow > 0) ...[
+              const SizedBox(height: 12),
+              _ComplianceSection(
+                title: 'Caudal vs límite autorizado',
+                child: SizedBox(
+                  height: 200,
+                  child: _SeriesChart(
+                    spots: [
+                      for (var i = 0; i < sorted.length; i++)
                         FlSpot(
                           i.toDouble(),
-                          _numOrNull(
-                                sorted[i]['water_table'] ?? sorted[i]['nivel'],
-                              ) ??
-                              0,
+                          _numOrNull(sorted[i]['flow']) ?? 0,
                         ),
-                  ],
-                  color: const Color(0xFF66E0C2),
-                  fillColor: const Color(0xFF66E0C2),
-                  maxY: _chartMax(
-                    sorted
-                        .map((r) => _numOrNull(r['water_table'] ?? r['nivel']))
-                        .whereType<num>(),
-                    null,
+                    ],
+                    color: const Color(0xFF69B9FF),
+                    fillColor: const Color(0xFF69B9FF),
+                    maxY: _chartMax(
+                      sorted.map((r) => _numOrNull(r['flow'])).whereType<num>(),
+                      authFlow,
+                    ),
+                    limit: authFlow,
                   ),
                 ),
               ),
+            ],
+            if (sorted.any(
+              (r) => _numOrNull(r['water_table'] ?? r['nivel']) != null,
+            )) ...[
+              const SizedBox(height: 12),
+              _ComplianceSection(
+                title: 'Nivel freático del período',
+                child: SizedBox(
+                  height: 170,
+                  child: _SeriesChart(
+                    spots: [
+                      for (var i = 0; i < sorted.length; i++)
+                        if (_numOrNull(
+                              sorted[i]['water_table'] ?? sorted[i]['nivel'],
+                            ) !=
+                            null)
+                          FlSpot(
+                            i.toDouble(),
+                            _numOrNull(
+                                  sorted[i]['water_table'] ??
+                                      sorted[i]['nivel'],
+                                ) ??
+                                0,
+                          ),
+                    ],
+                    color: const Color(0xFF66E0C2),
+                    fillColor: const Color(0xFF66E0C2),
+                    maxY: _chartMax(
+                      sorted
+                          .map(
+                            (r) => _numOrNull(r['water_table'] ?? r['nivel']),
+                          )
+                          .whereType<num>(),
+                      null,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            if (_bandError != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(
+                  'El detalle remoto no respondió. Se muestran las mediciones ya cargadas del período. $_bandError',
+                  style: const TextStyle(
+                    color: Color(0xFFFFC46B),
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            _measurementList(
+              'Sobre caudal autorizado',
+              visibleBandReadings(
+                periodRecords: _records,
+                remoteRows: _mapList(_flowHistory['results']),
+                authorized: authFlow,
+                band: FlowBand.over,
+              ),
+              authorized: authFlow,
+              remoteCount: _intOrNull(_flowHistory['count']),
+            ),
+            const SizedBox(height: 12),
+            _measurementList(
+              'Cercano al límite',
+              visibleBandReadings(
+                periodRecords: _records,
+                remoteRows: _mapList(_nearLimit['results']),
+                authorized: authFlow,
+                band: FlowBand.near,
+              ),
+              authorized: authFlow,
+              remoteCount: _intOrNull(_nearLimit['count']),
             ),
           ],
-          const SizedBox(height: 12),
-          if (_bandError != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Text(
-                'El detalle remoto no respondió. Se muestran las mediciones ya cargadas del período. $_bandError',
-                style: const TextStyle(color: Color(0xFFFFC46B), fontSize: 12),
-              ),
-            ),
-          _measurementList(
-            'Sobre caudal autorizado',
-            visibleBandReadings(
-              periodRecords: _records,
-              remoteRows: _mapList(_flowHistory['results']),
-              authorized: authFlow,
-              band: FlowBand.over,
-            ),
-            authorized: authFlow,
-            remoteCount: _intOrNull(_flowHistory['count']),
-          ),
-          const SizedBox(height: 12),
-          _measurementList(
-            'Cercano al límite',
-            visibleBandReadings(
-              periodRecords: _records,
-              remoteRows: _mapList(_nearLimit['results']),
-              authorized: authFlow,
-              band: FlowBand.near,
-            ),
-            authorized: authFlow,
-            remoteCount: _intOrNull(_nearLimit['count']),
-          ),
-        ],
         ),
       ),
     );

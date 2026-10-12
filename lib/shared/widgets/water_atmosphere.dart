@@ -222,7 +222,6 @@ class _WaterMotionPainter extends CustomPainter {
     );
   }
 
-
   int _stepsFor(Size size) => (size.width / 8).clamp(80, 180).round();
 
   @override

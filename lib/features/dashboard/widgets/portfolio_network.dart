@@ -114,7 +114,10 @@ class _PortfolioNetworkState extends State<PortfolioNetwork>
             spacing: 14,
             runSpacing: 6,
             children: [
-              const _NetworkLegend(color: Color(0xFF66E0C2), label: 'Conectado'),
+              const _NetworkLegend(
+                color: Color(0xFF66E0C2),
+                label: 'Conectado',
+              ),
               _NetworkLegend(
                 color: const Color(0xFFFFC46B),
                 label: 'Advertencia${gaps == 0 ? '' : ' · $gaps'}',
@@ -216,9 +219,7 @@ class _WaterBodyPainter extends CustomPainter {
     );
 
     canvas.save();
-    canvas.clipRRect(
-      RRect.fromRectAndRadius(sky, const Radius.circular(16)),
-    );
+    canvas.clipRRect(RRect.fromRectAndRadius(sky, const Radius.circular(16)));
     canvas.drawPath(
       _bodyPath(size),
       Paint()
@@ -299,7 +300,8 @@ class _WaterBodyPainter extends CustomPainter {
     final path = Path();
     for (var x = 0.0; x <= size.width; x += 5) {
       final along = x / width;
-      final y = _surfaceY(size, x, phase) +
+      final y =
+          _surfaceY(size, x, phase) +
           16 +
           math.sin(along * math.pi * 6 - travel * 2) * 5;
       if (x == 0) {
@@ -372,19 +374,19 @@ class _WaterBodyPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1,
     );
-    text.paint(canvas, Offset(x - text.width / 2, head.dy - 18 - text.height / 2));
+    text.paint(
+      canvas,
+      Offset(x - text.width / 2, head.dy - 18 - text.height / 2),
+    );
 
     // Pin de captación moderno con anillo de halo y centro brillante
-    canvas.drawCircle(
-      head,
-      10,
-      Paint()..color = color.withValues(alpha: 0.18),
-    );
+    canvas.drawCircle(head, 10, Paint()..color = color.withValues(alpha: 0.18));
     canvas.drawCircle(head, 7, Paint()..color = const Color(0xFF0C1F24));
     canvas.drawCircle(
       head,
       4.5,
-      Paint()..color = color.withValues(alpha: link == PointLink.gap ? 0.75 : 1),
+      Paint()
+        ..color = color.withValues(alpha: link == PointLink.gap ? 0.75 : 1),
     );
     // Destello blanco central
     canvas.drawCircle(
@@ -398,9 +400,7 @@ class _WaterBodyPainter extends CustomPainter {
       head.translate(0, 7),
       Offset(x, surface),
       Paint()
-        ..color = color.withValues(
-          alpha: link == PointLink.gap ? 0.5 : 0.85,
-        )
+        ..color = color.withValues(alpha: link == PointLink.gap ? 0.5 : 0.85)
         ..strokeWidth = 2
         ..strokeCap = StrokeCap.round,
     );

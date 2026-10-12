@@ -120,7 +120,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _show(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -138,7 +140,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 child: Text(
                   widget.session.displayName.isEmpty
                       ? 'S'
-                      : widget.session.displayName.substring(0, 1).toUpperCase(),
+                      : widget.session.displayName
+                            .substring(0, 1)
+                            .toUpperCase(),
                 ),
               ),
               const SizedBox(width: 14),
@@ -216,8 +220,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     controller: _firstName,
                     decoration: const InputDecoration(labelText: 'Nombre'),
                     textInputAction: TextInputAction.next,
-                    validator: (value) =>
-                        (value ?? '').trim().isEmpty ? 'Ingresa tu nombre.' : null,
+                    validator: (value) => (value ?? '').trim().isEmpty
+                        ? 'Ingresa tu nombre.'
+                        : null,
                   ),
                   const SizedBox(height: 10),
                   TextFormField(
