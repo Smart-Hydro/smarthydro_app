@@ -32,6 +32,7 @@ class CaptureStage extends StatefulWidget {
     this.levelMin,
     this.levelMax,
     this.onInteract,
+    this.playing = false,
     super.key,
   });
 
@@ -44,15 +45,25 @@ class CaptureStage extends StatefulWidget {
   final PointLink link;
   final VoidCallback? onInteract;
 
+  /// Verdadero mientras el replay corre: la figura "cobra vida" con una
+  /// respiración/oleaje más marcada para reforzar que está en movimiento.
+  final bool playing;
+
   @override
   State<CaptureStage> createState() => _CaptureStageState();
 }
 
 class _CaptureStageState extends State<CaptureStage>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final AnimationController _flow = AnimationController(
     vsync: this,
     duration: const Duration(seconds: 6),
+  );
+
+  /// Pulso suave que se enciende al pulsar play y decae al pausar.
+  late final AnimationController _playPulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
   );
   bool _hovered = false;
 
@@ -63,14 +74,31 @@ class _CaptureStageState extends State<CaptureStage>
     if (reduce) {
       _flow.stop();
       _flow.value = 0;
+      _playPulse.stop();
+      _playPulse.value = 0;
     } else if (!_flow.isAnimating) {
       _flow.repeat();
     }
   }
 
   @override
+  void didUpdateWidget(covariant CaptureStage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.playing && !oldWidget.playing) {
+      _playPulse.repeat(reverse: true);
+    } else if (!widget.playing && oldWidget.playing) {
+      _playPulse.animateTo(
+        0,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
+  @override
   void dispose() {
     _flow.dispose();
+    _playPulse.dispose();
     super.dispose();
   }
 
@@ -92,8 +120,12 @@ class _CaptureStageState extends State<CaptureStage>
         onExit: (_) => setState(() => _hovered = false),
         child: ExcludeSemantics(
           child: AnimatedBuilder(
-            animation: _flow,
+            animation: Listenable.merge([_flow, _playPulse]),
             builder: (context, _) {
+              // 0 en reposo, 1 en reproducción (respiración suave).
+              final alive = widget.playing
+                  ? 0.55 + _playPulse.value * 0.45
+                  : _playPulse.value * 0.45;
               return CustomPaint(
                 painter: _CaptureStagePainter(
                   phase: _flow.value,
@@ -106,6 +138,7 @@ class _CaptureStageState extends State<CaptureStage>
                   isSurface: widget.isSurface,
                   link: widget.link,
                   hovered: _hovered,
+                  alive: alive,
                 ),
                 child: const SizedBox.expand(),
               );
@@ -129,6 +162,7 @@ class _CaptureStagePainter extends CustomPainter {
     required this.isSurface,
     required this.link,
     required this.hovered,
+    required this.alive,
   });
 
   final double phase;
@@ -141,6 +175,9 @@ class _CaptureStagePainter extends CustomPainter {
   final bool isSurface;
   final PointLink link;
   final bool hovered;
+
+  /// 0 en reposo, ~1 en reproducción: amplifica oleaje, flujo y halo.
+  final double alive;
 
   static const _surfaceCard = Color(0xFF12252A);
   static const _mint = Color(0xFF66E0C2);
@@ -187,12 +224,35 @@ class _CaptureStagePainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = hovered ? 1.4 : 1,
     );
+    if (alive > 0.01) _paintBreathHalo(canvas, size);
     if (isSurface) {
       _paintSurface(canvas, size);
     } else {
       _paintWell(canvas, size);
     }
     _paintHeader(canvas, size);
+  }
+
+  /// Halo radial que "respira" con el replay: da la sensación orgánica de
+  /// que la figura cobra vida sin meter paneles ni sombras duras.
+  void _paintBreathHalo(Canvas canvas, Size size) {
+    final center = isSurface
+        ? Offset(size.width * 0.5, size.height * 0.55)
+        : Offset(size.width * 0.42, size.height * 0.52);
+    final radius = size.shortestSide * (0.45 + alive * 0.18);
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [
+            _accent.withValues(alpha: 0.16 * alive),
+            _accent.withValues(alpha: 0.05 * alive),
+            _accent.withValues(alpha: 0),
+          ],
+          stops: const [0, 0.55, 1],
+        ).createShader(Rect.fromCircle(center: center, radius: radius)),
+    );
   }
 
   /// Cabecera mínima: tipo de captación y estado, sin paneles ni sombras.
@@ -293,10 +353,13 @@ class _CaptureStagePainter extends CustomPainter {
             ],
           ).createShader(water),
       );
-      // Ola única y suave.
+      // Ola única y suave; crece cuando el replay está vivo.
+      final waveAmp = 1.4 + alive * 2.4;
       final wave = Path()..moveTo(water.left, water.top + 3);
       for (var x = water.left; x <= water.right; x += 4) {
-        final y = water.top + math.sin((x / 16) + phase * math.pi * 2) * 1.4;
+        final y =
+            water.top +
+            math.sin((x / 16) + phase * math.pi * (2 + alive * 2)) * waveAmp;
         wave.lineTo(x, y);
       }
       canvas.drawPath(
@@ -357,11 +420,15 @@ class _CaptureStagePainter extends CustomPainter {
         ..color = _fog.withValues(alpha: 0.14)
         ..strokeWidth = 1,
     );
+    final surfaceAmp = 3.5 + alive * 4.5;
     final water = Path()..moveTo(0, bankY);
     for (var x = 0.0; x <= size.width; x += 6) {
       final y =
           bankY +
-          math.sin((x / size.width) * math.pi * 2 + phase * math.pi * 2) * 3.5;
+          math.sin(
+                (x / size.width) * math.pi * 2 + phase * math.pi * (2 + alive),
+              ) *
+              surfaceAmp;
       water.lineTo(x, y);
     }
     water
@@ -390,7 +457,7 @@ class _CaptureStagePainter extends CustomPainter {
         : _faint.withValues(alpha: 0.4);
     final y = bankY + (size.height - bankY) * 0.55;
     for (var i = 0; i < 4; i++) {
-      final travel = (phase * 0.6 + i / 4) % 1;
+      final travel = (phase * (0.6 + alive * 0.5) + i / 4) % 1;
       final x = size.width * (0.2 + travel * 0.6);
       final fade = moving ? math.sin(travel * math.pi) : 0.5;
       final chevron = Path()
@@ -437,11 +504,15 @@ class _CaptureStagePainter extends CustomPainter {
       final fade = math.sin(travel * math.pi);
       if (fade < 0.05) continue;
       final dx = origin.dx + length * travel;
-      final dy = origin.dy + math.sin(travel * math.pi * 2 + index) * 2;
+      final dy =
+          origin.dy + math.sin(travel * math.pi * 2 + index) * (2 + alive * 2);
       canvas.drawCircle(
         Offset(dx, dy),
-        1.6 + fade,
-        Paint()..color = _accent.withValues(alpha: 0.25 + fade * 0.55),
+        1.6 + fade * (1 + alive * 0.6),
+        Paint()
+          ..color = _accent.withValues(
+            alpha: 0.25 + fade * (0.55 + alive * 0.2),
+          ),
       );
     }
   }
@@ -498,5 +569,6 @@ class _CaptureStagePainter extends CustomPainter {
       oldDelegate.flow != flow ||
       oldDelegate.isSurface != isSurface ||
       oldDelegate.link != link ||
-      oldDelegate.hovered != hovered;
+      oldDelegate.hovered != hovered ||
+      oldDelegate.alive != alive;
 }

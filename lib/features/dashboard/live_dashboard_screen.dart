@@ -640,68 +640,44 @@ class _DashboardTab extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
           children: [
-            PortfolioNetwork(points: points, onPointSelected: onSelectPoint),
-            const SizedBox(height: 14),
-            Text(
-              'Hola, $userName',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            // Saludo compacto con resumen del día.
+            HydroEntrance(
+              delay: const Duration(milliseconds: 40),
+              child: _GreetingBanner(
+                userName: userName,
+                total: total,
+                connected: connected,
+                gaps: gaps,
+                incidents: incidents,
+              ),
             ),
             const SizedBox(height: 12),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final columns = constraints.maxWidth >= 900
-                    ? 4
-                    : constraints.maxWidth >= 560
-                    ? 2
-                    : 2;
-                const gap = 12.0;
-                final cardWidth =
-                    (constraints.maxWidth - gap * (columns - 1)) / columns;
-                final items = [
-                  _MetricData(
-                    'Puntos',
-                    '$total',
-                    Icons.location_on_outlined,
-                    const Color(0xFF66E0C2),
-                  ),
-                  _MetricData(
-                    'Conectados',
-                    '$connected',
-                    Icons.sensors_rounded,
-                    const Color(0xFF66E0C2),
-                  ),
-                  _MetricData(
-                    'Advertencias',
-                    '$gaps',
-                    Icons.water_damage_outlined,
-                    const Color(0xFFFFC46B),
-                  ),
-                  _MetricData(
-                    'Incidencias',
-                    '$incidents',
-                    Icons.report_outlined,
-                    const Color(0xFFFF847A),
-                  ),
-                ];
-                return Wrap(
-                  spacing: gap,
-                  runSpacing: gap,
-                  children: [
-                    for (var i = 0; i < items.length; i++)
-                      SizedBox(
-                        width: cardWidth,
-                        child: HydroEntrance(
-                          delay: Duration(milliseconds: 60 * i),
-                          child: _MetricCard(data: items[i]),
-                        ),
-                      ),
-                  ],
-                );
-              },
+            // Stats compactos en una sola fila (chips).
+            HydroEntrance(
+              delay: const Duration(milliseconds: 120),
+              child: _CompactStats(
+                total: total,
+                connected: connected,
+                gaps: gaps,
+                incidents: incidents,
+              ),
             ),
-            const SizedBox(height: 22),
+            const SizedBox(height: 14),
+            // Vista general: cuerpos de agua navegables en perspectiva.
+            HydroEntrance(
+              delay: const Duration(milliseconds: 200),
+              child: PortfolioNetwork(
+                points: points,
+                onPointSelected: onSelectPoint,
+              ),
+            ),
+            const SizedBox(height: 16),
             Row(
               children: [
+                const Text(
+                  'Tus puntos',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                ),
                 const Spacer(),
                 TextButton.icon(
                   onPressed: onOpenPoints,
@@ -710,7 +686,7 @@ class _DashboardTab extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             if (points.isEmpty)
               const _EmptyState(
                 icon: Icons.water_drop_outlined,
@@ -721,7 +697,7 @@ class _DashboardTab extends StatelessWidget {
             else
               for (var i = 0; i < points.take(5).length; i++) ...[
                 HydroEntrance(
-                  delay: Duration(milliseconds: 200 + i * 55),
+                  delay: Duration(milliseconds: 260 + i * 55),
                   child: _PointCard(
                     point: points[i],
                     onTap: () => onSelectPoint(points[i]),
@@ -729,7 +705,7 @@ class _DashboardTab extends StatelessWidget {
                 ),
                 const SizedBox(height: 10),
               ],
-            const SizedBox(height: 14),
+            const SizedBox(height: 12),
             HydroEntrance(
               delay: const Duration(milliseconds: 420),
               child: _ActionCard(
@@ -1390,6 +1366,7 @@ class _PointDetailScreenState extends State<_PointDetailScreen> {
                   flowLitersPerSecond: liveFlow,
                   isSurface: isSurface,
                   link: pointLinkOf(data),
+                  playing: _replayTimer != null,
                 ),
                 SafeArea(
                   child: Padding(
@@ -1458,28 +1435,15 @@ class _PointDetailScreenState extends State<_PointDetailScreen> {
                         message: _replayError!,
                         onRetry: _loadReplay,
                       ),
-                    _LoggerPlate(
-                      title: title,
-                      project: data['project_name'] as String? ?? '',
-                      link: pointLinkOf(data),
+                    _ReadoutStrip(
                       flow: liveFlow,
                       total: liveTotal,
                       level: level,
                       stamp: startedAt == null
                           ? 'Última medición ${_formatTimestamp(telemetry['date_time_medition'])}'
                           : _formatTimestamp(startedAt.toIso8601String()),
-                      kind: isSurface ? 'Agua superficial' : 'Pozo',
-                      showIdentity: false,
                     ),
-                    const SizedBox(height: 10),
-                    _PointQuickActions(
-                      isSurface: isSurface,
-                      onAnalysis: _openAnalysisForPoint,
-                      onCompliance: _openComplianceForPoint,
-                      onSupport: _createTicketForPoint,
-                      onReports: _openReportsForPoint,
-                    ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 12),
                     _ReplayBar(
                       playing: _replayTimer != null,
                       canReplay: _replayRecords.length > 1,
@@ -1490,18 +1454,32 @@ class _PointDetailScreenState extends State<_PointDetailScreen> {
                       onHistory: _openHistory,
                     ),
                     if (_replayRecords.length > 1) ...[
-                      Slider(
-                        value: _selectedReplayIndex.toDouble(),
-                        min: 0,
-                        max: (_replayRecords.length - 1).toDouble(),
-                        divisions: _replayRecords.length - 1,
-                        label: startedAt == null
-                            ? null
-                            : _formatTimestamp(startedAt.toIso8601String()),
-                        semanticFormatterCallback: (value) =>
-                            'Registro ${value.round() + 1} de ${_replayRecords.length}',
-                        onChanged: (value) => setState(
-                          () => _selectedReplayIndex = value.round(),
+                      SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          activeTrackColor: const Color(0xFF66E0C2),
+                          inactiveTrackColor: const Color(0xFF26383A),
+                          thumbColor: const Color(0xFF66E0C2),
+                          overlayColor: const Color(
+                            0xFF66E0C2,
+                          ).withValues(alpha: 0.2),
+                          trackHeight: 3,
+                          thumbShape: const RoundSliderThumbShape(
+                            enabledThumbRadius: 7,
+                          ),
+                        ),
+                        child: Slider(
+                          value: _selectedReplayIndex.toDouble(),
+                          min: 0,
+                          max: (_replayRecords.length - 1).toDouble(),
+                          divisions: _replayRecords.length - 1,
+                          label: startedAt == null
+                              ? null
+                              : _formatTimestamp(startedAt.toIso8601String()),
+                          semanticFormatterCallback: (value) =>
+                              'Registro ${value.round() + 1} de ${_replayRecords.length}',
+                          onChanged: (value) => setState(
+                            () => _selectedReplayIndex = value.round(),
+                          ),
                         ),
                       ),
                       Padding(
@@ -1514,16 +1492,16 @@ class _PointDetailScreenState extends State<_PointDetailScreen> {
                                 _replayRecords.first['date_time']?.toString(),
                               ),
                               style: const TextStyle(
-                                color: Color(0xFFB4C7C8),
-                                fontSize: 12,
+                                color: Color(0xFF8FA8A8),
+                                fontSize: 11,
                               ),
                             ),
                             Text(
                               '${_selectedReplayIndex + 1}/${_replayRecords.length}',
                               style: const TextStyle(
-                                color: Color(0xFFEFFFFA),
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF66E0C2),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
                               ),
                             ),
                             Text(
@@ -1531,8 +1509,8 @@ class _PointDetailScreenState extends State<_PointDetailScreen> {
                                 _replayRecords.last['date_time']?.toString(),
                               ),
                               style: const TextStyle(
-                                color: Color(0xFFB4C7C8),
-                                fontSize: 12,
+                                color: Color(0xFF8FA8A8),
+                                fontSize: 11,
                               ),
                             ),
                           ],
@@ -1546,11 +1524,21 @@ class _PointDetailScreenState extends State<_PointDetailScreen> {
                               ? 'Sin lecturas en este período. Se muestra la última telemetría del agua superficial.'
                               : 'Sin lecturas en este período. Se muestra la última telemetría del pozo.',
                           style: const TextStyle(
-                            color: Color(0xFFB4C7C8),
-                            fontSize: 12,
+                            color: Color(0xFF8FA8A8),
+                            fontSize: 11,
                           ),
                         ),
                       ),
+                    const SizedBox(height: 12),
+                    const Divider(height: 1),
+                    const SizedBox(height: 10),
+                    _PointQuickActions(
+                      isSurface: isSurface,
+                      onAnalysis: _openAnalysisForPoint,
+                      onCompliance: _openComplianceForPoint,
+                      onSupport: _createTicketForPoint,
+                      onReports: _openReportsForPoint,
+                    ),
                   ],
                 ),
               ),
@@ -1844,6 +1832,7 @@ class _HoverIconButtonState extends State<_HoverIconButton> {
 
 /// Acciones rápidas desde el detalle del punto: navegación a análisis,
 /// cumplimiento, reportes y soporte, ya acotados al punto en pantalla.
+/// Diseño minimal: una fila de iconos con etiqueta debajo, sin tarjetas.
 class _PointQuickActions extends StatelessWidget {
   const _PointQuickActions({
     required this.isSurface,
@@ -1861,43 +1850,37 @@ class _PointQuickActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 44,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        children: [
-          _QuickChip(
-            icon: Icons.query_stats_rounded,
-            label: 'Análisis',
-            onTap: onAnalysis,
-          ),
-          const SizedBox(width: 8),
-          _QuickChip(
-            icon: Icons.balance_rounded,
-            label: 'Cumplimiento',
-            onTap: onCompliance,
-          ),
-          const SizedBox(width: 8),
-          _QuickChip(
-            icon: Icons.table_view_outlined,
-            label: 'Registros',
-            onTap: onReports,
-          ),
-          const SizedBox(width: 8),
-          _QuickChip(
-            icon: Icons.support_agent_rounded,
-            label: 'Soporte',
-            onTap: onSupport,
-            accent: const Color(0xFFFFC46B),
-          ),
-        ],
-      ),
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        _QuickAction(
+          icon: Icons.query_stats_rounded,
+          label: 'Análisis',
+          onTap: onAnalysis,
+        ),
+        _QuickAction(
+          icon: Icons.balance_rounded,
+          label: 'Cumplim.',
+          onTap: onCompliance,
+        ),
+        _QuickAction(
+          icon: Icons.table_view_outlined,
+          label: 'Registros',
+          onTap: onReports,
+        ),
+        _QuickAction(
+          icon: Icons.support_agent_rounded,
+          label: 'Soporte',
+          onTap: onSupport,
+          accent: const Color(0xFFFFC46B),
+        ),
+      ],
     );
   }
 }
 
-class _QuickChip extends StatelessWidget {
-  const _QuickChip({
+class _QuickAction extends StatefulWidget {
+  const _QuickAction({
     required this.icon,
     required this.label,
     required this.onTap,
@@ -1910,30 +1893,39 @@ class _QuickChip extends StatelessWidget {
   final Color? accent;
 
   @override
+  State<_QuickAction> createState() => _QuickActionState();
+}
+
+class _QuickActionState extends State<_QuickAction> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
-    final color = accent ?? const Color(0xFF66E0C2);
-    return Material(
-      color: const Color(0xFF0C1B20).withValues(alpha: 0.85),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: color.withValues(alpha: 0.28), width: 1),
-      ),
+    final color = widget.accent ?? const Color(0xFF66E0C2);
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
+        onTap: widget.onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Row(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 16, color: color),
-              const SizedBox(width: 6),
+              AnimatedScale(
+                scale: _hovered ? 1.12 : 1,
+                duration: const Duration(milliseconds: 150),
+                curve: Curves.easeOut,
+                child: Icon(widget.icon, size: 22, color: color),
+              ),
+              const SizedBox(height: 4),
               Text(
-                label,
+                widget.label,
                 style: TextStyle(
-                  color: const Color(0xFFE8F2F1),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
+                  color: _hovered ? color : const Color(0xFF8FA8A8),
+                  fontSize: 10.5,
+                  fontWeight: _hovered ? FontWeight.w800 : FontWeight.w600,
                 ),
               ),
             ],
@@ -1944,218 +1936,111 @@ class _QuickChip extends StatelessWidget {
   }
 }
 
-class _LoggerPlate extends StatelessWidget {
-  const _LoggerPlate({
-    required this.title,
-    required this.project,
-    required this.link,
+/// Franja de lectura minimal: caudal, total y nivel en una sola línea,
+/// sin tarjeta contenedora. Los valores destacan con su acento.
+class _ReadoutStrip extends StatelessWidget {
+  const _ReadoutStrip({
     required this.flow,
     required this.total,
     required this.level,
     required this.stamp,
-    required this.kind,
-    this.showIdentity = true,
   });
 
-  final String title;
-  final String project;
-  final PointLink link;
   final double? flow;
   final double? total;
   final double? level;
   final String stamp;
-  final String kind;
-  final bool showIdentity;
 
   @override
   Widget build(BuildContext context) {
-    final lamp = switch (link) {
-      PointLink.connected => const Color(0xFF66E0C2),
-      PointLink.gap => const Color(0xFFFFC46B),
-      PointLink.incident => const Color(0xFFFF847A),
-    };
-    return HydroGlass(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-      radius: 20,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 10,
-                height: 10,
-                decoration: BoxDecoration(
-                  color: lamp,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: lamp.withValues(alpha: 0.6),
-                      blurRadius: 8,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                kind,
-                style: const TextStyle(
-                  color: Color(0xFFD7E7E4),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: lamp.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: lamp.withValues(alpha: 0.3)),
-                ),
-                child: Text(
-                  pointLinkLabel(link),
-                  style: TextStyle(
-                    color: lamp,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              if (showIdentity) ...[
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.end,
-                    style: const TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          if (showIdentity && project.isNotEmpty) ...[
-            const SizedBox(height: 2),
-            Text(
-              project,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Color(0xFF9AB0B1), fontSize: 11),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            _Readout(
+              label: 'Caudal',
+              value: flow == null ? '—' : flow!.toStringAsFixed(2),
+              unit: 'L/s',
+              accent: const Color(0xFF66E0C2),
+            ),
+            _Readout(
+              label: 'Total',
+              value: total == null ? '—' : total!.toStringAsFixed(1),
+              unit: 'm³',
+              accent: const Color(0xFF69B9FF),
+            ),
+            _Readout(
+              label: 'Nivel',
+              value: level == null ? '—' : level!.toStringAsFixed(2),
+              unit: 'm',
+              accent: const Color(0xFFB39DDB),
             ),
           ],
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              _LoggerReadout(
-                label: 'Caudal',
-                value: flow == null ? '—' : flow!.toStringAsFixed(2),
-                unit: 'L/s',
-                accentColor: const Color(0xFF66E0C2),
-              ),
-              const SizedBox(width: 10),
-              _LoggerReadout(
-                label: 'Total Acum.',
-                value: total == null ? '—' : total!.toStringAsFixed(1),
-                unit: 'm³',
-                accentColor: const Color(0xFF69B9FF),
-              ),
-              const SizedBox(width: 10),
-              _LoggerReadout(
-                label: 'Nivel',
-                value: level == null ? '—' : level!.toStringAsFixed(2),
-                unit: 'm',
-                accentColor: const Color(0xFFB39DDB),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            stamp,
-            style: const TextStyle(color: Color(0xFFA9BFC0), fontSize: 11),
-          ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          stamp,
+          style: const TextStyle(color: Color(0xFF8FA8A8), fontSize: 10.5),
+        ),
+      ],
     );
   }
 }
 
-class _LoggerReadout extends StatelessWidget {
-  const _LoggerReadout({
+class _Readout extends StatelessWidget {
+  const _Readout({
     required this.label,
     required this.value,
     required this.unit,
-    required this.accentColor,
+    required this.accent,
   });
 
   final String label;
   final String value;
   final String unit;
-  final Color accentColor;
+  final Color accent;
 
   @override
   Widget build(BuildContext context) {
     return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        decoration: BoxDecoration(
-          color: const Color(0xFF081619).withValues(alpha: 0.6),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: accentColor.withValues(alpha: 0.2),
-            width: 1,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: accent.withValues(alpha: 0.8),
+              fontSize: 9.5,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.4,
+            ),
           ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+          const SizedBox(height: 3),
+          RichText(
+            text: TextSpan(
               children: [
-                Container(
-                  width: 5,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: accentColor,
-                    shape: BoxShape.circle,
+                TextSpan(
+                  text: value,
+                  style: const TextStyle(
+                    color: Color(0xFFF4FBF8),
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.4,
                   ),
                 ),
-                const SizedBox(width: 5),
-                Text(
-                  label,
-                  style: const TextStyle(
-                    color: Color(0xFFA9BFC0),
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.3,
+                TextSpan(
+                  text: ' $unit',
+                  style: TextStyle(
+                    color: accent.withValues(alpha: 0.75),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 6),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(
-                value,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w900,
-                  fontSize: 22,
-                  color: Color(0xFFF4FBF8),
-                ),
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              unit,
-              style: TextStyle(
-                color: accentColor.withValues(alpha: 0.8),
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -2204,79 +2089,194 @@ class _HistoryDayCard extends StatelessWidget {
   );
 }
 
-class _MetricData {
-  const _MetricData(this.title, this.value, this.icon, this.color);
+/// Saludo compacto del dashboard con un resumen del estado de la cartera.
+class _GreetingBanner extends StatelessWidget {
+  const _GreetingBanner({
+    required this.userName,
+    required this.total,
+    required this.connected,
+    required this.gaps,
+    required this.incidents,
+  });
 
-  final String title;
-  final String value;
-  final IconData icon;
-  final Color color;
-}
-
-class _MetricCard extends StatelessWidget {
-  const _MetricCard({required this.data});
-
-  final _MetricData data;
+  final String userName;
+  final int total;
+  final int connected;
+  final int gaps;
+  final int incidents;
 
   @override
-  Widget build(BuildContext context) => _SectionCard(
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: data.color.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: data.color.withValues(alpha: 0.25),
-                  width: 1,
+  Widget build(BuildContext context) {
+    final ok = incidents == 0 && gaps == 0;
+    final status = ok
+        ? 'Toda tu red en línea'
+        : incidents > 0
+        ? '$incidents ${incidents == 1 ? 'incidencia' : 'incidencias'} en curso'
+        : '$gaps ${gaps == 1 ? 'advertencia' : 'advertencias'} por revisar';
+    final statusColor = ok
+        ? const Color(0xFF66E0C2)
+        : incidents > 0
+        ? const Color(0xFFFF847A)
+        : const Color(0xFFFFC46B);
+    return HydroGlass(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: const Color(0xFF66E0C2).withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: const Color(0xFF66E0C2).withValues(alpha: 0.3),
+              ),
+            ),
+            child: const Icon(
+              Icons.water_drop_rounded,
+              color: Color(0xFF66E0C2),
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Hola, $userName',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  status,
+                  style: TextStyle(
+                    color: statusColor,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '$total',
+                style: const TextStyle(
+                  color: Color(0xFF66E0C2),
+                  fontWeight: FontWeight.w900,
+                  fontSize: 20,
                 ),
               ),
-              child: Icon(data.icon, color: data.color, size: 20),
-            ),
-            Container(
-              width: 6,
-              height: 6,
-              decoration: BoxDecoration(
-                color: data.color,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: data.color.withValues(alpha: 0.6),
-                    blurRadius: 6,
-                  ),
-                ],
+              const Text(
+                'puntos',
+                style: TextStyle(color: Color(0xFF9AB0B1), fontSize: 10),
               ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Stats compactos del estado de la red en una fila de chips.
+class _CompactStats extends StatelessWidget {
+  const _CompactStats({
+    required this.total,
+    required this.connected,
+    required this.gaps,
+    required this.incidents,
+  });
+
+  final int total;
+  final int connected;
+  final int gaps;
+  final int incidents;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        _StatChip(
+          label: 'En línea',
+          value: '$connected',
+          color: const Color(0xFF66E0C2),
+          icon: Icons.sensors_rounded,
+        ),
+        const SizedBox(width: 8),
+        _StatChip(
+          label: 'Advert.',
+          value: '$gaps',
+          color: const Color(0xFFFFC46B),
+          icon: Icons.water_damage_outlined,
+        ),
+        const SizedBox(width: 8),
+        _StatChip(
+          label: 'Incid.',
+          value: '$incidents',
+          color: const Color(0xFFFF847A),
+          icon: Icons.report_outlined,
+        ),
+        const SizedBox(width: 8),
+        _StatChip(
+          label: 'Total',
+          value: '$total',
+          color: const Color(0xFF69B9FF),
+          icon: Icons.location_on_outlined,
+        ),
+      ],
+    );
+  }
+}
+
+class _StatChip extends StatelessWidget {
+  const _StatChip({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.icon,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: HydroGlass(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        radius: 16,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: color, size: 16),
+            const SizedBox(height: 6),
+            Text(
+              value,
+              style: const TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: 18,
+                color: Color(0xFFF4FBF8),
+              ),
+            ),
+            const SizedBox(height: 1),
+            Text(
+              label,
+              style: const TextStyle(color: Color(0xFF9AB0B1), fontSize: 10),
             ),
           ],
         ),
-        const SizedBox(height: 14),
-        Text(
-          data.title,
-          style: const TextStyle(
-            color: Color(0xFFA9BFC0),
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.2,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          data.value,
-          style: const TextStyle(
-            fontWeight: FontWeight.w900,
-            fontSize: 26,
-            color: Color(0xFFF4FBF8),
-            letterSpacing: -0.5,
-          ),
-        ),
-      ],
-    ),
-  );
+      ),
+    );
+  }
 }
 
 class _PointCard extends StatelessWidget {
