@@ -1,12 +1,15 @@
-/// Metadatos del punto: variables disponibles, ficha del logger y DGA.
+/// Metadatos del punto: variables del esquema del logger, ficha del equipo y DGA.
 ///
-/// Fuente: `/api/ik/point/{id}/variables/`, `/config/` (`token_service`) y
-/// el bloque `dga` del summary. Solo se muestra lo que el punto tiene activo.
+/// Fuente: `/api/ik/point/{id}/variables/` (`str_variable` = nombre en el
+/// esquema del logger, `type_variable` / `label` / `display_key` = a qué
+/// corresponde en SmartHydro), `/config/` (`token_service`) y el bloque `dga`
+/// del summary. Solo se muestra lo que el punto tiene activo.
 library;
 
 class PointVariable {
   const PointVariable({
     required this.type,
+    this.strVariable,
     this.label,
     this.displayKey,
     this.token,
@@ -14,20 +17,45 @@ class PointVariable {
 
   factory PointVariable.fromJson(Map<String, dynamic> json) => PointVariable(
     type: _normalizeType(json['type_variable'] ?? json['type']),
-    label: _str(json['label'] ?? json['str_variable']),
+    // Nombre en el esquema del logger (ej. ai1ActualValue).
+    strVariable: _str(json['str_variable']),
+    label: _str(json['label']),
     displayKey: _str(json['display_key']),
     token: _str(json['token_service']),
   );
 
   /// `CAUDAL`, `NIVEL`, `TOTALIZADO`, `CAUDAL_PROMEDIO`, …
   final String type;
+
+  /// Texto de la variable en el esquema del punto / logger.
+  final String? strVariable;
+
+  /// Etiqueta legible (ej. "Caudal").
   final String? label;
+
+  /// Clave de visualización en la app (caudal, nivel, total…).
   final String? displayKey;
+
   final String? token;
 
   bool get isFlow => type == 'CAUDAL' || type == 'CAUDAL_PROMEDIO';
   bool get isLevel => type == 'NIVEL';
   bool get isTotal => type == 'TOTALIZADO';
+
+  /// A qué corresponde esta variable del esquema.
+  String get meaning {
+    if (label != null && label!.isNotEmpty) return label!;
+    if (displayKey != null && displayKey!.isNotEmpty) {
+      return displayKey!.replaceAll('_', ' ');
+    }
+    if (type.isNotEmpty && type != 'NULL') {
+      return type.replaceAll('_', ' ').toLowerCase();
+    }
+    return 'sin mapear';
+  }
+
+  /// Nombre que se muestra a la izquierda: el del esquema del logger.
+  String get schemaName => strVariable ?? label ?? type;
 
   static String _normalizeType(dynamic raw) {
     final t = '$raw'.trim().toUpperCase().replaceAll(' ', '_');
@@ -178,13 +206,23 @@ class LoggerInfo {
   final List<PointVariable> variables;
   final DgaInfo? dga;
 
+  /// Datos del equipo (sin el listado del esquema).
   List<({String label, String value})> get fields => [
     if (model != null) (label: 'Modelo', value: model!),
     if (token != null) (label: 'Token', value: token!),
     if (frequency != null) (label: 'Frecuencia', value: '$frequency min'),
     (label: 'Telemetría', value: telemetry ? 'Activa' : 'Inactiva'),
+  ];
+
+  /// Variables del esquema del logger → a qué corresponden en SmartHydro.
+  /// Izquierda: `str_variable`; derecha: etiqueta / tipo.
+  List<({String label, String value})> get schemeFields => [
     for (final v in variables)
-      if (v.label != null)
-        (label: v.label!, value: v.type.replaceAll('_', ' ').toLowerCase()),
+      (
+        label: v.schemaName,
+        value: v.type.isEmpty || v.type == 'NULL'
+            ? v.meaning
+            : '${v.meaning} · ${v.type.replaceAll('_', ' ')}',
+      ),
   ];
 }

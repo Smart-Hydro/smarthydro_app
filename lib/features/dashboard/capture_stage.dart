@@ -504,17 +504,23 @@ class _CaptureStageState extends State<CaptureStage>
         );
       case ScenePart.logger:
         final info = widget.loggerInfo;
+        final sections =
+            <({String title, List<({String label, String value})> fields})>[
+              if (info != null && info.schemeFields.isNotEmpty)
+                (title: 'Variables del esquema', fields: info.schemeFields),
+              if (info?.dga != null && info!.dga!.fields.isNotEmpty)
+                (title: 'Cumplimiento DGA', fields: info.dga!.fields),
+            ];
         return _SceneInfo(
           title: 'Tablero eléctrico con datalogger',
           value: pointLinkLabel(widget.link),
           body:
               'Gabinete que instalamos en terreno: recibe la energía y aloja '
-              'el datalogger. Aquí están el token, el modelo y las variables '
-              'que el equipo envía a SmartHydro.',
+              'el datalogger. Las variables del esquema indican qué mide el '
+              'equipo (str_variable) y a qué corresponde en SmartHydro.',
           color: _Palette.linkColor(widget.link),
           fields: info?.fields ?? const [],
-          sectionTitle: info?.dga == null ? null : 'Cumplimiento DGA',
-          sectionFields: info?.dga?.fields ?? const [],
+          sections: sections,
         );
       case ScenePart.flowmeter:
         final total = widget.totalCubicMeters;
@@ -750,8 +756,7 @@ class _SceneInfo {
     required this.body,
     required this.color,
     this.fields = const [],
-    this.sectionTitle,
-    this.sectionFields = const [],
+    this.sections = const [],
   });
 
   final String title;
@@ -759,8 +764,8 @@ class _SceneInfo {
   final String body;
   final Color color;
   final List<({String label, String value})> fields;
-  final String? sectionTitle;
-  final List<({String label, String value})> sectionFields;
+  final List<({String title, List<({String label, String value})> fields})>
+  sections;
 }
 
 class _HintRow extends StatelessWidget {
@@ -859,11 +864,10 @@ class _InfoCard extends StatelessWidget {
                       const SizedBox(height: 8),
                       ...info.fields.map(_fieldRow),
                     ],
-                    if (info.sectionTitle != null &&
-                        info.sectionFields.isNotEmpty) ...[
+                    for (final section in info.sections) ...[
                       const SizedBox(height: 10),
                       Text(
-                        info.sectionTitle!,
+                        section.title,
                         style: TextStyle(
                           color: info.color.withValues(alpha: 0.95),
                           fontWeight: FontWeight.w800,
@@ -872,7 +876,7 @@ class _InfoCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      ...info.sectionFields.map(_fieldRow),
+                      ...section.fields.map(_fieldRow),
                     ],
                   ],
                 ),
@@ -893,28 +897,33 @@ class _InfoCard extends StatelessWidget {
   }
 
   Widget _fieldRow(({String label, String value}) field) => Padding(
-    padding: const EdgeInsets.only(bottom: 3),
+    padding: const EdgeInsets.only(bottom: 4),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(
-          width: 118,
+        Expanded(
+          flex: 5,
           child: Text(
             field.label,
             style: TextStyle(
               color: _Palette.faint.withValues(alpha: 0.95),
               fontSize: 11,
               fontWeight: FontWeight.w600,
+              fontFamily: 'monospace',
+              height: 1.25,
             ),
           ),
         ),
+        const SizedBox(width: 8),
         Expanded(
+          flex: 6,
           child: Text(
             field.value,
             style: const TextStyle(
               color: _Palette.fog,
               fontSize: 11.5,
               fontWeight: FontWeight.w700,
+              height: 1.25,
             ),
           ),
         ),

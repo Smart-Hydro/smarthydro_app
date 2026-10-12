@@ -30,4 +30,22 @@ void main() {
     expect(loggerModelOf({'provider': 'nettra'}), 'Nettra');
     expect(loggerModelOf({'is_novus': true}), 'Novus');
   });
+
+  test('str_variable del esquema se mapea a su significado', () {
+    final v = PointVariable.fromJson({
+      'str_variable': 'ai1ActualValue',
+      'label': 'Caudal',
+      'type_variable': 'CAUDAL',
+      'display_key': 'caudal',
+    });
+    expect(v.strVariable, 'ai1ActualValue');
+    expect(v.schemaName, 'ai1ActualValue');
+    expect(v.meaning, 'Caudal');
+    expect(v.isFlow, isTrue);
+
+    final info = LoggerInfo(variables: [v]);
+    expect(info.schemeFields.single.label, 'ai1ActualValue');
+    expect(info.schemeFields.single.value, contains('Caudal'));
+    expect(info.schemeFields.single.value, contains('CAUDAL'));
+  });
 }

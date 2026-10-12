@@ -118,8 +118,18 @@ void main() {
           frequency: '15',
           telemetry: true,
           variables: const [
-            PointVariable(type: 'CAUDAL', label: 'Caudal'),
-            PointVariable(type: 'NIVEL', label: 'Nivel'),
+            PointVariable(
+              type: 'CAUDAL',
+              strVariable: 'ai1ActualValue',
+              label: 'Caudal',
+              displayKey: 'caudal',
+            ),
+            PointVariable(
+              type: 'NIVEL',
+              strVariable: 'ai2ActualValue',
+              label: 'Nivel',
+              displayKey: 'nivel',
+            ),
           ],
           dga: const DgaInfo(
             type: 'SUBTERRANEO',
@@ -133,6 +143,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     expect(await _tapUntil(tester, 'abc-token-9'), isTrue);
     expect(find.textContaining('Twin'), findsWidgets);
+    expect(find.textContaining('Variables del esquema'), findsOneWidget);
+    expect(find.textContaining('ai1ActualValue'), findsOneWidget);
+    expect(find.textContaining('ai2ActualValue'), findsOneWidget);
+    expect(find.textContaining('Caudal'), findsWidgets);
     expect(find.textContaining('Cumplimiento DGA'), findsOneWidget);
     expect(find.textContaining('OB-123'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
