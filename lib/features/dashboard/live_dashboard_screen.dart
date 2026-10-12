@@ -1421,6 +1421,7 @@ class _PointDetailScreenState extends State<_PointDetailScreen> {
                             ],
                           ),
                         ),
+                        _CaptureTypeChip(isSurface: isSurface),
                       ],
                     ),
                   ),
@@ -1463,6 +1464,14 @@ class _PointDetailScreenState extends State<_PointDetailScreen> {
                           : _formatTimestamp(startedAt.toIso8601String()),
                       kind: isSurface ? 'Agua superficial' : 'Pozo',
                       showIdentity: false,
+                    ),
+                    const SizedBox(height: 10),
+                    _PointQuickActions(
+                      isSurface: isSurface,
+                      onAnalysis: _openAnalysisForPoint,
+                      onCompliance: _openComplianceForPoint,
+                      onSupport: _createTicketForPoint,
+                      onReports: _openReportsForPoint,
                     ),
                     const SizedBox(height: 8),
                     Row(
@@ -1565,6 +1574,53 @@ class _PointDetailScreenState extends State<_PointDetailScreen> {
     );
   }
 
+  void _openAnalysisForPoint() {
+    Navigator.of(context).push<void>(
+      hydroPageRoute(
+        SmartAnalysisScreen(
+          api: widget.api,
+          token: widget.token,
+          points: [widget.point],
+        ),
+      ),
+    );
+  }
+
+  void _openComplianceForPoint() {
+    Navigator.of(context).push<void>(
+      hydroPageRoute(ComplianceScreen(api: widget.api, token: widget.token)),
+    );
+  }
+
+  void _openReportsForPoint() {
+    Navigator.of(context).push<void>(
+      hydroPageRoute(
+        ReportsScreen(
+          api: widget.api,
+          token: widget.token,
+          points: [widget.point],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _createTicketForPoint() async {
+    final created = await showSupportTicketSheet(
+      context,
+      api: widget.api,
+      token: widget.token,
+      points: [widget.point],
+      initialPointId: _int(widget.point['id']),
+      lockPoint: true,
+      initialTitle: 'Solicitud sobre ${widget.point['title'] ?? 'punto'}',
+    );
+    if (created == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Solicitud creada correctamente.')),
+      );
+    }
+  }
+
   void _openHistory() {
     showModalBottomSheet<void>(
       context: context,
@@ -1633,6 +1689,147 @@ class _PointDetailScreenState extends State<_PointDetailScreen> {
         );
       },
     ).whenComplete(() => _refreshSheet = null);
+  }
+}
+
+/// Chip que distingue el tipo de captación en el encabezado del detalle.
+class _CaptureTypeChip extends StatelessWidget {
+  const _CaptureTypeChip({required this.isSurface});
+
+  final bool isSurface;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isSurface ? const Color(0xFF69B9FF) : const Color(0xFF66E0C2);
+    final label = isSurface ? 'Superficial' : 'Pozo';
+    final icon = isSurface
+        ? Icons.waves_rounded
+        : Icons.vertical_align_bottom_rounded;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF071114).withValues(alpha: 0.85),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.45), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Acciones rápidas desde el detalle del punto: navegación a análisis,
+/// cumplimiento, reportes y soporte, ya acotados al punto en pantalla.
+class _PointQuickActions extends StatelessWidget {
+  const _PointQuickActions({
+    required this.isSurface,
+    required this.onAnalysis,
+    required this.onCompliance,
+    required this.onSupport,
+    required this.onReports,
+  });
+
+  final bool isSurface;
+  final VoidCallback onAnalysis;
+  final VoidCallback onCompliance;
+  final VoidCallback onSupport;
+  final VoidCallback onReports;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 44,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        children: [
+          _QuickChip(
+            icon: Icons.query_stats_rounded,
+            label: 'Análisis',
+            onTap: onAnalysis,
+          ),
+          const SizedBox(width: 8),
+          _QuickChip(
+            icon: Icons.balance_rounded,
+            label: 'Cumplimiento',
+            onTap: onCompliance,
+          ),
+          const SizedBox(width: 8),
+          _QuickChip(
+            icon: Icons.table_view_outlined,
+            label: 'Registros',
+            onTap: onReports,
+          ),
+          const SizedBox(width: 8),
+          _QuickChip(
+            icon: Icons.support_agent_rounded,
+            label: 'Soporte',
+            onTap: onSupport,
+            accent: const Color(0xFFFFC46B),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickChip extends StatelessWidget {
+  const _QuickChip({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.accent,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final Color? accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = accent ?? const Color(0xFF66E0C2);
+    return Material(
+      color: const Color(0xFF0C1B20).withValues(alpha: 0.85),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: color.withValues(alpha: 0.28), width: 1),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: color),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  color: const Color(0xFFE8F2F1),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

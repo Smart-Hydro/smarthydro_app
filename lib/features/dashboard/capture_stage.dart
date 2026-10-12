@@ -159,6 +159,134 @@ class _CaptureStagePainter extends CustomPainter {
     } else {
       _paintWell(canvas, size);
     }
+    _paintTypeBadge(canvas, size);
+    _paintStatusChip(canvas, size);
+  }
+
+  /// Etiqueta de tipo de captación: distingue de un vistazo pozo vs. superficial.
+  void _paintTypeBadge(Canvas canvas, Size size) {
+    final label = isSurface ? 'AGUA SUPERFICIAL' : 'POZO SUBTERRÁNEO';
+    final icon = isSurface ? '〰' : '⌄';
+    final accent = isSurface
+        ? const Color(0xFF69B9FF)
+        : const Color(0xFF66E0C2);
+    final iconPainter = TextPainter(
+      text: TextSpan(
+        text: icon,
+        style: TextStyle(
+          color: accent,
+          fontSize: 16,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout();
+    final labelPainter = TextPainter(
+      text: TextSpan(
+        text: label,
+        style: const TextStyle(
+          color: Color(0xFFF4FBF8),
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 1.1,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      textScaler: textScaler,
+      maxLines: 1,
+    )..layout(maxWidth: size.width * 0.6);
+
+    const padH = 12.0;
+    const padV = 8.0;
+    const gap = 8.0;
+    final w = iconPainter.width + gap + labelPainter.width + padH * 2;
+    final h = math.max(iconPainter.height, labelPainter.height) + padV * 2;
+    const left = 14.0;
+    const top = 14.0;
+    final rect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(left, top, w, h),
+      const Radius.circular(12),
+    );
+    canvas.drawRRect(
+      rect,
+      Paint()..color = const Color(0xFF071114).withValues(alpha: 0.82),
+    );
+    canvas.drawRRect(
+      rect,
+      Paint()
+        ..color = accent.withValues(alpha: 0.55)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2,
+    );
+    // Barra de acento a la izquierda del badge.
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(left, top + 4, 3, h - 8),
+        const Radius.circular(2),
+      ),
+      Paint()..color = accent,
+    );
+    iconPainter.paint(canvas, Offset(left + padH, top + padV));
+    labelPainter.paint(
+      canvas,
+      Offset(left + padH + iconPainter.width + gap, top + padV),
+    );
+  }
+
+  /// Chip de estado de enlace en la esquina superior derecha.
+  void _paintStatusChip(Canvas canvas, Size size) {
+    final color = switch (link) {
+      PointLink.connected => const Color(0xFF66E0C2),
+      PointLink.gap => const Color(0xFFFFC46B),
+      PointLink.incident => const Color(0xFFFF847A),
+    };
+    final label = pointLinkLabel(link).toUpperCase();
+    final dot = TextPainter(
+      text: TextSpan(
+        text: '●',
+        style: TextStyle(color: color, fontSize: 12),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final text = TextPainter(
+      text: TextSpan(
+        text: label,
+        style: const TextStyle(
+          color: Color(0xFFF4FBF8),
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.8,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      textScaler: textScaler,
+      maxLines: 1,
+    )..layout(maxWidth: size.width * 0.4);
+    const padH = 10.0;
+    const padV = 7.0;
+    const gap = 6.0;
+    final w = dot.width + gap + text.width + padH * 2;
+    final h = math.max(dot.height, text.height) + padV * 2;
+    final left = (size.width - w - 14).clamp(4.0, size.width - 4);
+    const top = 14.0;
+    final rect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(left, top, w, h),
+      const Radius.circular(11),
+    );
+    canvas.drawRRect(
+      rect,
+      Paint()..color = const Color(0xFF071114).withValues(alpha: 0.82),
+    );
+    canvas.drawRRect(
+      rect,
+      Paint()
+        ..color = color.withValues(alpha: 0.45)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.1,
+    );
+    dot.paint(canvas, Offset(left + padH, top + padV));
+    text.paint(canvas, Offset(left + padH + dot.width + gap, top + padV));
   }
 
   void _paintWell(Canvas canvas, Size size) {
@@ -189,9 +317,82 @@ class _CaptureStagePainter extends CustomPainter {
       width: boreWidth,
       height: (size.height - groundY) * 0.86,
     );
+    // Cabezal del pozo: caseta de bombeo sobre la superficie.
+    final headW = boreWidth + 36;
+    final headH = 42.0;
+    final head = RRect.fromRectAndRadius(
+      Rect.fromLTWH(
+        bore.center.dx - headW / 2,
+        groundY - headH - 6,
+        headW,
+        headH,
+      ),
+      const Radius.circular(8),
+    );
     canvas.drawRRect(
-      RRect.fromRectAndRadius(bore, const Radius.circular(22)),
-      Paint()..color = const Color(0xFFD5E4DC),
+      head,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF3A4A4A), Color(0xFF1E2A2A)],
+        ).createShader(head.outerRect),
+    );
+    canvas.drawRRect(
+      head,
+      Paint()
+        ..color = const Color(0xFF66E0C2).withValues(alpha: 0.25)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2,
+    );
+    // Teja/techo del cabezal.
+    final roof = RRect.fromRectAndRadius(
+      Rect.fromLTWH(
+        bore.center.dx - headW / 2 - 6,
+        groundY - headH - 12,
+        headW + 12,
+        10,
+      ),
+      const Radius.circular(4),
+    );
+    canvas.drawRRect(roof, Paint()..color = const Color(0xFF0C1C21));
+    // Luz de estado del cabezal.
+    final lampColor = switch (link) {
+      PointLink.connected => const Color(0xFF66E0C2),
+      PointLink.gap => const Color(0xFFFFC46B),
+      PointLink.incident => const Color(0xFFFF847A),
+    };
+    canvas.drawCircle(
+      Offset(bore.center.dx + headW / 2 - 12, groundY - headH / 2 - 6),
+      3.5,
+      Paint()..color = lampColor,
+    );
+    canvas.drawCircle(
+      Offset(bore.center.dx + headW / 2 - 12, groundY - headH / 2 - 6),
+      7,
+      Paint()
+        ..color = lampColor.withValues(alpha: 0.25)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          bore.center.dx - headW / 2 + 8,
+          groundY - headH + 8,
+          14,
+          8,
+        ),
+        const Radius.circular(2),
+      ),
+      Paint()..color = const Color(0xFF66E0C2).withValues(alpha: 0.5),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(bore.center.dx - 2, groundY - headH - 2, 4, headH + 4),
+        const Radius.circular(2),
+      ),
+      Paint()..color = const Color(0xFF0C1C21),
     );
     canvas.drawOval(
       Rect.fromCenter(
@@ -200,6 +401,10 @@ class _CaptureStagePainter extends CustomPainter {
         height: 18,
       ),
       Paint()..color = const Color(0xFFB7C6BE),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(bore, const Radius.circular(22)),
+      Paint()..color = const Color(0xFFD5E4DC),
     );
     final shaft = bore.deflate(12);
     canvas.drawRRect(
@@ -394,19 +599,58 @@ class _CaptureStagePainter extends CustomPainter {
           ..strokeCap = StrokeCap.round,
       );
     }
+    // Flechas de sentido de corriente para interpretar el flujo superficial.
+    _paintFlowArrows(canvas, size, bankY);
+    // Orillas del canal (márgenes) para reforzar la lectura de cauce.
+    canvas.drawPath(
+      Path()
+        ..moveTo(0, bankY)
+        ..lineTo(0, bankY + 18)
+        ..lineTo(size.width * 0.18, bankY + 6)
+        ..lineTo(size.width * 0.18, bankY - 2)
+        ..close(),
+      Paint()..color = const Color(0xFF2A3D34),
+    );
+    canvas.drawPath(
+      Path()
+        ..moveTo(size.width, bankY)
+        ..lineTo(size.width, bankY + 18)
+        ..lineTo(size.width * 0.82, bankY + 6)
+        ..lineTo(size.width * 0.82, bankY - 2)
+        ..close(),
+      Paint()..color = const Color(0xFF2A3D34),
+    );
     final intake = Offset(size.width * 0.32, bankY + 4);
+    // Soporte/pértiga de la toma.
     canvas.drawLine(
-      Offset(intake.dx, bankY - 56),
+      Offset(intake.dx, bankY - 64),
       intake,
       Paint()
         ..color = const Color(0xFFE8F2F1)
         ..strokeWidth = 4
         ..strokeCap = StrokeCap.round,
     );
+    // Base del soporte en tierra.
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(intake.dx, bankY - 64),
+        width: 18,
+        height: 8,
+      ),
+      Paint()..color = const Color(0xFF1E2A2A),
+    );
     canvas.drawCircle(
-      Offset(intake.dx, bankY - 56),
+      Offset(intake.dx, bankY - 64),
       6,
       Paint()..color = const Color(0xFF16343A),
+    );
+    // Cuerpo sumergido de la toma.
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(center: intake, width: 16, height: 14),
+        const Radius.circular(4),
+      ),
+      Paint()..color = const Color(0xFF0C1C21),
     );
     canvas.drawCircle(intake, 5, Paint()..color = const Color(0xFF66E0C2));
     _paintFlow(canvas, size, intake, false);
@@ -420,6 +664,34 @@ class _CaptureStagePainter extends CustomPainter {
       Offset(size.width - 150, bankY + 40),
       const Color(0xFF66E0C2),
     );
+  }
+
+  /// Chevrones que indican el sentido del flujo superficial, animados con la fase.
+  void _paintFlowArrows(Canvas canvas, Size size, double bankY) {
+    final moving = (flow ?? 0) > 0.01 && link != PointLink.gap;
+    final baseY = bankY + (size.height - bankY) * 0.55;
+    final arrowColor = moving
+        ? const Color(0xFF66E0C2).withValues(alpha: 0.85)
+        : const Color(0xFF8FA8A8).withValues(alpha: 0.5);
+    for (var row = 0; row < 2; row++) {
+      final y = baseY + row * 26;
+      for (var i = 0; i < 4; i++) {
+        final travel = (phase * 0.6 + i / 4 + row * 0.25) % 1;
+        final x = size.width * (0.18 + travel * 0.64);
+        final fade = moving ? math.sin(travel * math.pi) : 0.6;
+        final chevron = Path()
+          ..moveTo(x, y)
+          ..lineTo(x + 10, y - 6)
+          ..lineTo(x + 10, y + 6)
+          ..close();
+        canvas.drawPath(
+          chevron,
+          Paint()
+            ..color = arrowColor.withValues(alpha: fade)
+            ..style = PaintingStyle.fill,
+        );
+      }
+    }
   }
 
   void _paintFlow(Canvas canvas, Size size, Offset origin, bool fromWell) {
@@ -447,25 +719,40 @@ class _CaptureStagePainter extends CustomPainter {
   void _paintRuler(Canvas canvas, Size size, Rect shaft, double waterTop) {
     // Marcas de escala a la izquierda del pozo (referencia visual).
     final tick = Paint()
-      ..color = const Color(0xFF0C1C21).withValues(alpha: 0.55)
+      ..color = const Color(0xFFE8F2F1).withValues(alpha: 0.45)
       ..strokeWidth = 1;
     for (var i = 0; i <= 10; i++) {
       final y = shaft.top + shaft.height * i / 10;
       final long = i % 5 == 0;
       canvas.drawLine(
         Offset(shaft.left - 2, y),
-        Offset(shaft.left - (long ? 10 : 6), y),
+        Offset(shaft.left - (long ? 12 : 6), y),
         tick,
       );
     }
+    // Barra de la regla con resalte para contraste.
+    canvas.drawLine(
+      Offset(shaft.left - 2, shaft.top),
+      Offset(shaft.left - 2, shaft.bottom),
+      Paint()
+        ..color = const Color(0xFF66E0C2).withValues(alpha: 0.35)
+        ..strokeWidth = 1.4,
+    );
     // Línea de nivel actual cruzando el pozo.
     canvas.drawLine(
       Offset(shaft.left, waterTop),
       Offset(shaft.right + 10, waterTop),
       Paint()
         ..color = const Color(0xFFEFFFFA)
-        ..strokeWidth = 1.4,
+        ..strokeWidth = 1.6,
     );
+    // Marcador triangular del nivel actual a la derecha.
+    final arrow = Path()
+      ..moveTo(shaft.right + 12, waterTop)
+      ..lineTo(shaft.right + 4, waterTop - 5)
+      ..lineTo(shaft.right + 4, waterTop + 5)
+      ..close();
+    canvas.drawPath(arrow, Paint()..color = const Color(0xFF66E0C2));
     final label = levelMeters == null
         ? 'Sin nivel'
         : '${levelMeters!.toStringAsFixed(2)} m';
@@ -473,27 +760,49 @@ class _CaptureStagePainter extends CustomPainter {
       canvas,
       size,
       label,
-      Offset(shaft.right + 14, waterTop),
+      Offset(shaft.right + 22, waterTop),
       const Color(0xFF66E0C2),
     );
     if (levelMin != null && levelMax != null && levelMax! > levelMin!) {
-      _pill(
+      _minMaxMarker(
         canvas,
         size,
-        'Máx ${levelMax!.toStringAsFixed(2)} m',
-        Offset(shaft.right + 14, shaft.top + 10),
-        null,
-        small: true,
+        shaft.right + 4,
+        shaft.top + 10,
+        'Máx',
+        levelMax!,
+        const Color(0xFF69B9FF),
       );
-      _pill(
+      _minMaxMarker(
         canvas,
         size,
-        'Mín ${levelMin!.toStringAsFixed(2)} m',
-        Offset(shaft.right + 14, shaft.bottom - 10),
-        null,
-        small: true,
+        shaft.right + 4,
+        shaft.bottom - 10,
+        'Mín',
+        levelMin!,
+        const Color(0xFFFFC46B),
       );
     }
+  }
+
+  void _minMaxMarker(
+    Canvas canvas,
+    Size size,
+    double x,
+    double y,
+    String prefix,
+    double value,
+    Color color,
+  ) {
+    canvas.drawCircle(Offset(x, y), 3, Paint()..color = color);
+    _pill(
+      canvas,
+      size,
+      '$prefix ${value.toStringAsFixed(2)} m',
+      Offset(x + 18, y),
+      color,
+      small: true,
+    );
   }
 
   /// Etiqueta con fondo para asegurar contraste sobre cualquier zona del lienzo.
