@@ -87,6 +87,18 @@ class SmartHydroApi {
     return _map(response.data);
   }
 
+  /// Ficha estática de la captación: d1 profundidad, d2 bomba, d3 sensor de
+  /// nivel, d4 ducto de salida, d5 flujómetro y límites de procesamiento.
+  Future<Map<String, dynamic>> pointConfig(String token, int pointId) async {
+    final response = await _authorizedGet(
+      '/api/ik/point/$pointId/config/',
+      token,
+    );
+    final data = _map(response.data);
+    final nested = data['config_data'] ?? data['config'];
+    return nested is Map ? _map(nested) : data;
+  }
+
   Future<List<Map<String, dynamic>>> pointCalendar(
     String token,
     int pointId, {
