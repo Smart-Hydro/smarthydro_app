@@ -84,7 +84,7 @@ Paleta de producto (alineada a la app):
 
 - Flutter SDK estable con soporte Android y web
 - Android Studio o Android SDK para builds Android
-- Acceso a Core API (CORS local permite `http://localhost:3001` para web)
+- Acceso a Core API (CORS local permite `http://localhost:3000` y `http://localhost:3001` para web; otros puertos u orígenes como `127.0.0.1` quedan bloqueados)
 
 ---
 
@@ -96,6 +96,11 @@ flutter pub get
 # Web / PWA (Brave u otro navegador)
 flutter run -d web-server --web-hostname localhost --web-port 3001
 # → http://localhost:3001
+
+# Preview de la build web compilada (login real vía proxy same-origin)
+flutter build web
+python3 tool/serve_web_proxy.py
+# → http://localhost:3000  (usar "localhost", no "127.0.0.1")
 
 # Android
 flutter emulators --launch medium_phone
