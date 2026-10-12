@@ -1256,6 +1256,12 @@ class _PointDetailScreenState extends State<_PointDetailScreen> {
     _loadReplay();
   }
 
+  void _replayRestart() {
+    _replayTimer?.cancel();
+    _replayTimer = null;
+    setState(() => _selectedReplayIndex = 0);
+  }
+
   void _toggleReplay() {
     if (_replayTimer != null) {
       _replayTimer?.cancel();
@@ -1474,33 +1480,14 @@ class _PointDetailScreenState extends State<_PointDetailScreen> {
                       onReports: _openReportsForPoint,
                     ),
                     const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        IconButton.filledTonal(
-                          tooltip: _replayTimer == null
-                              ? 'Recorrer el caudal del período'
-                              : 'Pausar',
-                          onPressed: _replayRecords.length < 2
-                              ? null
-                              : _toggleReplay,
-                          icon: Icon(
-                            _replayTimer == null
-                                ? Icons.play_arrow_rounded
-                                : Icons.pause_rounded,
-                          ),
-                        ),
-                        const Spacer(),
-                        IconButton(
-                          tooltip: 'Cambiar período',
-                          onPressed: _chooseReplayRange,
-                          icon: const Icon(Icons.calendar_month_rounded),
-                        ),
-                        IconButton(
-                          tooltip: 'Historial diario',
-                          onPressed: _openHistory,
-                          icon: const Icon(Icons.history_rounded),
-                        ),
-                      ],
+                    _ReplayBar(
+                      playing: _replayTimer != null,
+                      canReplay: _replayRecords.length > 1,
+                      atStart: _selectedReplayIndex <= 0,
+                      onToggle: _toggleReplay,
+                      onRestart: _replayRestart,
+                      onPickRange: _chooseReplayRange,
+                      onHistory: _openHistory,
                     ),
                     if (_replayRecords.length > 1) ...[
                       Slider(
@@ -1726,6 +1713,130 @@ class _CaptureTypeChip extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Barra de reproducción del Replay 4D con botón de inicio y efecto hover.
+class _ReplayBar extends StatelessWidget {
+  const _ReplayBar({
+    required this.playing,
+    required this.canReplay,
+    required this.atStart,
+    required this.onToggle,
+    required this.onRestart,
+    required this.onPickRange,
+    required this.onHistory,
+  });
+
+  final bool playing;
+  final bool canReplay;
+  final bool atStart;
+  final VoidCallback onToggle;
+  final VoidCallback onRestart;
+  final VoidCallback onPickRange;
+  final VoidCallback onHistory;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        _HoverIconButton(
+          tooltip: 'Volver al inicio del período',
+          onPressed: canReplay && !atStart ? onRestart : null,
+          icon: Icons.skip_previous_rounded,
+        ),
+        const SizedBox(width: 4),
+        _HoverIconButton(
+          filled: true,
+          tooltip: playing ? 'Pausar' : 'Recorrer el caudal del período',
+          onPressed: canReplay ? onToggle : null,
+          icon: playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+        ),
+        const Spacer(),
+        _HoverIconButton(
+          tooltip: 'Cambiar período',
+          onPressed: onPickRange,
+          icon: Icons.calendar_month_rounded,
+        ),
+        const SizedBox(width: 4),
+        _HoverIconButton(
+          tooltip: 'Historial diario',
+          onPressed: onHistory,
+          icon: Icons.history_rounded,
+        ),
+      ],
+    );
+  }
+}
+
+/// Botón de icono con realce al pasar el mouse, sin sombras ni paneles.
+class _HoverIconButton extends StatefulWidget {
+  const _HoverIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+    this.filled = false,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+  final bool filled;
+
+  @override
+  State<_HoverIconButton> createState() => _HoverIconButtonState();
+}
+
+class _HoverIconButtonState extends State<_HoverIconButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = widget.onPressed != null;
+    const accent = Color(0xFF66E0C2);
+    final base = widget.filled
+        ? accent.withValues(alpha: 0.2)
+        : const Color(0xFF0C1B20).withValues(alpha: 0.6);
+    final hover = accent.withValues(alpha: widget.filled ? 0.34 : 0.14);
+    final color = enabled
+        ? (_hovered ? hover : base)
+        : base.withValues(alpha: 0.4);
+    final iconColor = enabled
+        ? (_hovered || widget.filled ? accent : const Color(0xFFB4C7C8))
+        : const Color(0xFF5A6B6D);
+    return MouseRegion(
+      onEnter: enabled ? (_) => setState(() => _hovered = true) : null,
+      onExit: enabled ? (_) => setState(() => _hovered = false) : null,
+      child: Tooltip(
+        message: widget.tooltip,
+        child: Material(
+          color: color,
+          borderRadius: BorderRadius.circular(12),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: widget.onPressed,
+            child: AnimatedScale(
+              scale: _hovered && enabled ? 1.06 : 1,
+              duration: const Duration(milliseconds: 140),
+              curve: Curves.easeOut,
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: _hovered && enabled
+                        ? accent.withValues(alpha: 0.5)
+                        : Colors.white.withValues(alpha: 0.06),
+                    width: 1,
+                  ),
+                ),
+                child: Icon(widget.icon, size: 20, color: iconColor),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'core/api/smarthydro_api.dart';
 import 'core/session/session_provider.dart';
 import 'features/auth/login_screen.dart';
 import 'features/dashboard/live_dashboard_screen.dart';
@@ -35,24 +36,25 @@ class SmartHydroApp extends ConsumerWidget {
           displayColor: const Color(0xFFE8F2F1),
         ),
       ),
-      home: AnimatedSwitcher(
-        duration:
-            WidgetsBinding
-                .instance
-                .platformDispatcher
-                .accessibilityFeatures
-                .disableAnimations
-            ? Duration.zero
-            : const Duration(milliseconds: 600),
-        switchInCurve: Curves.easeOutCubic,
-        switchOutCurve: Curves.easeInCubic,
-        child: session == null
-            ? const LoginScreen(key: ValueKey('login'))
-            : LiveDashboardScreen(
-                key: ValueKey('dashboard-${session.hashCode}'),
-                session: session,
-              ),
-      ),
+      home: _buildHome(session),
+    );
+  }
+
+  Widget _buildHome(SmartHydroSession? session) {
+    return AnimatedSwitcher(
+      duration:
+          WidgetsBinding.instance.platformDispatcher.accessibilityFeatures
+              .disableAnimations
+          ? Duration.zero
+          : const Duration(milliseconds: 600),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      child: session == null
+          ? const LoginScreen(key: ValueKey('login'))
+          : LiveDashboardScreen(
+              key: ValueKey('dashboard-${session.hashCode}'),
+              session: session,
+            ),
     );
   }
 }
