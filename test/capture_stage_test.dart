@@ -3,31 +3,34 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:smarthydro_app/features/dashboard/capture_stage.dart';
 import 'package:smarthydro_app/features/dashboard/point_link.dart';
 
-Widget _stage({required bool surface, double? flow = 8.2}) => MaterialApp(
-  home: Scaffold(
-    body: SizedBox(
-      width: 390,
-      height: 520,
-      child: CaptureStage(
-        levelMeters: surface ? 0.45 : 12.45,
-        levelFill: 0.5,
-        flowLitersPerSecond: flow,
-        isSurface: surface,
-        link: PointLink.connected,
-        profile: surface
-            ? const CaptureProfile()
-            : const CaptureProfile(
-                depth: 80,
-                pumpDepth: 55,
-                sensorDepth: 60,
-                ductInches: 4,
-                flowmeterInches: 4,
-                maxFlow: 20,
-              ),
+Widget _stage({required bool surface, double? flow = 8.2, double? total}) =>
+    MaterialApp(
+      home: Scaffold(
+        body: SizedBox(
+          width: 390,
+          height: 520,
+          child: CaptureStage(
+            levelMeters: surface ? 0.45 : 12.45,
+            levelFill: 0.5,
+            flowLitersPerSecond: flow,
+            totalCubicMeters: total,
+            flowMax: 10,
+            isSurface: surface,
+            link: PointLink.connected,
+            profile: surface
+                ? const CaptureProfile()
+                : const CaptureProfile(
+                    depth: 80,
+                    pumpDepth: 55,
+                    sensorDepth: 60,
+                    ductInches: 4,
+                    flowmeterInches: 4,
+                    maxFlow: 20,
+                  ),
+          ),
+        ),
       ),
-    ),
-  ),
-);
+    );
 
 /// Toca una grilla sobre la escena hasta que aparezca la explicación.
 Future<bool> _tapUntil(WidgetTester tester, String text) async {
@@ -74,5 +77,33 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(await _tapUntil(tester, 'Mide el caudal'), isFalse);
     await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('acerca, aleja y explica que es una representación', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_stage(surface: false, total: 12345.6));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.byTooltip('Acercar'));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byTooltip('Alejar'));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byTooltip('Centrar vista'));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.byTooltip('Qué estoy viendo'));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Representación de tu instalación'), findsOneWidget);
+
+    expect(await _tapUntil(tester, 'total 12345.6 m³'), isTrue);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  test('formatea volúmenes como la lectura Total', () {
+    expect(formatCubicMeters(12345.6), '12345.6 m³');
+    expect(formatCubicMeters(812.44), '812.4 m³');
+    expect(flowNormOf(5, 10), 0.5);
+    expect(flowNormOf(30, 10), 1);
   });
 }

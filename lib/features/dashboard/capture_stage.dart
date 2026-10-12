@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui' show PointMode;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -80,10 +79,22 @@ enum ScenePart {
   flowmeter,
   water,
   intake,
+
+  /// La escena completa: qué representa y de dónde salen sus datos.
+  overview,
 }
 
 /// Vista singular del punto: una lámina isométrica interactiva.
 ///
+/// Volumen con el mismo formato que la lectura «Total» del panel.
+String formatCubicMeters(double v) => '${v.toStringAsFixed(1)} m³';
+
+/// 0..1 del caudal respecto de [max] (50 L/s si no hay referencia).
+double flowNormOf(double q, double? max) {
+  final ref = math.max(max ?? 50, 0.01);
+  return (q / ref).clamp(0.0, 1.0).toDouble();
+}
+
 /// Un bloque de terreno en corte que gira 360° al arrastrar y acompaña al
 /// puntero. Solo se dibuja lo que el punto tiene: el pozo usa su ficha real
 /// (profundidad, bomba, sensor, ductos) y las variables con dato; lo que no
@@ -99,6 +110,8 @@ class CaptureStage extends StatefulWidget {
     this.levelMin,
     this.levelMax,
     this.playing = false,
+    this.flowMax,
+    this.totalCubicMeters,
     this.topInset = 56,
     super.key,
   });
@@ -115,6 +128,12 @@ class CaptureStage extends StatefulWidget {
   /// Verdadero mientras el replay corre: el agua y el chorro cobran más vida.
   final bool playing;
 
+  /// Caudal máximo del periodo mostrado; escala el flujómetro y el chorro.
+  final double? flowMax;
+
+  /// Volumen totalizado del flujómetro (m³).
+  final double? totalCubicMeters;
+
   /// Espacio reservado arriba para controles superpuestos.
   final double topInset;
 
@@ -126,6 +145,8 @@ class _CaptureStageState extends State<CaptureStage>
     with TickerProviderStateMixin {
   static const _baseYaw = 0.66;
   static const _basePitch = 0.46;
+  static const _minZoom = 0.6;
+  static const _maxZoom = 2.6;
 
   late final AnimationController _flow = AnimationController(
     vsync: this,
@@ -154,13 +175,37 @@ class _CaptureStageState extends State<CaptureStage>
   double? _shownFlow;
   double _levelMotion = 0;
 
+  final Stopwatch _clock = Stopwatch()..start();
+  Duration _lastTick = Duration.zero;
+  double _travel = 0;
+  double _drift = 0;
+
+  double _zoomTarget = 1;
+  double _zoom = 1;
+  Offset _panTarget = Offset.zero;
+  Offset _pan = Offset.zero;
+  double _scaleBase = 1;
+  int _pointers = 0;
+
   double get _targetYaw => _baseYaw + _dragYaw + _pointer.dx * 0.12;
   double get _targetPitch =>
       (_basePitch + _dragPitch + _pointer.dy * 0.06).clamp(0.20, 0.92);
 
   void _ease() {
+    final now = _clock.elapsed;
+    final dt = ((now - _lastTick).inMicroseconds / 1e6).clamp(0.0, 0.1);
+    _lastTick = now;
+
     _yaw += (_targetYaw - _yaw) * 0.14;
     _pitch += (_targetPitch - _pitch) * 0.14;
+    _zoom += (_zoomTarget - _zoom) * 0.18;
+    _pan += (_panTarget - _pan) * 0.18;
+
+    final q = (_shownFlow ?? 0).clamp(0.0, double.infinity).toDouble();
+    final moving = q > 0.01 && widget.link != PointLink.gap;
+    final norm = flowNormOf(q, widget.flowMax ?? widget.profile.maxFlow);
+    _travel += dt * (moving ? 0.12 + norm * 0.9 : 0);
+    _drift += dt * (0.08 + (widget.playing ? 0.06 : 0) + _levelMotion * 0.6);
 
     final level = widget.levelMeters;
     if (level == null || _level == null) {
@@ -188,6 +233,8 @@ class _CaptureStageState extends State<CaptureStage>
     setState(() {
       _yaw = _targetYaw;
       _pitch = _targetPitch;
+      _zoom = _zoomTarget;
+      _pan = _panTarget;
       _level = widget.levelMeters;
       _shownFlow = widget.flowLitersPerSecond;
     });
@@ -255,10 +302,43 @@ class _CaptureStageState extends State<CaptureStage>
     setState(() => _pinnedPart = part == _pinnedPart ? null : part);
   }
 
-  void _onPanUpdate(DragUpdateDetails details) {
-    _dragYaw -= details.delta.dx * 0.009;
-    _dragPitch = (_dragPitch + details.delta.dy * 0.004).clamp(-0.28, 0.46);
+  void _onScaleStart(ScaleStartDetails details) {
+    _scaleBase = _zoomTarget;
+    _pointers = details.pointerCount;
+  }
+
+  /// Un dedo (o el mouse) gira; dos dedos acercan y desplazan la vista.
+  void _onScaleUpdate(ScaleUpdateDetails details) {
+    if (details.pointerCount != _pointers) {
+      _pointers = details.pointerCount;
+      _scaleBase = _zoomTarget / details.scale;
+    }
+    if (details.pointerCount >= 2) {
+      _setZoom(_scaleBase * details.scale);
+      _panTarget += details.focalPointDelta;
+    } else {
+      final delta = details.focalPointDelta;
+      _dragYaw -= delta.dx * 0.009;
+      _dragPitch = (_dragPitch + delta.dy * 0.004).clamp(-0.28, 0.46);
+    }
     if (!_touched) setState(() => _touched = true);
+    _snapIfStatic();
+  }
+
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    _setZoom(_zoomTarget * math.exp(-event.scrollDelta.dy * 0.0015));
+    if (!_touched) setState(() => _touched = true);
+    _snapIfStatic();
+  }
+
+  void _setZoom(double value) {
+    _zoomTarget = value.clamp(_minZoom, _maxZoom).toDouble();
+    if (_zoomTarget <= 1) _panTarget *= _zoomTarget;
+  }
+
+  void _zoomBy(double factor) {
+    setState(() => _setZoom(_zoomTarget * factor));
     _snapIfStatic();
   }
 
@@ -270,6 +350,8 @@ class _CaptureStageState extends State<CaptureStage>
     _dragYaw = 0;
     _dragPitch = 0;
     _pointer = Offset.zero;
+    _zoomTarget = 1;
+    _panTarget = Offset.zero;
     _snapIfStatic();
   }
 
@@ -402,9 +484,14 @@ class _CaptureStageState extends State<CaptureStage>
           color: _Palette.linkColor(widget.link),
         );
       case ScenePart.flowmeter:
+        final total = widget.totalCubicMeters;
         return (
           title: 'Flujómetro',
-          value: flow == null ? null : '${flow.toStringAsFixed(2)} L/s',
+          value: flow == null
+              ? null
+              : total == null
+              ? '${flow.toStringAsFixed(2)} L/s'
+              : '${flow.toStringAsFixed(2)} L/s · total ${formatCubicMeters(total)}',
           body:
               'Mide el caudal que sale por la impulsión y acumula el volumen '
               'total extraído (m³).',
@@ -418,6 +505,17 @@ class _CaptureStageState extends State<CaptureStage>
               'Curso de agua superficial. Las líneas sobre la lámina muestran '
               'la corriente; más rápidas, más caudal.',
           color: _Palette.surfaceWater,
+        );
+      case ScenePart.overview:
+        return (
+          title: 'Representación de tu instalación',
+          value: null,
+          body:
+              'Modelo armado con la ficha técnica de este punto: solo aparece '
+              'lo que está configurado y con datos. No es una foto; el agua, '
+              'el nivel y el caudal cambian con cada medición y con el '
+              'replay para que veas cómo se comporta tu captación.',
+          color: _Palette.fog,
         );
       case ScenePart.intake:
         return (
@@ -452,79 +550,150 @@ class _CaptureStageState extends State<CaptureStage>
               });
             },
             onHover: (event) => _onHover(event, size),
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onPanUpdate: _onPanUpdate,
-              onTapUp: _onTapUp,
-              onDoubleTap: _reset,
-              child: ExcludeSemantics(
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    AnimatedBuilder(
-                      animation: Listenable.merge([_flow, _playPulse]),
-                      builder: (context, _) {
-                        final alive = widget.playing
-                            ? 0.55 + _playPulse.value * 0.45
-                            : _playPulse.value * 0.45;
-                        return CustomPaint(
-                          painter: _CaptureStagePainter(
-                            phase: _flow.value,
-                            yaw: _yaw,
-                            pitch: _pitch,
-                            layoutYaw: _baseYaw,
-                            layoutPitch: _basePitch,
-                            topInset: widget.topInset,
-                            levelMeters: _level,
-                            levelMotion: _levelMotion,
-                            levelMin: widget.levelMin,
-                            levelMax: widget.levelMax,
-                            textScaler: textScaler,
-                            flow: _shownFlow,
-                            isSurface: widget.isSurface,
-                            link: widget.link,
-                            profile: widget.profile,
-                            hovered: _hovered,
-                            alive: alive,
-                            focus: focus,
-                            hits: _hits,
-                          ),
-                          child: const SizedBox.expand(),
-                        );
-                      },
-                    ),
-                    Positioned(
-                      left: 16,
-                      right: 16,
-                      bottom: 16,
-                      child: Center(
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 180),
-                          child: focus == null
-                              ? IgnorePointer(
-                                  key: const ValueKey('hint'),
-                                  child: AnimatedOpacity(
-                                    opacity: _touched ? 0.35 : 0.75,
-                                    duration: const Duration(milliseconds: 500),
-                                    child: const _HintRow(),
+            child: Listener(
+              onPointerSignal: _onPointerSignal,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onScaleStart: _onScaleStart,
+                onScaleUpdate: _onScaleUpdate,
+                onTapUp: _onTapUp,
+                onDoubleTap: _reset,
+                child: ExcludeSemantics(
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      AnimatedBuilder(
+                        animation: Listenable.merge([_flow, _playPulse]),
+                        builder: (context, _) {
+                          final alive = widget.playing
+                              ? 0.55 + _playPulse.value * 0.45
+                              : _playPulse.value * 0.45;
+                          return CustomPaint(
+                            painter: _CaptureStagePainter(
+                              phase: _flow.value,
+                              yaw: _yaw,
+                              pitch: _pitch,
+                              layoutYaw: _baseYaw,
+                              layoutPitch: _basePitch,
+                              topInset: widget.topInset,
+                              levelMeters: _level,
+                              levelMotion: _levelMotion,
+                              levelMin: widget.levelMin,
+                              levelMax: widget.levelMax,
+                              textScaler: textScaler,
+                              flow: _shownFlow,
+                              isSurface: widget.isSurface,
+                              link: widget.link,
+                              profile: widget.profile,
+                              hovered: _hovered,
+                              alive: alive,
+                              focus: focus,
+                              hits: _hits,
+                              travel: _travel,
+                              drift: _drift,
+                              flowMax: widget.flowMax,
+                              totalCubicMeters: widget.totalCubicMeters,
+                              zoom: _zoom,
+                              pan: _pan,
+                            ),
+                            child: const SizedBox.expand(),
+                          );
+                        },
+                      ),
+                      Positioned(
+                        left: 16,
+                        right: 16,
+                        bottom: 16,
+                        child: Center(
+                          child: AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 180),
+                            child: focus == null
+                                ? IgnorePointer(
+                                    key: const ValueKey('hint'),
+                                    child: AnimatedOpacity(
+                                      opacity: _touched ? 0.35 : 0.75,
+                                      duration: const Duration(
+                                        milliseconds: 500,
+                                      ),
+                                      child: const _HintRow(),
+                                    ),
+                                  )
+                                : _InfoCard(
+                                    key: ValueKey(focus),
+                                    info: _explain(focus),
+                                    pinned: _pinnedPart == focus,
+                                    onClose: () =>
+                                        setState(() => _pinnedPart = null),
                                   ),
-                                )
-                              : _InfoCard(
-                                  key: ValueKey(focus),
-                                  info: _explain(focus),
-                                  pinned: _pinnedPart == focus,
-                                  onClose: () =>
-                                      setState(() => _pinnedPart = null),
-                                ),
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                      Positioned(
+                        top: 12,
+                        right: 12,
+                        child: _ViewControls(
+                          onZoomIn: () => _zoomBy(1.25),
+                          onZoomOut: () => _zoomBy(0.8),
+                          onAbout: () => setState(
+                            () =>
+                                _pinnedPart = _pinnedPart == ScenePart.overview
+                                ? null
+                                : ScenePart.overview,
+                          ),
+                          onReset: () => setState(_reset),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+/// Controles de vista en el estilo de los chips del panel, sin borde de
+/// color: información, acercar, alejar y centrar.
+class _ViewControls extends StatelessWidget {
+  const _ViewControls({
+    required this.onZoomIn,
+    required this.onZoomOut,
+    required this.onAbout,
+    required this.onReset,
+  });
+
+  final VoidCallback onZoomIn;
+  final VoidCallback onZoomOut;
+  final VoidCallback onAbout;
+  final VoidCallback onReset;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget button(IconData icon, String tooltip, VoidCallback onTap) =>
+        IconButton(
+          tooltip: tooltip,
+          onPressed: onTap,
+          iconSize: 18,
+          visualDensity: VisualDensity.compact,
+          constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+          icon: Icon(icon, color: _Palette.fog.withValues(alpha: 0.85)),
+        );
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: _Palette.card.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          button(Icons.info_outline_rounded, 'Qué estoy viendo', onAbout),
+          button(Icons.add_rounded, 'Acercar', onZoomIn),
+          button(Icons.remove_rounded, 'Alejar', onZoomOut),
+          button(Icons.center_focus_strong_rounded, 'Centrar vista', onReset),
+        ],
       ),
     );
   }
@@ -541,7 +710,8 @@ class _HintRow extends StatelessWidget {
       SizedBox(width: 6),
       Flexible(
         child: Text(
-          'Arrastra para girar · toca una parte para saber qué es',
+          'Representación de tu instalación · arrastra, pellizca o usa '
+          'la rueda · toca una parte',
           textAlign: TextAlign.center,
           style: TextStyle(
             color: _Palette.faint,
@@ -574,7 +744,6 @@ class _InfoCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: _Palette.card.withValues(alpha: 0.96),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: info.color.withValues(alpha: 0.45)),
           boxShadow: const [
             BoxShadow(color: Color(0x66000000), blurRadius: 18),
           ],
@@ -765,15 +934,6 @@ class _Tag {
   final Color color;
 }
 
-/// Granos deterministas (u, v en 0..1) para texturizar caras de terreno.
-final List<Offset> _grain = List.generate(240, (i) {
-  double fract(double v) => v - v.floorToDouble();
-  return Offset(
-    fract(math.sin(i * 12.9898) * 43758.5453),
-    fract(math.sin(i * 78.233 + 1.3) * 12543.217),
-  );
-});
-
 class _CaptureStagePainter extends CustomPainter {
   _CaptureStagePainter({
     required this.phase,
@@ -795,9 +955,26 @@ class _CaptureStagePainter extends CustomPainter {
     required this.alive,
     required this.focus,
     required this.hits,
+    required this.travel,
+    required this.drift,
+    this.flowMax,
+    this.totalCubicMeters,
+    this.zoom = 1,
+    this.pan = Offset.zero,
   });
 
   final double phase;
+
+  /// Avance acumulado del agua en tuberías y estanque (crece con el caudal).
+  /// Al integrarse en el tiempo nunca salta al cambiar la velocidad.
+  final double travel;
+
+  /// Avance acumulado de la lámina y el acuífero (crece con la agitación).
+  final double drift;
+  final double? flowMax;
+  final double? totalCubicMeters;
+  final double zoom;
+  final Offset pan;
   final double yaw;
   final double pitch;
   final double layoutYaw;
@@ -825,11 +1002,9 @@ class _CaptureStagePainter extends CustomPainter {
 
   bool get _flowing => _q > 0.01 && link != PointLink.gap;
 
-  /// 0..1 respecto del caudal máximo configurado (o 50 L/s por defecto).
-  double get _flowNorm {
-    final max = profile.maxFlow ?? 50;
-    return (_q / max).clamp(0.0, 1.0).toDouble();
-  }
+  /// 0..1 respecto del máximo del periodo (o del configurado) para que las
+  /// variaciones del replay se noten aunque el caudal sea bajo.
+  double get _flowNorm => flowNormOf(_q, flowMax ?? profile.maxFlow);
 
   /// Vida del agua: base + replay + movimiento real del nivel.
   double get _agitation => (0.25 + alive * 0.5 + levelMotion).clamp(0.0, 1.4);
@@ -899,7 +1074,12 @@ class _CaptureStagePainter extends CustomPainter {
     ];
     final bounds = _boundsOf(corners);
     final target = Offset(size.width / 2, top + availH / 2);
-    return (half: half, depth: depth, origin: target - bounds.center);
+    final center = bounds.center * zoom;
+    return (
+      half: half * zoom,
+      depth: depth * zoom,
+      origin: target - center + pan,
+    );
   }
 
   Rect _boundsOf(List<Offset> points) {
@@ -938,28 +1118,6 @@ class _CaptureStagePainter extends CustomPainter {
           ],
         ).createShader(bounds),
     );
-    final sand = <Offset>[];
-    final pebbles = <Offset>[];
-    for (var i = 0; i < 150; i++) {
-      final g = _grain[i];
-      (i % 9 == 0 ? pebbles : sand).add(_bilerp(q, g.dx, g.dy));
-    }
-    canvas.drawPoints(
-      PointMode.points,
-      sand,
-      Paint()
-        ..color = _Palette.soilText.withValues(alpha: 0.22)
-        ..strokeWidth = 1.6
-        ..strokeCap = StrokeCap.round,
-    );
-    canvas.drawPoints(
-      PointMode.points,
-      pebbles,
-      Paint()
-        ..color = const Color(0xFF8C7F63).withValues(alpha: 0.45)
-        ..strokeWidth = 3.4
-        ..strokeCap = StrokeCap.round,
-    );
     final strata = Paint()
       ..color = _Palette.soilText.withValues(alpha: 0.07)
       ..strokeWidth = 1;
@@ -983,32 +1141,25 @@ class _CaptureStagePainter extends CustomPainter {
           ],
         ).createShader(bounds),
     );
-    final pores = <Offset>[];
-    for (var i = 100; i < 240; i++) {
-      final g = _grain[i];
-      pores.add(_bilerp(q, g.dx, g.dy));
-    }
-    canvas.drawPoints(
-      PointMode.points,
-      pores,
-      Paint()
-        ..color = const Color(0xFF9BD3FF).withValues(alpha: 0.28)
-        ..strokeWidth = 2
-        ..strokeCap = StrokeCap.round,
-    );
-    // Flujo subterráneo: trazos que avanzan lentamente por la napa.
-    final dash = Paint()
-      ..color = const Color(0xFFA9DBFF).withValues(alpha: 0.30)
-      ..strokeWidth = 1.2
-      ..strokeCap = StrokeCap.round;
-    for (var row = 0; row < 4; row++) {
-      final v = 0.18 + row * 0.22;
-      for (var k = 0; k < 5; k++) {
-        final u = ((k / 5) + phase * (0.3 + row * 0.05)) % 1;
-        final a = _bilerp(q, u, v);
-        final b = _bilerp(q, math.min(1, u + 0.07), v);
-        canvas.drawLine(a, b, dash);
+    // Flujo subterráneo: ondas tenues que se desplazan sin reiniciarse.
+    final current = Paint()
+      ..color = const Color(0xFFA9DBFF).withValues(alpha: 0.14)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    for (var row = 0; row < 3; row++) {
+      final v = 0.24 + row * 0.26;
+      final line = Path();
+      for (var s = 0; s <= 32; s++) {
+        final u = s / 32;
+        final pt = _bilerp(q, u, v);
+        final y = pt.dy + math.sin(u * _tau * 2 - drift * _tau + row) * 1.6;
+        if (s == 0) {
+          line.moveTo(pt.dx, y);
+        } else {
+          line.lineTo(pt.dx, y);
+        }
       }
+      canvas.drawPath(line, current);
     }
   }
 
@@ -1199,14 +1350,6 @@ class _CaptureStagePainter extends CustomPainter {
           colors: [Color(0xFF2F4B40), Color(0xFF213A32)],
         ).createShader(_boundsOf(top)),
     );
-    canvas.drawPoints(
-      PointMode.points,
-      [for (var i = 0; i < 90; i++) _bilerp(top, _grain[i].dx, _grain[i].dy)],
-      Paint()
-        ..color = const Color(0xFF6E9A7E).withValues(alpha: 0.25)
-        ..strokeWidth = 1.6
-        ..strokeCap = StrokeCap.round,
-    );
     canvas.drawPath(
       _poly(top),
       Paint()
@@ -1348,9 +1491,6 @@ class _CaptureStagePainter extends CustomPainter {
           ..color = dry ? _Palette.coral : _Palette.flow
           ..strokeWidth = 2,
       );
-      if (_flowing && !dry && levelY != null) {
-        _paintBubbles(canvas, iso, pumpX, pumpY, levelY, innerR);
-      }
       hits.rect(ScenePart.pump, body.outerRect.inflate(10));
       final submergence = levelMeters == null
           ? null
@@ -1493,6 +1633,9 @@ class _CaptureStagePainter extends CustomPainter {
           '${flow!.toStringAsFixed(2)} L/s',
           meterAt,
           _Palette.flow,
+          detail: totalCubicMeters == null
+              ? null
+              : 'total ${formatCubicMeters(totalCubicMeters!)}',
         ),
       );
     }
@@ -1586,7 +1729,7 @@ class _CaptureStagePainter extends CustomPainter {
     canvas.clipPath(body);
     final columnH = floor.center.dy - surface.center.dy;
     for (var i = 0; i < 4; i++) {
-      final t = (phase * (0.5 + _agitation * 0.6) + i / 4) % 1;
+      final t = (drift * 0.35 + i / 4) % 1;
       final band = Rect.fromCenter(
         center: Offset(surface.center.dx, surface.center.dy + t * columnH),
         width: surface.width * 1.1,
@@ -1606,7 +1749,7 @@ class _CaptureStagePainter extends CustomPainter {
     final wobble = Path();
     for (var s = 0; s <= 36; s++) {
       final a = s / 36 * _tau;
-      final r = 1 + math.sin(a * 3 + phase * _tau * (2 + _agitation)) * 0.02;
+      final r = 1 + math.sin(a * 3 + drift * _tau * 2) * 0.02;
       final pt = Offset(
         surface.center.dx + math.cos(a) * surface.width / 2 * r,
         surface.center.dy +
@@ -1635,9 +1778,8 @@ class _CaptureStagePainter extends CustomPainter {
     );
     canvas.save();
     canvas.clipPath(wobble);
-    final speed = 0.8 + _flowNorm * 1.2 + _agitation;
     for (var i = 0; i < 3; i++) {
-      final t = (phase * speed * 2 + i / 3) % 1;
+      final t = (drift * 0.8 + i / 3) % 1;
       canvas.drawOval(
         Rect.fromCenter(
           center: surface.center,
@@ -1645,7 +1787,7 @@ class _CaptureStagePainter extends CustomPainter {
           height: surface.height * (0.15 + t * 0.95),
         ),
         Paint()
-          ..color = _Palette.fog.withValues(alpha: (1 - t) * 0.45)
+          ..color = _Palette.fog.withValues(alpha: (1 - t) * t * 0.9)
           ..style = PaintingStyle.stroke,
       );
     }
@@ -1726,33 +1868,6 @@ class _CaptureStagePainter extends CustomPainter {
     );
   }
 
-  void _paintBubbles(
-    Canvas canvas,
-    _Iso iso,
-    double x,
-    double fromY,
-    double toY,
-    double radius,
-  ) {
-    final span = toY - fromY;
-    if (span <= 4) return;
-    final count = 5 + (_flowNorm * 8).round();
-    for (var i = 0; i < count; i++) {
-      final seed = i * 0.6180339;
-      final t = (phase * (1.2 + _flowNorm * 1.6) + seed) % 1;
-      final wobble = math.sin((t * 6 + seed * 10) * math.pi) * radius * 0.2;
-      final at = iso.p(x - radius * 0.3 + wobble, fromY + span * t, 0);
-      canvas.drawCircle(
-        at,
-        0.8 + t * 1.8,
-        Paint()
-          ..color = _Palette.fog.withValues(alpha: 0.6 * math.sin(t * math.pi))
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 0.9,
-      );
-    }
-  }
-
   Rect _paintLogger(Canvas canvas, _Iso iso, double x, double z) {
     final rect = _box(
       canvas,
@@ -1831,14 +1946,21 @@ class _CaptureStagePainter extends CustomPainter {
     if (!active) return;
     final metric = path.computeMetrics().firstOrNull;
     if (metric == null || metric.length < 1) return;
-    final count = math.max(3, (metric.length / 18).round());
-    final speed = 0.35 + _flowNorm * 1.1 + alive * 0.4;
-    final dot = Paint()..color = _Palette.fog.withValues(alpha: 0.85);
-    for (var i = 0; i < count; i++) {
-      final t = (phase * speed * 3 + i / count) % 1;
-      final tangent = metric.getTangentForOffset(metric.length * t);
-      if (tangent == null) continue;
-      canvas.drawCircle(tangent.position, width * 0.22 + 0.6, dot);
+    // Agua en la cañería: trazos tenues que avanzan con el caudal acumulado,
+    // así acelerar o frenar no los hace saltar.
+    const period = 26.0;
+    const dash = 10.0;
+    final offset = (travel * 70) % period;
+    final stream = Paint()
+      ..color = _Palette.fog.withValues(alpha: 0.30 + _flowNorm * 0.35)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(1.2, width * 0.32)
+      ..strokeCap = StrokeCap.round;
+    for (var d = offset - period; d < metric.length; d += period) {
+      final a = math.max(0.0, d);
+      final b = math.min(metric.length, d + dash);
+      if (b - a < 1) continue;
+      canvas.drawPath(metric.extractPath(a, b), stream);
     }
   }
 
@@ -1855,15 +1977,44 @@ class _CaptureStagePainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.8,
     );
-    final sweep = _flowing ? phase * _tau * (2 + _flowNorm * 6) : -math.pi / 2;
-    canvas.drawLine(
-      at,
-      at + Offset(math.cos(sweep), math.sin(sweep)) * r,
+    // Dial: el arco y la aguja marcan el caudal respecto del máximo.
+    const start = math.pi * 0.75;
+    const span = math.pi * 1.5;
+    final dial = Rect.fromCircle(center: at, radius: r - 1);
+    canvas.drawArc(
+      dial,
+      start,
+      span,
+      false,
       Paint()
-        ..color = _flowing ? _Palette.flow : _Palette.faint
-        ..strokeWidth = 1.8
+        ..color = _Palette.faint.withValues(alpha: 0.25)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
         ..strokeCap = StrokeCap.round,
     );
+    if (_q > 0.01) {
+      canvas.drawArc(
+        dial,
+        start,
+        span * _flowNorm,
+        false,
+        Paint()
+          ..color = _Palette.flow
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+    final angle = start + span * _flowNorm;
+    canvas.drawLine(
+      at,
+      at + Offset(math.cos(angle), math.sin(angle)) * (r - 2.5),
+      Paint()
+        ..color = _flowing ? _Palette.fog : _Palette.faint
+        ..strokeWidth = 1.6
+        ..strokeCap = StrokeCap.round,
+    );
+    canvas.drawCircle(at, 1.6, Paint()..color = _Palette.fog);
     return r;
   }
 
@@ -1889,7 +2040,7 @@ class _CaptureStagePainter extends CustomPainter {
     canvas.save();
     canvas.clipPath(Path()..addOval(pool));
     for (var i = 0; i < 3; i++) {
-      final t = (phase * (2 + _flowNorm * 3) + i / 3) % 1;
+      final t = (travel * 0.8 + i / 3) % 1;
       canvas.drawOval(
         Rect.fromCenter(
           center: pool.center,
@@ -1897,7 +2048,7 @@ class _CaptureStagePainter extends CustomPainter {
           height: pool.height * t,
         ),
         Paint()
-          ..color = _Palette.fog.withValues(alpha: (1 - t) * 0.55)
+          ..color = _Palette.fog.withValues(alpha: (1 - t) * t * 1.2)
           ..style = PaintingStyle.stroke,
       );
     }
@@ -1930,14 +2081,6 @@ class _CaptureStagePainter extends CustomPainter {
         ..strokeWidth = width
         ..strokeCap = StrokeCap.round,
     );
-    for (var i = 0; i < 5; i++) {
-      final t = (phase * 6 + i / 5) % 1;
-      canvas.drawCircle(
-        Offset.lerp(a, b, t)! + Offset(math.sin(i * 2.1) * width * 0.4, 0),
-        1 + width * 0.18,
-        Paint()..color = _Palette.fog.withValues(alpha: 0.8 * (1 - t * 0.6)),
-      );
-    }
   }
 
   /// Regla de profundidad sobre la arista visible más a la izquierda.
@@ -2129,14 +2272,10 @@ class _CaptureStagePainter extends CustomPainter {
     );
     canvas.drawRRect(
       rrect,
-      Paint()..color = _Palette.card.withValues(alpha: 0.95),
-    );
-    canvas.drawRRect(
-      rrect,
       Paint()
-        ..color = tag.color.withValues(alpha: focused ? 0.9 : 0.3)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = focused ? 1.4 : 1,
+        ..color = focused
+            ? Color.lerp(_Palette.card, _Palette.fog, 0.12)!
+            : _Palette.card.withValues(alpha: 0.95),
     );
     canvas.drawRRect(
       RRect.fromRectAndRadius(
@@ -2285,57 +2424,39 @@ class _CaptureStagePainter extends CustomPainter {
       hits.add(ScenePart.water, sheetPath);
       canvas.save();
       canvas.clipPath(sheetPath);
-      final moving = _flowing;
-      final speed = moving ? 0.5 + _flowNorm * 2.0 + alive * 0.4 : 0.06;
-      final streak = Paint()
-        ..strokeCap = StrokeCap.round
-        ..strokeWidth = 1.5;
-      for (var i = 0; i < 16; i++) {
-        final lane = ((i * 0.618) % 1) * 2 - 1;
-        final t = (phase * speed * 2 + i / 16) % 1;
-        final z0 = -h * 1.1 + t * 2.3 * h;
-        final len = h * (0.10 + _flowNorm * 0.2);
-        streak.color = _Palette.fog.withValues(
-          alpha: 0.5 * math.sin(t * math.pi),
-        );
-        canvas.drawLine(
-          iso.p(lane * c * 0.85, waterY, z0),
-          iso.p(lane * c * 0.85, waterY, z0 + len),
-          streak,
-        );
-      }
-      for (var k = 0; k < 5; k++) {
-        final z = -h + ((phase * (speed + 0.1) + k / 5) % 1) * 2 * h;
-        final wave = Path();
-        for (var s = 0; s <= 18; s++) {
-          final u = s / 18;
-          final pt = iso.p(
-            -c + u * 2 * c,
-            waterY + math.sin(u * _tau + phase * _tau * 3) * (1 + _agitation),
-            z,
-          );
-          if (s == 0) {
-            wave.moveTo(pt.dx, pt.dy);
-          } else {
-            wave.lineTo(pt.dx, pt.dy);
+      // Corriente: líneas largas que avanzan de forma continua y se
+      // desvanecen en los extremos, sin cortes ni reinicios.
+      final lanes = [-0.62, -0.2, 0.22, 0.6];
+      const period = 0.42;
+      const dash = 0.16;
+      for (var i = 0; i < lanes.length; i++) {
+        final offset = (travel * 0.9 + i * 0.13) % period;
+        for (var u0 = -period + offset; u0 < 1; u0 += period) {
+          final a = u0.clamp(0.0, 1.0).toDouble();
+          final b = (u0 + dash).clamp(0.0, 1.0).toDouble();
+          if (b - a < 0.005) continue;
+          final mid = (a + b) / 2;
+          final line = Path();
+          for (var s = 0; s <= 8; s++) {
+            final u = a + (b - a) * s / 8;
+            final pt = iso.p(lanes[i] * c, waterY, -h + u * 2 * h);
+            if (s == 0) {
+              line.moveTo(pt.dx, pt.dy);
+            } else {
+              line.lineTo(pt.dx, pt.dy);
+            }
           }
+          canvas.drawPath(
+            line,
+            Paint()
+              ..color = _Palette.fog.withValues(
+                alpha: 0.22 * math.sin(mid * math.pi),
+              )
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.2
+              ..strokeCap = StrokeCap.round,
+          );
         }
-        canvas.drawPath(
-          wave,
-          Paint()
-            ..color = _Palette.fog.withValues(alpha: 0.14)
-            ..style = PaintingStyle.stroke,
-        );
-      }
-      // Destellos.
-      for (var i = 0; i < 6; i++) {
-        final g = _grain[i * 7];
-        final tw = (math.sin(phase * _tau * 3 + i * 1.9) + 1) / 2;
-        canvas.drawCircle(
-          iso.p(-c + g.dx * 2 * c, waterY, -h + g.dy * 2 * h),
-          0.8 + tw * 1.4,
-          Paint()..color = Colors.white.withValues(alpha: tw * 0.55),
-        );
       }
       canvas.restore();
     }
@@ -2384,18 +2505,6 @@ class _CaptureStagePainter extends CustomPainter {
             ],
           ).createShader(_boundsOf(section)),
       );
-      canvas.save();
-      canvas.clipPath(sectionPath);
-      for (var i = 0; i < 18; i++) {
-        final g = _grain[i * 5 + 3];
-        final drift = (g.dx + phase * (0.2 + _flowNorm)) % 1;
-        canvas.drawCircle(
-          _bilerp(section, drift, 0.1 + g.dy * 0.85),
-          1,
-          Paint()..color = _Palette.fog.withValues(alpha: 0.25),
-        );
-      }
-      canvas.restore();
       hits.add(ScenePart.level, sectionPath);
       final crest = Path();
       for (var s = 0; s <= 22; s++) {
@@ -2403,8 +2512,7 @@ class _CaptureStagePainter extends CustomPainter {
         final pt = _bilerp(section, u, 0);
         final y =
             pt.dy +
-            math.sin(u * _tau * 1.5 + phase * _tau * (2 + _agitation)) *
-                (1 + _agitation * 1.5);
+            math.sin(u * _tau * 1.5 - drift * _tau) * (0.8 + _agitation);
         if (s == 0) {
           crest.moveTo(pt.dx, y);
         } else {
@@ -2438,17 +2546,6 @@ class _CaptureStagePainter extends CustomPainter {
             end: Alignment.bottomRight,
             colors: [Color(0xFF2F4B40), Color(0xFF213A32)],
           ).createShader(_boundsOf(bank)),
-      );
-      canvas.drawPoints(
-        PointMode.points,
-        [
-          for (var i = 0; i < 40; i++)
-            _bilerp(bank, _grain[i + 60].dx, _grain[i + 60].dy),
-        ],
-        Paint()
-          ..color = const Color(0xFF6E9A7E).withValues(alpha: 0.25)
-          ..strokeWidth = 1.6
-          ..strokeCap = StrokeCap.round,
       );
       canvas.drawPath(
         _poly(bank),
@@ -2603,6 +2700,9 @@ class _CaptureStagePainter extends CustomPainter {
           '${flow!.toStringAsFixed(2)} L/s',
           meterAt,
           _Palette.flow,
+          detail: totalCubicMeters == null
+              ? null
+              : 'total ${formatCubicMeters(totalCubicMeters!)}',
           lift: 80,
         ),
       );

@@ -1341,6 +1341,12 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
           selectedRecord?['total'] ??
           telemetry['total'],
     );
+    final replayFlows = _replayRecords
+        .map((record) => _optionalNumber(record['flow']))
+        .whereType<double>();
+    final flowMax = replayFlows.isEmpty
+        ? null
+        : replayFlows.reduce((a, b) => a > b ? a : b);
     final levelRange = (minimumLevel != null && maximumLevel != null)
         ? maximumLevel - minimumLevel
         : 0.0;
@@ -1367,6 +1373,8 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
                   link: pointLinkOf(data),
                   profile: _profile,
                   playing: _replayTimer != null,
+                  flowMax: flowMax != null && flowMax > 0 ? flowMax : null,
+                  totalCubicMeters: liveTotal,
                 ),
                 SafeArea(
                   bottom: false,
