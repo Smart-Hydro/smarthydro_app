@@ -80,6 +80,9 @@ enum ScenePart {
   water,
   intake,
 
+  /// Poste y acometida que alimentan el tablero.
+  power,
+
   /// La escena completa: qué representa y de dónde salen sus datos.
   overview,
 }
@@ -476,11 +479,12 @@ class _CaptureStageState extends State<CaptureStage>
         );
       case ScenePart.logger:
         return (
-          title: 'Datalogger',
+          title: 'Tablero eléctrico con datalogger',
           value: pointLinkLabel(widget.link),
           body:
-              'Registra las mediciones del sensor y del flujómetro y las '
-              'transmite a SmartHydro.',
+              'Gabinete que instalamos en terreno: recibe la energía y aloja '
+              'el datalogger, que registra las mediciones del sensor y del '
+              'flujómetro y las transmite a SmartHydro.',
           color: _Palette.linkColor(widget.link),
         );
       case ScenePart.flowmeter:
@@ -505,6 +509,15 @@ class _CaptureStageState extends State<CaptureStage>
               'Curso de agua superficial. Las líneas sobre la lámina muestran '
               'la corriente; más rápidas, más caudal.',
           color: _Palette.surfaceWater,
+        );
+      case ScenePart.power:
+        return (
+          title: 'Alimentación eléctrica',
+          value: null,
+          body:
+              'Energía que llega al tablero desde el empalme para mantener '
+              'encendidos el datalogger y los sensores.',
+          color: _Palette.sensor,
         );
       case ScenePart.overview:
         return (
@@ -864,13 +877,16 @@ class _SceneHits {
 /// Proyección axonométrica con giro (yaw) e inclinación (pitch). `y` es la
 /// altura en píxeles (negativa bajo el terreno).
 class _Iso {
-  _Iso(this.origin, double yaw, double pitch)
+  _Iso(this.origin, double yaw, double pitch, {this.scale = 1})
     : cy = math.cos(yaw),
       sy = math.sin(yaw),
       ps = math.sin(pitch),
       pc = math.cos(pitch);
 
   final Offset origin;
+
+  /// Zoom de la vista: escala el bloque y todos los equipos por igual.
+  final double scale;
   final double cy;
   final double sy;
   final double ps;
@@ -881,17 +897,17 @@ class _Iso {
   double get sz => cy >= 0 ? 1 : -1;
 
   Offset p(double x, double y, double z) {
-    final xr = x * cy - z * sy;
-    final zr = x * sy + z * cy;
-    return Offset(origin.dx + xr, origin.dy - y * pc + zr * ps);
+    final xr = (x * cy - z * sy) * scale;
+    final zr = (x * sy + z * cy) * scale;
+    return Offset(origin.dx + xr, origin.dy - y * scale * pc + zr * ps);
   }
 
   /// Óvalo de un círculo horizontal: la proyección no depende del giro.
   Rect ring(double y, double radius, {double x = 0, double z = 0}) =>
       Rect.fromCenter(
         center: p(x, y, z),
-        width: radius * 2,
-        height: radius * 2 * ps,
+        width: radius * 2 * scale,
+        height: radius * 2 * ps * scale,
       );
 
   /// Cara lateral en x = ±h visible, entre las alturas [y0] y [y1].
@@ -1074,11 +1090,10 @@ class _CaptureStagePainter extends CustomPainter {
     ];
     final bounds = _boundsOf(corners);
     final target = Offset(size.width / 2, top + availH / 2);
-    final center = bounds.center * zoom;
     return (
-      half: half * zoom,
-      depth: depth * zoom,
-      origin: target - center + pan,
+      half: half,
+      depth: depth,
+      origin: target - bounds.center * zoom + pan,
     );
   }
 
@@ -1264,7 +1279,12 @@ class _CaptureStagePainter extends CustomPainter {
 
   void _paintWell(Canvas canvas, Size size) {
     final l = _layout(size, depthShare: 1, headroom: 40);
-    final iso = _Iso(l.origin, yaw + math.sin(phase * _tau) * 0.015, pitch);
+    final iso = _Iso(
+      l.origin,
+      yaw + math.sin(phase * _tau) * 0.015,
+      pitch,
+      scale: zoom,
+    );
     final half = l.half;
     final known = profile.depth != null;
     final blockPx = l.depth;
@@ -1292,8 +1312,8 @@ class _CaptureStagePainter extends CustomPainter {
     canvas.drawOval(
       Rect.fromCenter(
         center: iso.p(0, blockBottom, 0) + const Offset(0, 18),
-        width: half * 3.1,
-        height: half * 3.1 * iso.ps * 0.6,
+        width: half * 3.1 * iso.scale,
+        height: half * 3.1 * iso.ps * 0.6 * iso.scale,
       ),
       Paint()
         ..color = Colors.black.withValues(alpha: 0.4)
@@ -1444,7 +1464,11 @@ class _CaptureStagePainter extends CustomPainter {
       );
       canvas.drawRRect(
         RRect.fromRectAndRadius(
-          Rect.fromCenter(center: at, width: 7, height: 15),
+          Rect.fromCenter(
+            center: at,
+            width: 7 * iso.scale,
+            height: 15 * iso.scale,
+          ),
           const Radius.circular(3.5),
         ),
         Paint()..color = _Palette.sensor,
@@ -1474,7 +1498,11 @@ class _CaptureStagePainter extends CustomPainter {
       final jitter = _flowing ? math.sin(phase * _tau * 40) * 0.5 : 0.0;
       final at = iso.p(pumpX, pumpY, 0) + Offset(jitter, 0);
       final body = RRect.fromRectAndRadius(
-        Rect.fromCenter(center: at, width: 11, height: 30),
+        Rect.fromCenter(
+          center: at,
+          width: 11 * iso.scale,
+          height: 30 * iso.scale,
+        ),
         const Radius.circular(5),
       );
       canvas.drawRRect(
@@ -1485,8 +1513,8 @@ class _CaptureStagePainter extends CustomPainter {
           ).createShader(body.outerRect),
       );
       canvas.drawLine(
-        at + const Offset(-5.5, 6),
-        at + const Offset(5.5, 6),
+        at + const Offset(-5.5, 6) * iso.scale,
+        at + const Offset(5.5, 6) * iso.scale,
         Paint()
           ..color = dry ? _Palette.coral : _Palette.flow
           ..strokeWidth = 2,
@@ -1581,14 +1609,21 @@ class _CaptureStagePainter extends CustomPainter {
           ..strokeWidth = 1,
       );
     }
-    final loggerRect = _paintLogger(canvas, iso, logger.x, logger.z);
+    final loggerRect = _paintLogger(
+      canvas,
+      iso,
+      logger.x,
+      logger.z,
+      pole: (x: -half * 0.88, z: half * 0.84),
+    );
     tags.add(
       _Tag(
         ScenePart.logger,
-        'DATALOGGER',
+        'TABLERO · DATALOGGER',
         pointLinkLabel(link),
         loggerRect.topCenter,
         _Palette.linkColor(link),
+        lift: 12,
       ),
     );
 
@@ -1868,19 +1903,133 @@ class _CaptureStagePainter extends CustomPainter {
     );
   }
 
-  Rect _paintLogger(Canvas canvas, _Iso iso, double x, double z) {
-    final rect = _box(
+  /// Tablero eléctrico en terreno: recibe la energía desde un poste y
+  /// aloja el datalogger, visible por la mirilla de la puerta.
+  Rect _paintLogger(
+    Canvas canvas,
+    _Iso iso,
+    double x,
+    double z, {
+    required ({double x, double z}) pole,
+  }) {
+    const plinth = 4.0;
+    const w = 24.0, d = 12.0, h = 34.0;
+    const top = plinth + h;
+    final color = _Palette.linkColor(link);
+
+    // Poste y acometida.
+    const poleH = 56.0;
+    final poleBase = iso.p(pole.x, 0, pole.z);
+    final poleTop = iso.p(pole.x, poleH, pole.z);
+    final wood = Paint()
+      ..color = const Color(0xFF8C9A97)
+      ..strokeWidth = 2.6 * iso.scale
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(poleBase, poleTop, wood);
+    final armA = iso.p(pole.x - 7, poleH - 4, pole.z);
+    final armB = iso.p(pole.x + 7, poleH - 4, pole.z);
+    canvas.drawLine(armA, armB, wood..strokeWidth = 1.8 * iso.scale);
+    final entry = iso.p(x, top - 6, z - iso.sz * d / 2);
+    final mid = Offset.lerp(armB, entry, 0.5)! + Offset(0, 10 * iso.scale);
+    final cable = Path()
+      ..moveTo(armB.dx, armB.dy)
+      ..quadraticBezierTo(mid.dx, mid.dy, entry.dx, entry.dy);
+    canvas.drawPath(
+      cable,
+      Paint()
+        ..color = const Color(0xFF1C2B2E)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4 * iso.scale,
+    );
+    hits.rect(
+      ScenePart.power,
+      _boundsOf([poleBase, poleTop, armA, armB]).inflate(8),
+    );
+
+    // Base de hormigón y gabinete.
+    _box(
       canvas,
       iso,
       x: x,
       z: z,
-      w: 16,
-      d: 10,
-      h: 24,
-      color: const Color(0xFFDDE7E6),
+      w: w + 4,
+      d: d + 4,
+      h: plinth,
+      color: const Color(0xFF7D8B8B),
     );
-    final head = iso.p(x, 24, z);
-    final tip = iso.p(x + 4, 46, z);
+    final cabinet = _box(
+      canvas,
+      iso,
+      x: x,
+      z: z,
+      y: plinth,
+      w: w,
+      d: d,
+      h: h,
+      color: const Color(0xFFD3DCDB),
+    );
+    _box(
+      canvas,
+      iso,
+      x: x,
+      z: z,
+      y: top,
+      w: w + 3,
+      d: d + 3,
+      h: 1.6,
+      color: const Color(0xFFB9C5C4),
+    );
+
+    // Puerta en la cara frontal visible.
+    final fz = z + iso.sz * d / 2;
+    Offset door(double u, double v) => iso.p(x + u, v, fz);
+    List<Offset> quad(double u0, double v0, double u1, double v1) => [
+      door(u0, v0),
+      door(u1, v0),
+      door(u1, v1),
+      door(u0, v1),
+    ];
+    canvas.drawPath(
+      _poly(quad(-w / 2 + 2, plinth + 2, w / 2 - 2, top - 2)),
+      Paint()
+        ..color = const Color(0xFF7F8F90)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.8,
+    );
+    canvas.drawLine(
+      door(w / 2 - 4.5, plinth + h * 0.42),
+      door(w / 2 - 4.5, plinth + h * 0.58),
+      Paint()
+        ..color = const Color(0xFF55656A)
+        ..strokeWidth = 1.6 * iso.scale
+        ..strokeCap = StrokeCap.round,
+    );
+
+    // Mirilla con el datalogger dentro.
+    canvas.drawPath(
+      _poly(quad(-8, top - 15, 6, top - 5)),
+      Paint()..color = const Color(0xFF0E1E22),
+    );
+    canvas.drawPath(
+      _poly(quad(-6, top - 13.5, 1.5, top - 6.5)),
+      Paint()..color = const Color(0xFF2F5F57),
+    );
+    final blink = (math.sin(phase * _tau * 6) + 1) / 2;
+    canvas.drawCircle(
+      door(3.6, top - 8),
+      1.4 * iso.scale,
+      Paint()..color = color.withValues(alpha: 0.4 + blink * 0.6),
+    );
+
+    // Señal de riesgo eléctrico.
+    canvas.drawPath(
+      _poly([door(-3, plinth + 7), door(3, plinth + 7), door(0, plinth + 13)]),
+      Paint()..color = _Palette.sensor.withValues(alpha: 0.9),
+    );
+
+    // Antena de transmisión.
+    final head = iso.p(x - w / 2 + 4, top + 1.6, z);
+    final tip = iso.p(x - w / 2 + 6, top + 20, z);
     canvas.drawLine(
       head,
       tip,
@@ -1888,8 +2037,7 @@ class _CaptureStagePainter extends CustomPainter {
         ..color = _Palette.steel
         ..strokeWidth = 1.4,
     );
-    final color = _Palette.linkColor(link);
-    canvas.drawCircle(tip, 2.4, Paint()..color = color);
+    canvas.drawCircle(tip, 2.2, Paint()..color = color);
     if (link == PointLink.connected) {
       final t = (phase * 2) % 1;
       canvas.drawArc(
@@ -1903,13 +2051,9 @@ class _CaptureStagePainter extends CustomPainter {
           ..strokeWidth = 1.3,
       );
     }
-    final blink = (math.sin(phase * _tau * 6) + 1) / 2;
-    canvas.drawCircle(
-      iso.p(x, 14, z + iso.sz * 5.2),
-      2,
-      Paint()..color = color.withValues(alpha: 0.4 + blink * 0.6),
+    final area = cabinet.expandToInclude(
+      Rect.fromCircle(center: tip, radius: 6),
     );
-    final area = rect.expandToInclude(Rect.fromCircle(center: tip, radius: 6));
     hits.rect(ScenePart.logger, area.inflate(6));
     return area;
   }
@@ -2347,7 +2491,12 @@ class _CaptureStagePainter extends CustomPainter {
       widthShare: 0.34,
       heightShare: 0.44,
     );
-    final iso = _Iso(l.origin, yaw + math.sin(phase * _tau) * 0.015, pitch);
+    final iso = _Iso(
+      l.origin,
+      yaw + math.sin(phase * _tau) * 0.015,
+      pitch,
+      scale: zoom,
+    );
     final h = l.half;
     final depthPx = l.depth;
     final c = h * 0.42;
@@ -2368,8 +2517,8 @@ class _CaptureStagePainter extends CustomPainter {
     canvas.drawOval(
       Rect.fromCenter(
         center: iso.p(0, bankBottom, 0) + const Offset(0, 18),
-        width: h * 3.1,
-        height: h * 3.1 * iso.ps * 0.6,
+        width: h * 3.1 * iso.scale,
+        height: h * 3.1 * iso.ps * 0.6 * iso.scale,
       ),
       Paint()
         ..color = Colors.black.withValues(alpha: 0.4)
@@ -2631,11 +2780,17 @@ class _CaptureStagePainter extends CustomPainter {
         ),
       );
     }
-    final loggerRect = _paintLogger(canvas, iso, logger.x, logger.z);
+    final loggerRect = _paintLogger(
+      canvas,
+      iso,
+      logger.x,
+      logger.z,
+      pole: (x: -c - (h - c) * 0.88, z: h * 0.86),
+    );
     tags.add(
       _Tag(
         ScenePart.logger,
-        'DATALOGGER',
+        'TABLERO · DATALOGGER',
         pointLinkLabel(link),
         loggerRect.topCenter,
         _Palette.linkColor(link),
