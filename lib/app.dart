@@ -23,6 +23,10 @@ class SmartHydroApp extends ConsumerWidget {
     );
 
     return MaterialApp(
+      // Al cambiar el estado de sesión se reinicia el navegador raíz: si la
+      // sesión expira con pantallas apiladas (detalle, reportes...), no
+      // quedan rutas huérfanas sobre el login con un token inválido.
+      key: ValueKey(session != null),
       title: 'Ikolu · Smart Hydro',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
