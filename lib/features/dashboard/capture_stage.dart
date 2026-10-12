@@ -102,7 +102,7 @@ double flowNormOf(double q, double? max) {
 /// Un bloque de terreno en corte que gira 360° al arrastrar y acompaña al
 /// puntero. Solo se dibuja lo que el punto tiene: el pozo usa su ficha real
 /// (profundidad, bomba, sensor, ductos) y las variables con dato; lo que no
-/// existe no aparece. Al pasar el puntero o tocar una parte se explica qué es.
+/// existe no aparece. Al tocar un equipo o una lectura se muestran sus datos.
 class CaptureStage extends StatefulWidget {
   const CaptureStage({
     required this.levelMeters,
@@ -297,17 +297,18 @@ class _CaptureStageState extends State<CaptureStage>
 
   void _onHover(PointerHoverEvent event, Size size) {
     if (size.isEmpty) return;
+    // Solo paralaje suave: la ficha se abre con click, no al pasar el mouse.
     _pointer = Offset(
       (event.localPosition.dx / size.width) * 2 - 1,
       (event.localPosition.dy / size.height) * 2 - 1,
     );
-    final part = _hits.at(event.localPosition);
+    final part = _dataPartAt(event.localPosition);
     if (part != _hoverPart) setState(() => _hoverPart = part);
     _snapIfStatic();
   }
 
   void _onTapUp(TapUpDetails details) {
-    final part = _hits.at(details.localPosition);
+    final part = _dataPartAt(details.localPosition);
     setState(() {
       final next = part == _pinnedPart ? null : part;
       _pinnedPart = next;
@@ -315,6 +316,24 @@ class _CaptureStageState extends State<CaptureStage>
         _focusLogger();
       }
     });
+  }
+
+  /// Solo equipos y lecturas reales; no capas decorativas del corte.
+  static const _dataParts = {
+    ScenePart.level,
+    ScenePart.sensor,
+    ScenePart.pump,
+    ScenePart.depth,
+    ScenePart.logger,
+    ScenePart.flowmeter,
+    ScenePart.intake,
+    ScenePart.power,
+  };
+
+  ScenePart? _dataPartAt(Offset point) {
+    final part = _hits.at(point);
+    if (part == null || !_dataParts.contains(part)) return null;
+    return part;
   }
 
   /// Acerca la cámara al tablero para leer su ficha con comodidad.
@@ -578,7 +597,8 @@ class _CaptureStageState extends State<CaptureStage>
   @override
   Widget build(BuildContext context) {
     final textScaler = MediaQuery.textScalerOf(context);
-    final focus = _hoverPart ?? _pinnedPart;
+    // La ficha solo aparece al hacer click; el hover solo cambia el cursor.
+    final focus = _pinnedPart;
     return Semantics(
       container: true,
       label: _semantics(),
@@ -779,8 +799,8 @@ class _HintRow extends StatelessWidget {
       SizedBox(width: 6),
       Flexible(
         child: Text(
-          'Representación de tu instalación · arrastra, pellizca o usa '
-          'la rueda · toca una parte',
+          'Representación de tu instalación · arrastra o pellizca · '
+          'toca un equipo o una lectura para ver sus datos',
           textAlign: TextAlign.center,
           style: TextStyle(
             color: _Palette.faint,
@@ -1451,19 +1471,16 @@ class _CaptureStagePainter extends CustomPainter {
       final dryBottom = levelY ?? (known ? bottomY : blockBottom);
       final dry = band(0, dryBottom);
       _soilBand(canvas, dry, shade: shade);
-      hits.add(ScenePart.soil, _poly(dry));
       if (levelY != null) {
         final wetBottom = known ? bottomY : blockBottom;
         if (wetBottom < levelY) {
           final wet = band(levelY, wetBottom);
           _aquiferBand(canvas, wet, shade: shade);
-          hits.add(ScenePart.aquifer, _poly(wet));
         }
       }
       if (known) {
         final rock = band(bottomY, blockBottom);
         _rockBand(canvas, rock, shade: shade);
-        hits.add(ScenePart.rock, _poly(rock));
       }
       if (levelY != null) _waterTableLine(canvas, band(levelY, levelY - 1));
       canvas.drawPath(
@@ -1544,7 +1561,6 @@ class _CaptureStagePainter extends CustomPainter {
 
     if (levelY != null) _paintWellWater(canvas, iso, innerR, levelY, bottomY);
     _paintCasing(canvas, iso, outerR, innerR, bottomY, levelY);
-    hits.add(ScenePart.casing, hole);
     if (levelY != null) {
       hits.rect(ScenePart.level, iso.ring(levelY, innerR).inflate(6));
     }
@@ -2633,7 +2649,6 @@ class _CaptureStagePainter extends CustomPainter {
     // Cara lateral exterior (el cauce corre a lo largo de z).
     final side = iso.xFace(h, 0, bankBottom);
     _soilBand(canvas, side, shade: 0.28);
-    hits.add(ScenePart.soil, _poly(side));
 
     // Pared interior del cauce que mira al observador y lecho.
     final wallX = -iso.sx * c;
@@ -2675,7 +2690,6 @@ class _CaptureStagePainter extends CustomPainter {
             ],
           ).createShader(_boundsOf(sheet)),
       );
-      hits.add(ScenePart.water, sheetPath);
       canvas.save();
       canvas.clipPath(sheetPath);
       // Corriente: líneas largas que avanzan de forma continua y se
@@ -2732,7 +2746,6 @@ class _CaptureStagePainter extends CustomPainter {
     canvas.clipPath(frontPath);
     _soilBand(canvas, iso.zFace(h, 0, bankBottom), shade: 0);
     canvas.restore();
-    hits.add(ScenePart.soil, frontPath);
     canvas.drawPath(
       frontPath,
       Paint()

@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smarthydro_app/features/dashboard/capture_stage.dart';
@@ -149,6 +150,24 @@ void main() {
     expect(find.textContaining('Caudal'), findsWidgets);
     expect(find.textContaining('Cumplimiento DGA'), findsOneWidget);
     expect(find.textContaining('OB-123'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('pasar el mouse no abre la ficha; solo el click', (tester) async {
+    await tester.pumpWidget(_stage(surface: false));
+    await tester.pump(const Duration(milliseconds: 100));
+    final box = tester.getRect(find.byType(CaptureStage));
+    final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await gesture.addPointer(location: box.center);
+    addTearDown(gesture.removePointer);
+    await tester.pump();
+    await gesture.moveTo(Offset(box.left + 40, box.top + 80));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.textContaining('Zona no saturada'), findsNothing);
+    expect(find.textContaining('Acuífero'), findsNothing);
+    expect(find.text('Representación de tu instalación'), findsNothing);
+    // Click en un equipo sí abre ficha con datos.
+    expect(await _tapUntil(tester, 'Extrae el agua'), isTrue);
     await tester.pumpWidget(const SizedBox());
   });
 
