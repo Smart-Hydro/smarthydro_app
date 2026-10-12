@@ -246,8 +246,8 @@ class _CaptureStagePainter extends CustomPainter {
       Paint()
         ..shader = RadialGradient(
           colors: [
-            _accent.withValues(alpha: 0.16 * alive),
-            _accent.withValues(alpha: 0.05 * alive),
+            _accent.withValues(alpha: 0.24 * alive),
+            _accent.withValues(alpha: 0.08 * alive),
             _accent.withValues(alpha: 0),
           ],
           stops: const [0, 0.55, 1],
@@ -370,6 +370,34 @@ class _CaptureStagePainter extends CustomPainter {
           ..strokeWidth = 1.2
           ..strokeCap = StrokeCap.round,
       );
+      // Menisco: la superficie del agua vista en perspectiva (refuerzo 3D);
+      // respira con el replay.
+      final meniscus = Rect.fromCenter(
+        center: Offset(water.center.dx, water.top + 2),
+        width: water.width,
+        height: 5 + alive * 5,
+      );
+      canvas.drawOval(
+        meniscus,
+        Paint()..color = _fog.withValues(alpha: 0.22 + alive * 0.3),
+      );
+      // Burbujas ascendentes: solo cobran vida con el replay.
+      if (alive > 0.05 && water.height > 24) {
+        for (var i = 0; i < 6; i++) {
+          final travel = (phase * (0.4 + alive * 0.6) + i / 6) % 1;
+          final bx =
+              water.left +
+              water.width * (0.2 + 0.6 * (0.5 + math.sin(i * 2.3) / 2));
+          final by = water.bottom - water.height * travel;
+          final fade = math.sin(travel * math.pi);
+          canvas.drawCircle(
+            Offset(bx, by),
+            1 + fade * 1.6,
+            Paint()
+              ..color = _fog.withValues(alpha: (0.1 + fade * 0.35) * alive),
+          );
+        }
+      }
     }
 
     // Marca de nivel: línea fina y valor, sin pill ni flecha.
@@ -480,7 +508,39 @@ class _CaptureStagePainter extends CustomPainter {
         ..strokeWidth = 2.4
         ..strokeCap = StrokeCap.round,
     );
-    canvas.drawCircle(intake, 3.5, Paint()..color = _accent);
+    canvas.drawCircle(intake, 3.5 + alive * 2, Paint()..color = _accent);
+    if (alive > 0.05) {
+      canvas.drawCircle(
+        intake,
+        3.5 + alive * 7,
+        Paint()
+          ..color = _accent.withValues(alpha: 0.35 * alive)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.4,
+      );
+    }
+    // Banda de brillo que cruza la lámina con el replay (refuerzo 3D).
+    if (alive > 0.05) {
+      final shimmerY =
+          bankY +
+          14 +
+          (size.height - bankY - 28) *
+              (0.5 + math.sin(phase * math.pi * 2) / 2);
+      final shimmer = Rect.fromLTWH(0, shimmerY - 10, size.width, 20);
+      canvas.drawRect(
+        shimmer,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.white.withValues(alpha: 0),
+              Colors.white.withValues(alpha: 0.10 * alive),
+              Colors.white.withValues(alpha: 0),
+            ],
+          ).createShader(shimmer),
+      );
+    }
     _paintFlowDrops(canvas, size, intake, false);
     _label(
       canvas,
