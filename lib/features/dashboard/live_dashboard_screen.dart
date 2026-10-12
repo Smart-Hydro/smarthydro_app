@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/smarthydro_api.dart';
+import '../../core/n1/n1_providers.dart';
 import '../../core/session/session_provider.dart';
 import '../analysis/smart_analysis_screen.dart';
+import '../assistant/assistant_screen.dart';
 import '../profile/profile_screen.dart';
 import '../compliance/compliance_screen.dart';
 import '../geo/geo_smart_screen.dart';
@@ -252,7 +254,10 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
                             switchInCurve: Curves.easeOutCubic,
                             switchOutCurve: Curves.easeInCubic,
                             transitionBuilder: (child, animation) {
-                              return FadeTransition(opacity: animation, child: child);
+                              return FadeTransition(
+                                opacity: animation,
+                                child: child,
+                              );
                             },
                             child: KeyedSubtree(
                               key: ValueKey(_selectedTab),
@@ -325,6 +330,7 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
         return _MoreTab(
           onOpenCompliance: _openCompliance,
           onOpenSupport: _openSupport,
+          onOpenAssistant: _openAssistant,
           onOpenGeo: _openGeo,
           onOpenAnalysis: _openAnalysis,
           onOpenReports: _openReports,
@@ -332,16 +338,16 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
       default:
         return HydroFrame(
           child: ProfileScreen(
-          api: _api,
-          session: widget.session,
-          pointCount: _points.length,
-          notifyEmail: _notifyEmail,
-          savingEmailPreference: _savingEmailPreference,
-          onNotifyEmailChanged: _toggleEmailNotifications,
-          onUserUpdated: (user) =>
-              ref.read(sessionProvider.notifier).updateUser(user),
-          onSignOut: _signOut,
-        ),
+            api: _api,
+            session: widget.session,
+            pointCount: _points.length,
+            notifyEmail: _notifyEmail,
+            savingEmailPreference: _savingEmailPreference,
+            onNotifyEmailChanged: _toggleEmailNotifications,
+            onUserUpdated: (user) =>
+                ref.read(sessionProvider.notifier).updateUser(user),
+            onSignOut: _signOut,
+          ),
         );
     }
   }
@@ -361,10 +367,7 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
   void _openGeo() {
     Navigator.of(context).push<void>(
       hydroPageRoute(
-        GeoSmartScreen(
-          points: _points,
-          onSelectPoint: _openPoint,
-        ),
+        GeoSmartScreen(points: _points, onSelectPoint: _openPoint),
       ),
     );
   }
@@ -393,6 +396,18 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
         CustomerSupportScreen(
           api: _api,
           token: widget.session.token,
+          points: _points,
+        ),
+      ),
+    );
+  }
+
+  void _openAssistant() {
+    Navigator.of(context).push<void>(
+      hydroPageRoute(
+        AssistantScreen(
+          n1Api: ref.read(n1ApiProvider),
+          session: widget.session,
           points: _points,
         ),
       ),
@@ -468,7 +483,10 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
                 const SizedBox(height: 8),
                 Text(
                   '$label · $pointName · $when',
-                  style: const TextStyle(color: Color(0xFF9AB0B1), fontSize: 12),
+                  style: const TextStyle(
+                    color: Color(0xFF9AB0B1),
+                    fontSize: 12,
+                  ),
                 ),
                 if (message.isNotEmpty) ...[
                   const SizedBox(height: 12),
@@ -476,7 +494,9 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
                 ],
                 const SizedBox(height: 18),
                 FilledButton(
-                  onPressed: hasPoint ? () => Navigator.pop(context, 'point') : null,
+                  onPressed: hasPoint
+                      ? () => Navigator.pop(context, 'point')
+                      : null,
                   child: const Text('Ver punto'),
                 ),
                 const SizedBox(height: 8),
@@ -633,131 +653,131 @@ class _DashboardTab extends StatelessWidget {
       onRefresh: onRefresh,
       child: HydroFrame(
         child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
-        children: [
-          PortfolioNetwork(points: points, onPointSelected: onSelectPoint),
-          const SizedBox(height: 14),
-          Text(
-            'Hola, $userName',
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 12),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final columns = constraints.maxWidth >= 900
-                  ? 4
-                  : constraints.maxWidth >= 560
-                  ? 2
-                  : 2;
-              const gap = 12.0;
-              final cardWidth =
-                  (constraints.maxWidth - gap * (columns - 1)) / columns;
-              final items = [
-                _MetricData(
-                  'Puntos',
-                  '$total',
-                  Icons.location_on_outlined,
-                  const Color(0xFF66E0C2),
-                ),
-                _MetricData(
-                  'Conectados',
-                  '$connected',
-                  Icons.sensors_rounded,
-                  const Color(0xFF66E0C2),
-                ),
-                _MetricData(
-                  'Advertencias',
-                  '$gaps',
-                  Icons.water_damage_outlined,
-                  const Color(0xFFFFC46B),
-                ),
-                _MetricData(
-                  'Incidencias',
-                  '$incidents',
-                  Icons.report_outlined,
-                  const Color(0xFFFF847A),
-                ),
-              ];
-              return Wrap(
-                spacing: gap,
-                runSpacing: gap,
-                children: [
-                  for (var i = 0; i < items.length; i++)
-                    SizedBox(
-                      width: cardWidth,
-                      child: HydroEntrance(
-                        delay: Duration(milliseconds: 60 * i),
-                        child: _MetricCard(data: items[i]),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+          children: [
+            PortfolioNetwork(points: points, onPointSelected: onSelectPoint),
+            const SizedBox(height: 14),
+            Text(
+              'Hola, $userName',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 12),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final columns = constraints.maxWidth >= 900
+                    ? 4
+                    : constraints.maxWidth >= 560
+                    ? 2
+                    : 2;
+                const gap = 12.0;
+                final cardWidth =
+                    (constraints.maxWidth - gap * (columns - 1)) / columns;
+                final items = [
+                  _MetricData(
+                    'Puntos',
+                    '$total',
+                    Icons.location_on_outlined,
+                    const Color(0xFF66E0C2),
+                  ),
+                  _MetricData(
+                    'Conectados',
+                    '$connected',
+                    Icons.sensors_rounded,
+                    const Color(0xFF66E0C2),
+                  ),
+                  _MetricData(
+                    'Advertencias',
+                    '$gaps',
+                    Icons.water_damage_outlined,
+                    const Color(0xFFFFC46B),
+                  ),
+                  _MetricData(
+                    'Incidencias',
+                    '$incidents',
+                    Icons.report_outlined,
+                    const Color(0xFFFF847A),
+                  ),
+                ];
+                return Wrap(
+                  spacing: gap,
+                  runSpacing: gap,
+                  children: [
+                    for (var i = 0; i < items.length; i++)
+                      SizedBox(
+                        width: cardWidth,
+                        child: HydroEntrance(
+                          delay: Duration(milliseconds: 60 * i),
+                          child: _MetricCard(data: items[i]),
+                        ),
                       ),
-                    ),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 22),
-          Row(
-            children: [
-              const Spacer(),
-              TextButton.icon(
-                onPressed: onOpenPoints,
-                icon: const Icon(Icons.arrow_forward_rounded, size: 16),
-                label: const Text('Ver todos'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          if (points.isEmpty)
-            const _EmptyState(
-              icon: Icons.water_drop_outlined,
-              title: 'Aún no tienes puntos asignados',
-              message:
-                  'Cuando tu cuenta tenga puntos asociados, aparecerán aquí.',
-            )
-          else
-            for (var i = 0; i < points.take(5).length; i++) ...[
-              HydroEntrance(
-                delay: Duration(milliseconds: 200 + i * 55),
-                child: _PointCard(
-                  point: points[i],
-                  onTap: () => onSelectPoint(points[i]),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 22),
+            Row(
+              children: [
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: onOpenPoints,
+                  icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                  label: const Text('Ver todos'),
                 ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (points.isEmpty)
+              const _EmptyState(
+                icon: Icons.water_drop_outlined,
+                title: 'Aún no tienes puntos asignados',
+                message:
+                    'Cuando tu cuenta tenga puntos asociados, aparecerán aquí.',
+              )
+            else
+              for (var i = 0; i < points.take(5).length; i++) ...[
+                HydroEntrance(
+                  delay: Duration(milliseconds: 200 + i * 55),
+                  child: _PointCard(
+                    point: points[i],
+                    onTap: () => onSelectPoint(points[i]),
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
+            const SizedBox(height: 14),
+            HydroEntrance(
+              delay: const Duration(milliseconds: 420),
+              child: _ActionCard(
+                icon: Icons.notifications_active_outlined,
+                title: 'Revisar avisos',
+                subtitle: 'Notificaciones de tickets y eventos de sistema',
+                color: const Color(0xFF66E0C2),
+                onTap: onOpenNotifications,
               ),
-              const SizedBox(height: 10),
-            ],
-          const SizedBox(height: 14),
-          HydroEntrance(
-            delay: const Duration(milliseconds: 420),
-            child: _ActionCard(
-              icon: Icons.notifications_active_outlined,
-              title: 'Revisar avisos',
-              subtitle: 'Notificaciones de tickets y eventos de sistema',
-              color: const Color(0xFF66E0C2),
-              onTap: onOpenNotifications,
             ),
-          ),
-          const SizedBox(height: 10),
-          HydroEntrance(
-            delay: const Duration(milliseconds: 480),
-            child: _ActionCard(
-              icon: Icons.map_outlined,
-              title: 'GEO Smart',
-              subtitle: 'Ubicación y estado de tus puntos con GPS',
-              color: const Color(0xFF66E0C2),
-              onTap: onOpenGeo,
+            const SizedBox(height: 10),
+            HydroEntrance(
+              delay: const Duration(milliseconds: 480),
+              child: _ActionCard(
+                icon: Icons.map_outlined,
+                title: 'GEO Smart',
+                subtitle: 'Ubicación y estado de tus puntos con GPS',
+                color: const Color(0xFF66E0C2),
+                onTap: onOpenGeo,
+              ),
             ),
-          ),
-          const SizedBox(height: 10),
-          HydroEntrance(
-            delay: const Duration(milliseconds: 540),
-            child: _ActionCard(
-              icon: Icons.query_stats_rounded,
-              title: 'Smart Análisis',
-              subtitle: 'Consumo diario y mensual de un punto',
-              color: const Color(0xFF66E0C2),
-              onTap: onOpenAnalysis,
+            const SizedBox(height: 10),
+            HydroEntrance(
+              delay: const Duration(milliseconds: 540),
+              child: _ActionCard(
+                icon: Icons.query_stats_rounded,
+                title: 'Smart Análisis',
+                subtitle: 'Consumo diario y mensual de un punto',
+                color: const Color(0xFF66E0C2),
+                onTap: onOpenAnalysis,
+              ),
             ),
-          ),
-        ],
+          ],
         ),
       ),
     );
@@ -814,101 +834,104 @@ class _PointsTabState extends State<_PointsTab> {
 
     return HydroFrame(
       child: ListView(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-      children: [
-        TextField(
-          controller: _searchController,
-          onChanged: (value) =>
-              setState(() => _search = value.trim().toLowerCase()),
-          decoration: InputDecoration(
-            prefixIcon: const Icon(Icons.search_rounded),
-            hintText: 'Buscar punto, proyecto o cliente',
-            suffixIcon: _search.isEmpty
-                ? null
-                : IconButton(
-                    tooltip: 'Limpiar búsqueda',
-                    onPressed: () {
-                      _searchController.clear();
-                      setState(() => _search = '');
-                    },
-                    icon: const Icon(Icons.close_rounded),
-                  ),
-            filled: true,
-            fillColor: const Color(0xFF112328),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide.none,
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+        children: [
+          TextField(
+            controller: _searchController,
+            onChanged: (value) =>
+                setState(() => _search = value.trim().toLowerCase()),
+            decoration: InputDecoration(
+              prefixIcon: const Icon(Icons.search_rounded),
+              hintText: 'Buscar punto, proyecto o cliente',
+              suffixIcon: _search.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: 'Limpiar búsqueda',
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() => _search = '');
+                      },
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+              filled: true,
+              fillColor: const Color(0xFF112328),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none,
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 16),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            for (final filter in const [
-              'Todos',
-              'Conectados',
-              'Advertencias',
-              'Incidencias',
-            ])
-              ChoiceChip(
-                label: Text(filter),
-                selected: _filter == filter,
-                visualDensity: VisualDensity.comfortable,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 6,
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (final filter in const [
+                'Todos',
+                'Conectados',
+                'Advertencias',
+                'Incidencias',
+              ])
+                ChoiceChip(
+                  label: Text(filter),
+                  selected: _filter == filter,
+                  visualDensity: VisualDensity.comfortable,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 6,
+                  ),
+                  onSelected: (_) => setState(() => _filter = filter),
                 ),
-                onSelected: (_) => setState(() => _filter = filter),
-              ),
-          ],
-        ),
-        const SizedBox(height: 18),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(46),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(46),
+                  ),
+                  onPressed: widget.onOpenGeo,
+                  icon: const Icon(Icons.map_outlined),
+                  label: const Text('Mapa'),
                 ),
-                onPressed: widget.onOpenGeo,
-                icon: const Icon(Icons.map_outlined),
-                label: const Text('Mapa'),
               ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(46),
+              const SizedBox(width: 14),
+              Expanded(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(46),
+                  ),
+                  onPressed: widget.onOpenAnalysis,
+                  icon: const Icon(Icons.query_stats_rounded),
+                  label: const Text('Análisis'),
                 ),
-                onPressed: widget.onOpenAnalysis,
-                icon: const Icon(Icons.query_stats_rounded),
-                label: const Text('Análisis'),
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 24),
-        if (widget.points.isEmpty)
-          const _EmptyState(
-            icon: Icons.location_off_outlined,
-            title: 'Sin puntos asignados',
-            message: 'No hay puntos disponibles para esta cuenta.',
-          )
-        else if (filtered.isEmpty)
-          const _EmptyState(
-            icon: Icons.search_off_rounded,
-            title: 'Sin resultados',
-            message: 'Cambia el texto o filtro para encontrar un punto.',
-          )
-        else
-          for (final point in filtered) ...[
-            _PointCard(point: point, onTap: () => widget.onSelectPoint(point)),
-            const SizedBox(height: 10),
-          ],
-      ],
+            ],
+          ),
+          const SizedBox(height: 24),
+          if (widget.points.isEmpty)
+            const _EmptyState(
+              icon: Icons.location_off_outlined,
+              title: 'Sin puntos asignados',
+              message: 'No hay puntos disponibles para esta cuenta.',
+            )
+          else if (filtered.isEmpty)
+            const _EmptyState(
+              icon: Icons.search_off_rounded,
+              title: 'Sin resultados',
+              message: 'Cambia el texto o filtro para encontrar un punto.',
+            )
+          else
+            for (final point in filtered) ...[
+              _PointCard(
+                point: point,
+                onTap: () => widget.onSelectPoint(point),
+              ),
+              const SizedBox(height: 10),
+            ],
+        ],
       ),
     );
   }
@@ -963,82 +986,79 @@ class _NotificationsTab extends StatelessWidget {
       onRefresh: () async => onRefresh(),
       child: HydroFrame(
         child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: Text(
-                    '${_int(summary['total_events'])} incidencias en ${_int(summary['period_days'], 7)} días · ${_int(tickets['unread_count'])} avisos de soporte sin leer',
-                    style: const TextStyle(color: Color(0xFF9AB0B1)),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(
+                      '${_int(summary['total_events'])} incidencias en ${_int(summary['period_days'], 7)} días · ${_int(tickets['unread_count'])} avisos de soporte sin leer',
+                      style: const TextStyle(color: Color(0xFF9AB0B1)),
+                    ),
                   ),
                 ),
-              ),
-              IconButton(
-                onPressed: onRefresh,
-                tooltip: 'Actualizar avisos',
-                icon: const Icon(Icons.refresh_rounded),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          if (loading) const LinearProgressIndicator(),
-          _IncidentBoard(summary: summary),
-          const SizedBox(height: 22),
-          const _SectionTitle(title: 'Soporte y tickets'),
-          if (ticketError != null)
-            _InlineError(message: ticketError!, onRetry: onRefresh)
-          else if (notifications.isEmpty && !loading)
-            const _EmptyState(
-              icon: Icons.mark_email_read_outlined,
-              title: 'No tienes notificaciones de tickets',
-              message:
-                  'Los comentarios y cambios en tus solicitudes aparecerán aquí.',
-            )
-          else
-            for (final notification in notifications) ...[
-              _TicketNotificationCard(
-                notification: notification,
-                onMarkRead: () => onMarkRead(notification),
-              ),
-              const SizedBox(height: 9),
-            ],
-          const SizedBox(height: 24),
-          const _SectionTitle(title: 'Eventos de sistema'),
-          if (eventsError != null)
-            _InlineError(message: eventsError!, onRetry: onRefresh)
-          else if (events.isEmpty && !loading)
-            const _EmptyState(
-              icon: Icons.sensors_outlined,
-              title: 'No hay eventos recientes',
-              message:
-                  'Las desconexiones y eventos de tus puntos aparecerán aquí.',
-            )
-          else
-            for (final entry in grouped.entries) ...[
-              Padding(
-                padding: const EdgeInsets.only(top: 8, bottom: 8),
-                child: Text(
-                  entry.key,
-                  style: const TextStyle(
-                    color: Color(0xFF9AB0B1),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
+                IconButton(
+                  onPressed: onRefresh,
+                  tooltip: 'Actualizar avisos',
+                  icon: const Icon(Icons.refresh_rounded),
                 ),
-              ),
-              for (final event in entry.value) ...[
-                _SystemEventCard(
-                  event: event,
-                  onTap: () => onEvent(event),
-                ),
-                const SizedBox(height: 12),
               ],
-            ],
-        ],
+            ),
+            const SizedBox(height: 8),
+            if (loading) const LinearProgressIndicator(),
+            _IncidentBoard(summary: summary),
+            const SizedBox(height: 22),
+            const _SectionTitle(title: 'Soporte y tickets'),
+            if (ticketError != null)
+              _InlineError(message: ticketError!, onRetry: onRefresh)
+            else if (notifications.isEmpty && !loading)
+              const _EmptyState(
+                icon: Icons.mark_email_read_outlined,
+                title: 'No tienes notificaciones de tickets',
+                message:
+                    'Los comentarios y cambios en tus solicitudes aparecerán aquí.',
+              )
+            else
+              for (final notification in notifications) ...[
+                _TicketNotificationCard(
+                  notification: notification,
+                  onMarkRead: () => onMarkRead(notification),
+                ),
+                const SizedBox(height: 9),
+              ],
+            const SizedBox(height: 24),
+            const _SectionTitle(title: 'Eventos de sistema'),
+            if (eventsError != null)
+              _InlineError(message: eventsError!, onRetry: onRefresh)
+            else if (events.isEmpty && !loading)
+              const _EmptyState(
+                icon: Icons.sensors_outlined,
+                title: 'No hay eventos recientes',
+                message:
+                    'Las desconexiones y eventos de tus puntos aparecerán aquí.',
+              )
+            else
+              for (final entry in grouped.entries) ...[
+                Padding(
+                  padding: const EdgeInsets.only(top: 8, bottom: 8),
+                  child: Text(
+                    entry.key,
+                    style: const TextStyle(
+                      color: Color(0xFF9AB0B1),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                for (final event in entry.value) ...[
+                  _SystemEventCard(event: event, onTap: () => onEvent(event)),
+                  const SizedBox(height: 12),
+                ],
+              ],
+          ],
         ),
       ),
     );
@@ -1049,6 +1069,7 @@ class _MoreTab extends StatelessWidget {
   const _MoreTab({
     required this.onOpenCompliance,
     required this.onOpenSupport,
+    required this.onOpenAssistant,
     required this.onOpenGeo,
     required this.onOpenAnalysis,
     required this.onOpenReports,
@@ -1056,6 +1077,7 @@ class _MoreTab extends StatelessWidget {
 
   final VoidCallback onOpenCompliance;
   final VoidCallback onOpenSupport;
+  final VoidCallback onOpenAssistant;
   final VoidCallback onOpenGeo;
   final VoidCallback onOpenAnalysis;
   final VoidCallback onOpenReports;
@@ -1064,63 +1086,56 @@ class _MoreTab extends StatelessWidget {
   Widget build(BuildContext context) {
     return HydroFrame(
       child: ListView(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-      children: [
-        _ActionCard(
-          icon: Icons.map_outlined,
-          title: 'GEO Smart',
-          subtitle: 'Ubicación y estado de tus puntos con GPS',
-          color: const Color(0xFF66E0C2),
-          onTap: onOpenGeo,
-        ),
-        const SizedBox(height: 10),
-        _ActionCard(
-          icon: Icons.query_stats_rounded,
-          title: 'Smart Análisis',
-          subtitle: 'Consumo diario y mensual por punto',
-          color: const Color(0xFF66E0C2),
-          onTap: onOpenAnalysis,
-        ),
-        const SizedBox(height: 10),
-        _ActionCard(
-          icon: Icons.balance_rounded,
-          title: 'DGA / SMA',
-          subtitle: 'Cumplimiento, límites autorizados y mediciones',
-          color: const Color(0xFF66E0C2),
-          onTap: onOpenCompliance,
-        ),
-        const SizedBox(height: 10),
-        _ActionCard(
-          icon: Icons.support_agent_rounded,
-          title: 'Soporte',
-          subtitle: 'Crear y seguir solicitudes para tus puntos',
-          color: const Color(0xFF66E0C2),
-          onTap: onOpenSupport,
-        ),
-        const SizedBox(height: 10),
-        _ActionCard(
-          icon: Icons.table_view_outlined,
-          title: 'Descarga de registros',
-          subtitle: 'Consulta y comparte datos de telemetría en CSV',
-          color: const Color(0xFF66E0C2),
-          onTap: onOpenReports,
-        ),
-        const SizedBox(height: 18),
-        const _SectionCard(
-          child: Row(
-            children: [
-              Icon(Icons.auto_awesome_rounded, color: Color(0xFFB19AFF)),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'El agente de atención Yggdra será el siguiente módulo conversacional.',
-                  style: TextStyle(color: Color(0xFFB5C7C5), height: 1.4),
-                ),
-              ),
-            ],
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+        children: [
+          _ActionCard(
+            icon: Icons.map_outlined,
+            title: 'GEO Smart',
+            subtitle: 'Ubicación y estado de tus puntos con GPS',
+            color: const Color(0xFF66E0C2),
+            onTap: onOpenGeo,
           ),
-        ),
-      ],
+          const SizedBox(height: 10),
+          _ActionCard(
+            icon: Icons.query_stats_rounded,
+            title: 'Smart Análisis',
+            subtitle: 'Consumo diario y mensual por punto',
+            color: const Color(0xFF66E0C2),
+            onTap: onOpenAnalysis,
+          ),
+          const SizedBox(height: 10),
+          _ActionCard(
+            icon: Icons.balance_rounded,
+            title: 'DGA / SMA',
+            subtitle: 'Cumplimiento, límites autorizados y mediciones',
+            color: const Color(0xFF66E0C2),
+            onTap: onOpenCompliance,
+          ),
+          const SizedBox(height: 10),
+          _ActionCard(
+            icon: Icons.support_agent_rounded,
+            title: 'Soporte',
+            subtitle: 'Crear y seguir solicitudes para tus puntos',
+            color: const Color(0xFF66E0C2),
+            onTap: onOpenSupport,
+          ),
+          const SizedBox(height: 10),
+          _ActionCard(
+            icon: Icons.smart_toy_outlined,
+            title: 'Asistente',
+            subtitle: 'Consulta a SmartHydro N1: estado, reportes y tickets',
+            color: const Color(0xFF66E0C2),
+            onTap: onOpenAssistant,
+          ),
+          const SizedBox(height: 10),
+          _ActionCard(
+            icon: Icons.table_view_outlined,
+            title: 'Descarga de registros',
+            subtitle: 'Consulta y comparte datos de telemetría en CSV',
+            color: const Color(0xFF66E0C2),
+            onTap: onOpenReports,
+          ),
+        ],
       ),
     );
   }
@@ -1442,7 +1457,10 @@ class _PointDetailScreenState extends State<_PointDetailScreen> {
                     if (_error != null)
                       _InlineError(message: _error!, onRetry: _load),
                     if (_replayError != null)
-                      _InlineError(message: _replayError!, onRetry: _loadReplay),
+                      _InlineError(
+                        message: _replayError!,
+                        onRetry: _loadReplay,
+                      ),
                     _LoggerPlate(
                       title: title,
                       project: data['project_name'] as String? ?? '',
@@ -1888,7 +1906,6 @@ class _HistoryDayCard extends StatelessWidget {
   );
 }
 
-
 class _MetricData {
   const _MetricData(this.title, this.value, this.icon, this.color);
 
@@ -2158,7 +2175,6 @@ class _SystemEventCard extends StatelessWidget {
   }
 }
 
-
 class _IncidentBoard extends StatelessWidget {
   const _IncidentBoard({required this.summary});
 
@@ -2193,7 +2209,11 @@ class _IncidentBoard extends StatelessWidget {
           const SizedBox(height: 4),
           const Text(
             'Desconexiones, errores de medición y saltos. No incluye reglas solo configuradas.',
-            style: TextStyle(color: Color(0xFF9AB0B1), fontSize: 11, height: 1.35),
+            style: TextStyle(
+              color: Color(0xFF9AB0B1),
+              fontSize: 11,
+              height: 1.35,
+            ),
           ),
           const SizedBox(height: 14),
           Row(
@@ -2235,8 +2255,8 @@ class _IncidentBoard extends StatelessWidget {
                               child: Align(
                                 alignment: Alignment.bottomCenter,
                                 child: FractionallySizedBox(
-                                  heightFactor:
-                                      (_int(day['count']) / peak).clamp(0.08, 1),
+                                  heightFactor: (_int(day['count']) / peak)
+                                      .clamp(0.08, 1),
                                   widthFactor: 1,
                                   child: const DecoratedBox(
                                     decoration: BoxDecoration(

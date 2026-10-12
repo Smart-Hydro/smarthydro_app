@@ -14,7 +14,9 @@ PointLink pointLinkOf(Map<String, dynamic> point) {
   }
 
   final rawDays = telemetry['days_not_connection'];
-  final days = rawDays is num ? rawDays.toDouble() : double.tryParse('$rawDays');
+  final days = rawDays is num
+      ? rawDays.toDouble()
+      : double.tryParse('$rawDays');
   if (days != null && days > 0) return PointLink.gap;
   return PointLink.connected;
 }

@@ -8,9 +8,10 @@ void main() {
   ) async {
     await tester.pumpWidget(const ProviderScope(child: SmartHydroApp()));
 
-    expect(find.text('Bienvenido de vuelta'), findsOneWidget);
-    expect(find.text('Correo electrónico'), findsOneWidget);
-    expect(find.text('Contraseña'), findsOneWidget);
+    expect(find.text('SmartHydro'), findsWidgets);
+    expect(find.text('Control de Captaciones'), findsOneWidget);
+    expect(find.text('Correo corporativo'), findsOneWidget);
+    expect(find.text('Contraseña de acceso'), findsOneWidget);
     expect(find.text('Iniciar sesión'), findsOneWidget);
   });
 

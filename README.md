@@ -54,9 +54,10 @@ SmartHydro acerca la plataforma de monitoreo a móviles y PWA: datos de pozos y 
 | **Reportes** | Registros por rango y exportación CSV compartible |
 | **Replay 4D** | Reproducción histórica desde registros reales |
 | **Soporte** | Tickets, comentarios y avisos |
+| **Asistente (N1)** | Chat con SmartHydro N1 (`ask` / `report` / `list_files` / `create_ticket`) |
 | **Perfil** | Preferencias de sesión y cierre |
 
-> Documentos de punto quedan fuera por ahora (endpoint cliente acotado pendiente). Panel predictivo, GLB 3D, agente Yggdra y push en segundo plano están en roadmap.
+> Documentos de punto quedan fuera por ahora (endpoint cliente acotado pendiente). Panel predictivo, GLB 3D y push en segundo plano están en roadmap. Contrato N1: [`docs/N1_INTEGRATION.md`](docs/N1_INTEGRATION.md).
 
 ---
 
@@ -94,12 +95,15 @@ Paleta de producto (alineada a la app):
 flutter pub get
 
 # Web / PWA (Brave u otro navegador)
-flutter run -d web-server --web-hostname localhost --web-port 3001
+# N1_WEB_APP_URL = URL /exec de la Web App N1 (ver docs/N1_INTEGRATION.md)
+flutter run -d web-server --web-hostname localhost --web-port 3001 \
+  --dart-define=N1_WEB_APP_URL=
 # → http://localhost:3001
 
 # Android
 flutter emulators --launch medium_phone
-flutter run -d emulator-5554
+flutter run -d emulator-5554 \
+  --dart-define=N1_WEB_APP_URL=
 ```
 
 ---

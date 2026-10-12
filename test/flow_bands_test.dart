@@ -20,28 +20,31 @@ void main() {
     expect(near.map((row) => row['flow']), [10, 9.2]);
   });
 
-  test('si el detalle remoto viene vacío, muestra las lecturas del período', () {
-    final period = [
-      {'date_time': '2026-10-08T08:00:00', 'flow': 12},
-      {'date_time': '2026-10-08T09:00:00', 'flow': 9.5},
-    ];
+  test(
+    'si el detalle remoto viene vacío, muestra las lecturas del período',
+    () {
+      final period = [
+        {'date_time': '2026-10-08T08:00:00', 'flow': 12},
+        {'date_time': '2026-10-08T09:00:00', 'flow': 9.5},
+      ];
 
-    final over = visibleBandReadings(
-      periodRecords: period,
-      remoteRows: const [],
-      authorized: authorized,
-      band: FlowBand.over,
-    );
-    final near = visibleBandReadings(
-      periodRecords: period,
-      remoteRows: const [],
-      authorized: authorized,
-      band: FlowBand.near,
-    );
+      final over = visibleBandReadings(
+        periodRecords: period,
+        remoteRows: const [],
+        authorized: authorized,
+        band: FlowBand.over,
+      );
+      final near = visibleBandReadings(
+        periodRecords: period,
+        remoteRows: const [],
+        authorized: authorized,
+        band: FlowBand.near,
+      );
 
-    expect(over.single['flow'], 12);
-    expect(near.single['flow'], 9.5);
-  });
+      expect(over.single['flow'], 12);
+      expect(near.single['flow'], 9.5);
+    },
+  );
 
   test('el detalle remoto se muestra cuando sí trae filas', () {
     final remote = [

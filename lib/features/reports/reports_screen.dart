@@ -178,65 +178,65 @@ class _ReportsScreenState extends State<ReportsScreen> {
       ),
       body: HydroFrame(
         child: ListView(
-        padding: const EdgeInsets.all(18),
-        children: [
-          DropdownButtonFormField<int>(
-            initialValue: _pointId,
-            decoration: const InputDecoration(labelText: 'Punto'),
-            items: [
-              for (final point in widget.points)
-                DropdownMenuItem<int>(
-                  value: _toInt(point['id']),
-                  child: Text(point['title']?.toString() ?? 'Punto'),
-                ),
-            ],
-            onChanged: (value) {
-              setState(() => _pointId = value);
-              _load();
-            },
-          ),
-          const SizedBox(height: 10),
-          OutlinedButton.icon(
-            onPressed: _chooseRange,
-            icon: const Icon(Icons.date_range_rounded),
-            label: Text('${_date(_range.start)} — ${_date(_range.end)}'),
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '${_records.length} registros cargados',
-                  style: const TextStyle(color: Color(0xFF9AB0B1)),
-                ),
-              ),
-              FilledButton.icon(
-                onPressed: _records.isEmpty || _sharing ? null : _shareCsv,
-                icon: _sharing
-                    ? const SizedBox.square(
-                        dimension: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.share_rounded, size: 17),
-                label: const Text('Compartir CSV'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          if (_loading) const LinearProgressIndicator(),
-          if (_error != null) _ReportError(message: _error!, onRetry: _load),
-          if (!_loading && _error == null && _records.isEmpty)
-            const _ReportEmpty(),
-          if (_records.length >= 500)
-            const Padding(
-              padding: EdgeInsets.only(bottom: 8),
-              child: Text(
-                'Se alcanzó el límite de 500 registros; reduce el período para revisar con mayor detalle.',
-                style: TextStyle(color: Color(0xFFFFC46B), fontSize: 11),
-              ),
+          padding: const EdgeInsets.all(18),
+          children: [
+            DropdownButtonFormField<int>(
+              initialValue: _pointId,
+              decoration: const InputDecoration(labelText: 'Punto'),
+              items: [
+                for (final point in widget.points)
+                  DropdownMenuItem<int>(
+                    value: _toInt(point['id']),
+                    child: Text(point['title']?.toString() ?? 'Punto'),
+                  ),
+              ],
+              onChanged: (value) {
+                setState(() => _pointId = value);
+                _load();
+              },
             ),
-          if (_records.isNotEmpty) _RecordsTable(records: _records),
-        ],
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: _chooseRange,
+              icon: const Icon(Icons.date_range_rounded),
+              label: Text('${_date(_range.start)} — ${_date(_range.end)}'),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${_records.length} registros cargados',
+                    style: const TextStyle(color: Color(0xFF9AB0B1)),
+                  ),
+                ),
+                FilledButton.icon(
+                  onPressed: _records.isEmpty || _sharing ? null : _shareCsv,
+                  icon: _sharing
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.share_rounded, size: 17),
+                  label: const Text('Compartir CSV'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (_loading) const LinearProgressIndicator(),
+            if (_error != null) _ReportError(message: _error!, onRetry: _load),
+            if (!_loading && _error == null && _records.isEmpty)
+              const _ReportEmpty(),
+            if (_records.length >= 500)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 8),
+                child: Text(
+                  'Se alcanzó el límite de 500 registros; reduce el período para revisar con mayor detalle.',
+                  style: TextStyle(color: Color(0xFFFFC46B), fontSize: 11),
+                ),
+              ),
+            if (_records.isNotEmpty) _RecordsTable(records: _records),
+          ],
         ),
       ),
     );

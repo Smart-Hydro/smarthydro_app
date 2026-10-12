@@ -153,17 +153,17 @@ class _CustomerSupportScreenState extends State<CustomerSupportScreen> {
     ),
     body: HydroFrame(
       child: ListView(
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 92),
-      children: [
-        if (_loading) const LinearProgressIndicator(),
-        if (_error != null) _SupportError(message: _error!, onRetry: _load),
-        if (!_loading && _error == null && _tickets.isEmpty)
-          const _SupportEmpty(),
-        for (final ticket in _tickets) ...[
-          _TicketCard(ticket: ticket, onTap: () => _openTicket(ticket)),
-          const SizedBox(height: 10),
+        padding: const EdgeInsets.fromLTRB(18, 14, 18, 92),
+        children: [
+          if (_loading) const LinearProgressIndicator(),
+          if (_error != null) _SupportError(message: _error!, onRetry: _load),
+          if (!_loading && _error == null && _tickets.isEmpty)
+            const _SupportEmpty(),
+          for (final ticket in _tickets) ...[
+            _TicketCard(ticket: ticket, onTap: () => _openTicket(ticket)),
+            const SizedBox(height: 10),
+          ],
         ],
-      ],
       ),
     ),
   );
@@ -213,7 +213,9 @@ class _NewTicketSheetState extends State<_NewTicketSheet> {
     _descriptionController.text = widget.initialDescription ?? '';
     _priority = widget.initialPriority ?? 'MEDIA';
     final requested = widget.initialPointId;
-    final known = widget.points.any((point) => _asInt(point['id']) == requested);
+    final known = widget.points.any(
+      (point) => _asInt(point['id']) == requested,
+    );
     _pointId = known
         ? requested
         : (widget.points.isEmpty ? null : _asInt(widget.points.first['id']));

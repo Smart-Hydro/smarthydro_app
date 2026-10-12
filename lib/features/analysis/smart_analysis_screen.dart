@@ -91,130 +91,135 @@ class _SmartAnalysisScreenState extends State<SmartAnalysisScreen> {
       appBar: AppBar(title: const Text('Smart Análisis')),
       body: HydroFrame(
         child: ListView(
-        padding: const EdgeInsets.all(18),
-        children: [
-          DropdownButtonFormField<int>(
-            initialValue: _pointId,
-            decoration: const InputDecoration(labelText: 'Punto de captación'),
-            items: [
-              for (final point in widget.points)
-                DropdownMenuItem<int>(
-                  value: _toInt(point['id']),
-                  child: Text(point['title']?.toString() ?? 'Punto'),
-                ),
-            ],
-            onChanged: (value) {
-              setState(() => _pointId = value);
-              _load();
-            },
-          ),
-          const SizedBox(height: 12),
-          SegmentedButton<int>(
-            segments: const [
-              ButtonSegment(value: 7, label: Text('7 días')),
-              ButtonSegment(value: 30, label: Text('30 días')),
-            ],
-            selected: {_days},
-            onSelectionChanged: (selection) {
-              setState(() => _days = selection.first);
-              _load();
-            },
-          ),
-          const SizedBox(height: 18),
-          if (_loading)
-            const Padding(
-              padding: EdgeInsets.all(28),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (_error != null)
-            _AnalysisError(message: _error!, onRetry: _load)
-          else if (_calendar.isEmpty)
-            const _AnalysisEmpty()
-          else ...[
-            _AnalysisSummary(
-              pointName: selectedPoint?['title']?.toString() ?? 'Punto',
-              daysWithData: chartRows.length,
-              totalVolume: chartRows.fold<double>(
-                0,
-                (sum, day) => sum + _number(day['consumption_m3']),
+          padding: const EdgeInsets.all(18),
+          children: [
+            DropdownButtonFormField<int>(
+              initialValue: _pointId,
+              decoration: const InputDecoration(
+                labelText: 'Punto de captación',
               ),
-              latestDate: _calendar.last['date']?.toString() ?? '',
-            ),
-            const SizedBox(height: 14),
-            _AnalysisCard(
-              title: 'Consumo diario',
-              subtitle:
-                  'Los días sin registro se muestran aparte; no se interpolan.',
-              child: SizedBox(
-                height: 235,
-                child: chartRows.isEmpty
-                    ? const Center(
-                        child: Text(
-                          'No hay registros de consumo en este período.',
-                        ),
-                      )
-                    : BarChart(
-                        BarChartData(
-                          maxY: maxConsumption <= 0 ? 1 : maxConsumption * 1.2,
-                          minY: 0,
-                          gridData: const FlGridData(
-                            show: true,
-                            drawVerticalLine: false,
-                          ),
-                          borderData: FlBorderData(show: false),
-                          titlesData: const FlTitlesData(
-                            topTitles: AxisTitles(
-                              sideTitles: SideTitles(showTitles: false),
-                            ),
-                            rightTitles: AxisTitles(
-                              sideTitles: SideTitles(showTitles: false),
-                            ),
-                            leftTitles: AxisTitles(
-                              sideTitles: SideTitles(showTitles: false),
-                            ),
-                            bottomTitles: AxisTitles(
-                              sideTitles: SideTitles(showTitles: false),
-                            ),
-                          ),
-                          barGroups: [
-                            for (
-                              var index = 0;
-                              index < _calendar.length;
-                              index++
-                            )
-                              BarChartGroupData(
-                                x: index,
-                                barRods: [
-                                  BarChartRodData(
-                                    toY: _calendar[index]['has_data'] == true
-                                        ? _number(
-                                            _calendar[index]['consumption_m3'],
-                                          )
-                                        : 0,
-                                    width: _calendar.length > 20 ? 5 : 11,
-                                    borderRadius: BorderRadius.circular(4),
-                                    color: _calendar[index]['has_data'] == true
-                                        ? const Color(0xFF66E0C2)
-                                        : const Color(0xFF26383A),
-                                  ),
-                                ],
-                              ),
-                          ],
-                        ),
-                      ),
-              ),
+              items: [
+                for (final point in widget.points)
+                  DropdownMenuItem<int>(
+                    value: _toInt(point['id']),
+                    child: Text(point['title']?.toString() ?? 'Punto'),
+                  ),
+              ],
+              onChanged: (value) {
+                setState(() => _pointId = value);
+                _load();
+              },
             ),
             const SizedBox(height: 12),
-            _AnalysisCard(
-              title: 'Detalle por día',
-              subtitle: 'Caudal, nivel y consumo reportados por Core API.',
-              child: Column(
-                children: [for (final day in _calendar) _DayRow(day: day)],
-              ),
+            SegmentedButton<int>(
+              segments: const [
+                ButtonSegment(value: 7, label: Text('7 días')),
+                ButtonSegment(value: 30, label: Text('30 días')),
+              ],
+              selected: {_days},
+              onSelectionChanged: (selection) {
+                setState(() => _days = selection.first);
+                _load();
+              },
             ),
+            const SizedBox(height: 18),
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.all(28),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (_error != null)
+              _AnalysisError(message: _error!, onRetry: _load)
+            else if (_calendar.isEmpty)
+              const _AnalysisEmpty()
+            else ...[
+              _AnalysisSummary(
+                pointName: selectedPoint?['title']?.toString() ?? 'Punto',
+                daysWithData: chartRows.length,
+                totalVolume: chartRows.fold<double>(
+                  0,
+                  (sum, day) => sum + _number(day['consumption_m3']),
+                ),
+                latestDate: _calendar.last['date']?.toString() ?? '',
+              ),
+              const SizedBox(height: 14),
+              _AnalysisCard(
+                title: 'Consumo diario',
+                subtitle:
+                    'Los días sin registro se muestran aparte; no se interpolan.',
+                child: SizedBox(
+                  height: 235,
+                  child: chartRows.isEmpty
+                      ? const Center(
+                          child: Text(
+                            'No hay registros de consumo en este período.',
+                          ),
+                        )
+                      : BarChart(
+                          BarChartData(
+                            maxY: maxConsumption <= 0
+                                ? 1
+                                : maxConsumption * 1.2,
+                            minY: 0,
+                            gridData: const FlGridData(
+                              show: true,
+                              drawVerticalLine: false,
+                            ),
+                            borderData: FlBorderData(show: false),
+                            titlesData: const FlTitlesData(
+                              topTitles: AxisTitles(
+                                sideTitles: SideTitles(showTitles: false),
+                              ),
+                              rightTitles: AxisTitles(
+                                sideTitles: SideTitles(showTitles: false),
+                              ),
+                              leftTitles: AxisTitles(
+                                sideTitles: SideTitles(showTitles: false),
+                              ),
+                              bottomTitles: AxisTitles(
+                                sideTitles: SideTitles(showTitles: false),
+                              ),
+                            ),
+                            barGroups: [
+                              for (
+                                var index = 0;
+                                index < _calendar.length;
+                                index++
+                              )
+                                BarChartGroupData(
+                                  x: index,
+                                  barRods: [
+                                    BarChartRodData(
+                                      toY: _calendar[index]['has_data'] == true
+                                          ? _number(
+                                              _calendar[index]['consumption_m3'],
+                                            )
+                                          : 0,
+                                      width: _calendar.length > 20 ? 5 : 11,
+                                      borderRadius: BorderRadius.circular(4),
+                                      color:
+                                          _calendar[index]['has_data'] == true
+                                          ? const Color(0xFF66E0C2)
+                                          : const Color(0xFF26383A),
+                                    ),
+                                  ],
+                                ),
+                            ],
+                          ),
+                        ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              _AnalysisCard(
+                title: 'Detalle por día',
+                subtitle: 'Caudal, nivel y consumo reportados por Core API.',
+                child: Column(
+                  children: [for (final day in _calendar) _DayRow(day: day)],
+                ),
+              ),
+            ],
           ],
-        ],
-      ),
+        ),
       ),
     );
   }
