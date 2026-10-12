@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/smarthydro_api.dart';
+import '../../core/brand.dart';
 import '../../core/session/session_provider.dart';
 import '../analysis/smart_analysis_screen.dart';
 import '../profile/profile_screen.dart';
@@ -249,13 +250,23 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
                           child: AnimatedSwitcher(
                             duration: reduceMotion
                                 ? Duration.zero
-                                : const Duration(milliseconds: 360),
+                                : const Duration(milliseconds: 380),
                             switchInCurve: Curves.easeOutCubic,
                             switchOutCurve: Curves.easeInCubic,
                             transitionBuilder: (child, animation) {
+                              final curved = CurvedAnimation(
+                                parent: animation,
+                                curve: Curves.easeOutCubic,
+                              );
                               return FadeTransition(
-                                opacity: animation,
-                                child: child,
+                                opacity: curved,
+                                child: SlideTransition(
+                                  position: Tween<Offset>(
+                                    begin: const Offset(0, 0.02),
+                                    end: Offset.zero,
+                                  ).animate(curved),
+                                  child: child,
+                                ),
                               );
                             },
                             child: KeyedSubtree(
@@ -298,9 +309,6 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
                 userName: widget.session.displayName,
                 onRefresh: _loadDashboard,
                 onOpenPoints: () => _selectTab(1),
-                onOpenNotifications: () => _selectTab(2),
-                onOpenGeo: _openGeo,
-                onOpenAnalysis: _openAnalysis,
                 onSelectPoint: _openPoint,
               );
       case 1:
@@ -604,9 +612,6 @@ class _DashboardTab extends StatelessWidget {
     required this.userName,
     required this.onRefresh,
     required this.onOpenPoints,
-    required this.onOpenNotifications,
-    required this.onOpenGeo,
-    required this.onOpenAnalysis,
     required this.onSelectPoint,
   });
 
@@ -615,9 +620,6 @@ class _DashboardTab extends StatelessWidget {
   final String userName;
   final Future<void> Function() onRefresh;
   final VoidCallback onOpenPoints;
-  final VoidCallback onOpenNotifications;
-  final VoidCallback onOpenGeo;
-  final VoidCallback onOpenAnalysis;
   final ValueChanged<Map<String, dynamic>> onSelectPoint;
 
   @override
@@ -706,39 +708,6 @@ class _DashboardTab extends StatelessWidget {
                 ),
                 const SizedBox(height: 10),
               ],
-            const SizedBox(height: 12),
-            HydroEntrance(
-              delay: const Duration(milliseconds: 420),
-              child: _ActionCard(
-                icon: Icons.notifications_active_outlined,
-                title: 'Revisar avisos',
-                subtitle: 'Notificaciones de tickets y eventos de sistema',
-                color: const Color(0xFF66E0C2),
-                onTap: onOpenNotifications,
-              ),
-            ),
-            const SizedBox(height: 10),
-            HydroEntrance(
-              delay: const Duration(milliseconds: 480),
-              child: _ActionCard(
-                icon: Icons.map_outlined,
-                title: 'GEO Smart',
-                subtitle: 'Ubicación y estado de tus puntos con GPS',
-                color: const Color(0xFF66E0C2),
-                onTap: onOpenGeo,
-              ),
-            ),
-            const SizedBox(height: 10),
-            HydroEntrance(
-              delay: const Duration(milliseconds: 540),
-              child: _ActionCard(
-                icon: Icons.query_stats_rounded,
-                title: 'Smart Análisis',
-                subtitle: 'Consumo diario y mensual de un punto',
-                color: const Color(0xFF66E0C2),
-                onTap: onOpenAnalysis,
-              ),
-            ),
           ],
         ),
       ),
@@ -1052,7 +1021,7 @@ class _MoreTab extends StatelessWidget {
             icon: Icons.map_outlined,
             title: 'GEO Smart',
             subtitle: 'Ubicación y estado de tus puntos con GPS',
-            color: const Color(0xFF66E0C2),
+            color: IkoluColors.cyan,
             onTap: onOpenGeo,
           ),
           const SizedBox(height: 10),
@@ -1060,7 +1029,7 @@ class _MoreTab extends StatelessWidget {
             icon: Icons.query_stats_rounded,
             title: 'Smart Análisis',
             subtitle: 'Consumo diario y mensual por punto',
-            color: const Color(0xFF66E0C2),
+            color: IkoluColors.cyan,
             onTap: onOpenAnalysis,
           ),
           const SizedBox(height: 10),
@@ -1068,7 +1037,7 @@ class _MoreTab extends StatelessWidget {
             icon: Icons.balance_rounded,
             title: 'DGA / SMA',
             subtitle: 'Cumplimiento, límites autorizados y mediciones',
-            color: const Color(0xFF66E0C2),
+            color: IkoluColors.cyan,
             onTap: onOpenCompliance,
           ),
           const SizedBox(height: 10),
@@ -1076,7 +1045,7 @@ class _MoreTab extends StatelessWidget {
             icon: Icons.support_agent_rounded,
             title: 'Soporte',
             subtitle: 'Crear y seguir solicitudes para tus puntos',
-            color: const Color(0xFF66E0C2),
+            color: IkoluColors.cyan,
             onTap: onOpenSupport,
           ),
           const SizedBox(height: 10),
@@ -1084,7 +1053,7 @@ class _MoreTab extends StatelessWidget {
             icon: Icons.table_view_outlined,
             title: 'Descarga de registros',
             subtitle: 'Consulta y comparte datos de telemetría en CSV',
-            color: const Color(0xFF66E0C2),
+            color: IkoluColors.cyan,
             onTap: onOpenReports,
           ),
           const SizedBox(height: 18),
@@ -1492,11 +1461,11 @@ class _PointDetailScreenState extends State<_PointDetailScreen> {
                     if (_replayRecords.length > 1) ...[
                       SliderTheme(
                         data: SliderTheme.of(context).copyWith(
-                          activeTrackColor: const Color(0xFF66E0C2),
+                          activeTrackColor: IkoluColors.cyan,
                           inactiveTrackColor: const Color(0xFF26383A),
-                          thumbColor: const Color(0xFF66E0C2),
+                          thumbColor: IkoluColors.cyan,
                           overlayColor: const Color(
-                            0xFF66E0C2,
+                            0xFF00C8FF,
                           ).withValues(alpha: 0.2),
                           trackHeight: 3,
                           thumbShape: const RoundSliderThumbShape(
@@ -1535,7 +1504,7 @@ class _PointDetailScreenState extends State<_PointDetailScreen> {
                             Text(
                               '${_selectedReplayIndex + 1}/${_replayRecords.length}',
                               style: const TextStyle(
-                                color: Color(0xFF66E0C2),
+                                color: IkoluColors.cyan,
                                 fontSize: 11,
                                 fontWeight: FontWeight.w800,
                               ),
@@ -1711,7 +1680,7 @@ class _CaptureTypeChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isSurface ? const Color(0xFF69B9FF) : const Color(0xFF66E0C2);
+    final color = isSurface ? const Color(0xFF69B9FF) : IkoluColors.cyan;
     final label = isSurface ? 'Superficial' : 'Pozo';
     final icon = isSurface
         ? Icons.waves_rounded
@@ -1751,7 +1720,7 @@ class _ViewModeToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const accent = Color(0xFF66E0C2);
+    const accent = IkoluColors.cyan;
     return Material(
       color: const Color(0xFF071114).withValues(alpha: 0.7),
       borderRadius: BorderRadius.circular(999),
@@ -1908,7 +1877,7 @@ class _HoverIconButtonState extends State<_HoverIconButton> {
   @override
   Widget build(BuildContext context) {
     final enabled = widget.onPressed != null;
-    const accent = Color(0xFF66E0C2);
+    const accent = IkoluColors.cyan;
     final base = widget.filled
         ? accent.withValues(alpha: 0.2)
         : const Color(0xFF0C1B20).withValues(alpha: 0.6);
@@ -2026,7 +1995,7 @@ class _QuickActionState extends State<_QuickAction> {
 
   @override
   Widget build(BuildContext context) {
-    final color = widget.accent ?? const Color(0xFF66E0C2);
+    final color = widget.accent ?? IkoluColors.cyan;
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
@@ -2087,7 +2056,7 @@ class _ReadoutStrip extends StatelessWidget {
               label: 'Caudal',
               value: flow == null ? '—' : flow!.toStringAsFixed(2),
               unit: 'L/s',
-              accent: const Color(0xFF66E0C2),
+              accent: IkoluColors.cyan,
             ),
             _Readout(
               label: 'Total',
@@ -2205,7 +2174,7 @@ class _HistoryDayCard extends StatelessWidget {
         Text(
           _display(day['consumption_m3'], 'm³'),
           style: const TextStyle(
-            color: Color(0xFF66E0C2),
+            color: IkoluColors.cyan,
             fontWeight: FontWeight.w700,
           ),
         ),
@@ -2239,7 +2208,7 @@ class _GreetingBanner extends StatelessWidget {
         ? '$incidents ${incidents == 1 ? 'incidencia' : 'incidencias'} en curso'
         : '$gaps ${gaps == 1 ? 'advertencia' : 'advertencias'} por revisar';
     final statusColor = ok
-        ? const Color(0xFF66E0C2)
+        ? IkoluColors.connected
         : incidents > 0
         ? const Color(0xFFFF847A)
         : const Color(0xFFFFC46B);
@@ -2251,17 +2220,10 @@ class _GreetingBanner extends StatelessWidget {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: const Color(0xFF66E0C2).withValues(alpha: 0.14),
+              color: IkoluColors.cyan.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: const Color(0xFF66E0C2).withValues(alpha: 0.3),
-              ),
             ),
-            child: const Icon(
-              Icons.water_drop_rounded,
-              color: Color(0xFF66E0C2),
-              size: 22,
-            ),
+            child: const Center(child: IkoluMark(size: 24)),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -2293,7 +2255,7 @@ class _GreetingBanner extends StatelessWidget {
               Text(
                 '$total',
                 style: const TextStyle(
-                  color: Color(0xFF66E0C2),
+                  color: IkoluColors.cyan,
                   fontWeight: FontWeight.w900,
                   fontSize: 20,
                 ),
@@ -2329,31 +2291,24 @@ class _CompactStats extends StatelessWidget {
     return Row(
       children: [
         _StatChip(
-          label: 'En línea',
+          label: 'En línea de $total',
           value: '$connected',
-          color: const Color(0xFF66E0C2),
+          color: IkoluColors.connected,
           icon: Icons.sensors_rounded,
         ),
         const SizedBox(width: 8),
         _StatChip(
-          label: 'Advert.',
+          label: 'Advertencias',
           value: '$gaps',
           color: const Color(0xFFFFC46B),
           icon: Icons.water_damage_outlined,
         ),
         const SizedBox(width: 8),
         _StatChip(
-          label: 'Incid.',
+          label: 'Incidencias',
           value: '$incidents',
           color: const Color(0xFFFF847A),
           icon: Icons.report_outlined,
-        ),
-        const SizedBox(width: 8),
-        _StatChip(
-          label: 'Total',
-          value: '$total',
-          color: const Color(0xFF69B9FF),
-          icon: Icons.location_on_outlined,
         ),
       ],
     );
@@ -2415,7 +2370,7 @@ class _PointCard extends StatelessWidget {
     final telemetry = _map(point['latest_telemetry']);
     final link = pointLinkOf(point);
     final color = switch (link) {
-      PointLink.connected => const Color(0xFF66E0C2),
+      PointLink.connected => IkoluColors.connected,
       PointLink.gap => const Color(0xFFFFC46B),
       PointLink.incident => const Color(0xFFFF847A),
     };
@@ -2485,7 +2440,7 @@ class _TicketNotificationCard extends StatelessWidget {
             read
                 ? Icons.mark_email_read_outlined
                 : Icons.mark_email_unread_outlined,
-            color: read ? const Color(0xFF82999A) : const Color(0xFF66E0C2),
+            color: read ? const Color(0xFF82999A) : IkoluColors.cyan,
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -2683,7 +2638,7 @@ class _IncidentBoard extends StatelessWidget {
                                   widthFactor: 1,
                                   child: const DecoratedBox(
                                     decoration: BoxDecoration(
-                                      color: Color(0xFF66E0C2),
+                                      color: IkoluColors.cyan,
                                       borderRadius: BorderRadius.vertical(
                                         top: Radius.circular(4),
                                       ),
@@ -2895,7 +2850,7 @@ class _EmptyState extends StatelessWidget {
   Widget build(BuildContext context) => _SectionCard(
     child: Column(
       children: [
-        Icon(icon, color: const Color(0xFF66E0C2), size: 27),
+        Icon(icon, color: IkoluColors.cyan, size: 27),
         const SizedBox(height: 10),
         Text(
           title,
@@ -2958,14 +2913,7 @@ class _BrandCompact extends StatelessWidget {
   const _BrandCompact();
 
   @override
-  Widget build(BuildContext context) => const Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Icon(Icons.water_drop_rounded, color: Color(0xFF66E0C2)),
-      SizedBox(width: 8),
-      Text('SmartHydro', style: TextStyle(fontWeight: FontWeight.w800)),
-    ],
-  );
+  Widget build(BuildContext context) => const IkoluBrand(size: 26);
 }
 
 double? _optionalNumber(dynamic value) {
