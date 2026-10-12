@@ -14,7 +14,11 @@ import 'capture3d_view_stub.dart'
 /// vista previa 2D en plataformas no web. Pensada para moverse a otras
 /// presentaciones sin tocar su contenido: solo hay que darle los datos del
 /// punto.
-class Capture3DView extends StatelessWidget {
+///
+/// El iframe se crea una sola vez por tipo de punto: los cambios de nivel,
+/// caudal y estado (p. ej. durante el replay) se envían con `postMessage` y
+/// la escena los interpola suavemente, sin recargar ni saltar.
+class Capture3DView extends StatefulWidget {
   const Capture3DView({
     required this.isSurface,
     required this.levelFill,
@@ -30,34 +34,55 @@ class Capture3DView extends StatelessWidget {
   final PointLink link;
   final double? levelMeters;
 
-  String get _status => switch (link) {
+  @override
+  State<Capture3DView> createState() => _Capture3DViewState();
+}
+
+class _Capture3DViewState extends State<Capture3DView> {
+  String get _status => switch (widget.link) {
     PointLink.connected => 'connected',
     PointLink.gap => 'gap',
     PointLink.incident => 'incident',
   };
 
-  String get _kind => isSurface ? 'surface' : 'well';
+  String get _kind => widget.isSurface ? 'surface' : 'well';
 
-  String get sceneUrl {
-    final fill = (levelFill ?? 0.6).clamp(0.0, 1.0);
-    final flow = flowLitersPerSecond ?? 0;
+  /// Tipo de vista estable: NO depende de los valores vivos, así el platform
+  /// view (y su iframe) sobrevive a las actualizaciones del replay.
+  String get _viewType => 'capture3d-$_kind';
+
+  double get _fill => (widget.levelFill ?? 0.6).clamp(0.0, 1.0);
+  double get _flow => widget.flowLitersPerSecond ?? 0;
+
+  String get _initialUrl {
     final params = [
       'kind=$_kind',
-      'fill=${fill.toStringAsFixed(2)}',
-      'flow=${flow.toStringAsFixed(2)}',
+      'fill=${_fill.toStringAsFixed(2)}',
+      'flow=${_flow.toStringAsFixed(2)}',
       'status=$_status',
     ].join('&');
     return 'capture3d.html?$params';
   }
 
   @override
+  void didUpdateWidget(covariant Capture3DView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isSurface != widget.isSurface) return; // cambia el viewType
+    impl.postCaptureUpdate(_viewType, {
+      'fill': _fill,
+      'flow': _flow,
+      'status': _status,
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     if (!kIsWeb) {
-      return _Capture3DFallback(isSurface: isSurface, link: link);
+      return _Capture3DFallback(isSurface: widget.isSurface, link: widget.link);
     }
     return ClipRRect(
       borderRadius: BorderRadius.circular(20),
-      child: impl.buildPlatformView(sceneUrl),
+      child: impl.buildPlatformView(_viewType, _initialUrl),
     );
   }
 }

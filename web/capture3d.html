@@ -3,22 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-<title>SmartHydro · Punto 3D</title>
+<title>Ikolu · Punto 3D</title>
 <style>
-  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #081114; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #0A181F; }
   #scene { display: block; width: 100%; height: 100%; touch-action: none; }
-  #hud {
-    position: fixed; left: 14px; top: 12px; pointer-events: none;
-    font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
-    color: #E8F2F1; font-size: 12px; letter-spacing: 1.2px; font-weight: 700;
-    text-transform: uppercase;
-  }
-  #hud .status { color: #66E0C2; }
   #hint {
     position: fixed; right: 14px; bottom: 12px; pointer-events: none;
     font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
-    color: #9AB0B1; font-size: 10px; letter-spacing: .4px;
+    color: #7E9698; font-size: 10px; letter-spacing: .4px;
+    opacity: 1; transition: opacity 1.2s ease;
   }
+  #hint.fade { opacity: 0; }
 </style>
 <script type="importmap">
   { "imports": { "three": "./three.module.js" } }
@@ -26,65 +21,89 @@
 </head>
 <body>
 <canvas id="scene"></canvas>
-<div id="hud"><span id="kind">PUNTO</span> · <span class="status" id="status">CONECTADO</span></div>
-<div id="hint">Arrastra para orbitar · Rueda/pinza para acercar</div>
+<div id="hint">Arrastra para orbitar · rueda o pinza para acercar</div>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from './OrbitControls.js';
 
 const params = new URLSearchParams(location.search);
 const KIND = (params.get('kind') || 'well').toLowerCase();      // well | surface
-const LEVEL = Math.min(1, Math.max(0, parseFloat(params.get('fill') ?? '0.6')));
-const FLOW = Math.max(0, parseFloat(params.get('flow') ?? '2'));
-const STATUS = (params.get('status') || 'connected').toLowerCase();
+const clamp01 = (v) => Math.min(1, Math.max(0, v));
 
 const COLORS = {
   connected: 0x66E0C2, gap: 0xFFC46B, incident: 0xFF847A,
 };
-const ACCENT = COLORS[STATUS] ?? COLORS.connected;
-const WATER = KIND === 'surface' ? 0x2E8FB0 : 0x1E7C86;
-const SKY = 0x0C181D;
-const BG = 0x081114;
+const WATER = KIND === 'surface' ? 0x2E9BC4 : 0x22A0AC;
+const BG = 0x0A181F;
 
-document.getElementById('kind').textContent =
-  KIND === 'surface' ? 'AGUA SUPERFICIAL' : 'POZO SUBTERRÁNEO';
-const statusLabel = { connected: 'CONECTADO', gap: 'ADVERTENCIA', incident: 'INCIDENCIA' };
-document.getElementById('status').textContent = statusLabel[STATUS] ?? 'CONECTADO';
+// Estado vivo: los mensajes del host actualizan `target` y cada cuadro se
+// interpola hacia él (sin saltos cuando cambian nivel/caudal/estado).
+const state = {
+  fill: clamp01(parseFloat(params.get('fill') ?? '0.6')),
+  flow: Math.max(0, parseFloat(params.get('flow') ?? '2')),
+  accent: COLORS[(params.get('status') || 'connected').toLowerCase()] ?? COLORS.connected,
+};
+const target = { ...state };
 
 const canvas = document.getElementById('scene');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setClearColor(BG, 1);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.12;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(BG, 12, 34);
+scene.fog = new THREE.Fog(BG, 11, 30);
 
-const camera = new THREE.PerspectiveCamera(46, 1, 0.1, 100);
+const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
 controls.minDistance = 4;
 controls.maxDistance = 20;
 controls.maxPolarAngle = Math.PI * 0.52;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.55;
+let idleTimer = null;
+controls.addEventListener('start', () => {
+  controls.autoRotate = false;
+  if (idleTimer) clearTimeout(idleTimer);
+});
+controls.addEventListener('end', () => {
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => { controls.autoRotate = true; }, 2600);
+});
 
-// Luces: ambiente suave + una clave cálida + un relleno frío.
-scene.add(new THREE.AmbientLight(0xB8E6DA, 0.5));
-const key = new THREE.DirectionalLight(0xFFF3E0, 1.0);
+// Luces: ambiente suave + clave cálida + relleno frío + acento cenital.
+scene.add(new THREE.AmbientLight(0xB8E6DA, 0.55));
+const key = new THREE.DirectionalLight(0xFFF3E0, 1.05);
 key.position.set(5, 9, 6);
 scene.add(key);
-const fill = new THREE.DirectionalLight(0x9FD4FF, 0.35);
+const fill = new THREE.DirectionalLight(0x9FD4FF, 0.4);
 fill.position.set(-6, 4, -4);
 scene.add(fill);
-const rim = new THREE.PointLight(ACCENT, 0.8, 24);
+const rim = new THREE.PointLight(state.accent, 0.9, 26);
 rim.position.set(0, 5.5, 0);
 scene.add(rim);
+
+// Materiales que tiñe el estado del punto (para recolorear en caliente).
+const accentMaterials = [rim];
+function trackAccent(mat) { accentMaterials.push(mat); return mat; }
+function applyAccent(hex) {
+  for (const m of accentMaterials) {
+    if (m.isLight) m.color.setHex(hex);
+    else if (m.isMeshStandardMaterial) { m.color.setHex(hex); if (m.emissive) m.emissive.setHex(hex); }
+    else if (m.color) m.color.setHex(hex);
+  }
+}
 
 function waterMaterial(opacity) {
   return new THREE.MeshPhysicalMaterial({
     color: WATER, transparent: true, opacity,
-    roughness: 0.12, metalness: 0.0,
-    transmission: 0.55, thickness: 1.4,
-    clearcoat: 0.6, clearcoatRoughness: 0.2,
+    roughness: 0.08, metalness: 0.0,
+    transmission: 0.62, thickness: 1.4,
+    clearcoat: 0.7, clearcoatRoughness: 0.18,
     side: THREE.DoubleSide,
   });
 }
@@ -97,23 +116,32 @@ function glowMaterial(color, opacity) {
   });
 }
 
-// Plano de terreno / base.
-function ground(y, color = 0x16343C) {
+// Terreno con anillos concéntricos tenues para dar escala y profundidad.
+function ground(y, color = 0x142E36) {
   const g = new THREE.Mesh(
     new THREE.CircleGeometry(16, 48),
-    new THREE.MeshStandardMaterial({ color, roughness: 0.9, metalness: 0.0 })
+    new THREE.MeshStandardMaterial({ color, roughness: 0.92, metalness: 0.0 })
   );
   g.rotation.x = -Math.PI / 2;
   g.position.y = y;
   scene.add(g);
+  for (let i = 1; i <= 3; i++) {
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(2.4 * i + 1.2, 2.4 * i + 1.26, 64),
+      glowMaterial(0x9FD4D0, 0.05)
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = y + 0.005;
+    scene.add(ring);
+  }
   return g;
 }
 
-// Anillo de acento (estado) en el suelo.
+// Anillo de acento (estado) sobre el plano.
 function accentRing(radius, y) {
   const ring = new THREE.Mesh(
     new THREE.TorusGeometry(radius, 0.03, 10, 60),
-    glowMaterial(ACCENT, 0.85)
+    trackAccent(glowMaterial(state.accent, 0.85))
   );
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = y;
@@ -138,16 +166,16 @@ function buildWell() {
   // Boca del pozo (cuello)
   const collar = new THREE.Mesh(
     new THREE.TorusGeometry(0.95, 0.16, 12, 40),
-    new THREE.MeshStandardMaterial({ color: 0x3A4A4A, roughness: 0.7 })
+    new THREE.MeshStandardMaterial({ color: 0x46585A, roughness: 0.55, metalness: 0.35 })
   );
   collar.rotation.x = -Math.PI / 2;
   collar.position.y = 0.02;
   scene.add(collar);
-  // Cilindro exterior translúcido (corte conceptual del pozo)
+  // Casco exterior translúcido (corte conceptual del pozo)
   const shaft = new THREE.Mesh(
     new THREE.CylinderGeometry(0.9, 0.9, 6, 40, 1, true),
     new THREE.MeshStandardMaterial({
-      color: 0xE8F2F1, transparent: true, opacity: 0.08,
+      color: 0xE8F2F1, transparent: true, opacity: 0.07,
       roughness: 0.4, side: THREE.DoubleSide, depthWrite: false,
     })
   );
@@ -156,19 +184,17 @@ function buildWell() {
   // Borde luminoso del casco.
   const edge = new THREE.Mesh(
     new THREE.TorusGeometry(0.9, 0.015, 8, 48),
-    glowMaterial(ACCENT, 0.4)
+    trackAccent(glowMaterial(state.accent, 0.4))
   );
   edge.rotation.x = -Math.PI / 2;
   edge.position.y = 0.03;
   scene.add(edge);
-  // Columna de agua: el nivel sube desde el fondo según LEVEL.
+  // Columna de agua: cilindro unitario escalado según el nivel vivo.
   const depth = 6;
-  const h = Math.max(0.15, LEVEL * depth);
   const water = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.82, 0.82, h, 40, 1, false),
+    new THREE.CylinderGeometry(0.82, 0.82, 1, 40, 1, false),
     waterMaterial(0.85)
   );
-  water.position.y = -depth + h / 2;
   scene.add(water);
   // Superficie del agua (disco brillante).
   const top = new THREE.Mesh(
@@ -176,8 +202,10 @@ function buildWell() {
     glowMaterial(0x8EF0D8, 0.4)
   );
   top.rotation.x = -Math.PI / 2;
-  top.position.y = -depth + h + 0.001;
   scene.add(top);
+  // Luz suave dentro del pozo, sobre la superficie del agua.
+  const wellLight = new THREE.PointLight(0x66E0C2, 0.9, 6);
+  scene.add(wellLight);
   // Burbujas ascendentes.
   for (let i = 0; i < 16; i++) {
     const b = new THREE.Mesh(
@@ -185,6 +213,7 @@ function buildWell() {
       glowMaterial(0xDFFFF6, 0.5)
     );
     b.userData = {
+      type: 'bubble',
       a: Math.random() * Math.PI * 2,
       r: 0.2 + Math.random() * 0.5,
       s: 0.4 + Math.random() * 0.8,
@@ -192,36 +221,36 @@ function buildWell() {
     };
     scene.add(b);
     flowDots.push(b);
-    b.userData.type = 'bubble';
   }
-  camera.position.set(7, 5, 9);
-  return { water, depth, h };
+  camera.position.set(6.6, 4.4, 8.2);
+  controls.target.set(0, -1.1, 0);
+  return { kind: 'well', water, top, wellLight, depth, h: 1 };
 }
 
 // ——— Agua superficial ———
 function buildSurface() {
-  ground(-1.2, 0x10222B);
-  // Plano de agua grande.
+  ground(-1.2, 0x0F2028);
+  // Plano de agua grande con olas por vértices.
   const water = new THREE.Mesh(
     new THREE.PlaneGeometry(30, 30, 80, 80),
     waterMaterial(0.8)
   );
   water.rotation.x = -Math.PI / 2;
-  water.position.y = -0.2 + LEVEL * 0.6;
   scene.add(water);
-  accentRing(2.4, water.position.y + 0.01);
+  const ring = accentRing(2.4, 0.01);
   // Boya / punto de toma.
   const buoy = new THREE.Mesh(
     new THREE.SphereGeometry(0.35, 24, 24),
-    new THREE.MeshStandardMaterial({ color: ACCENT, roughness: 0.4, emissive: ACCENT, emissiveIntensity: 0.25 })
+    trackAccent(new THREE.MeshStandardMaterial({
+      color: state.accent, roughness: 0.35,
+      emissive: state.accent, emissiveIntensity: 0.3,
+    }))
   );
-  buoy.position.set(0, water.position.y + 0.2, 0);
   scene.add(buoy);
   const mast = new THREE.Mesh(
     new THREE.CylinderGeometry(0.05, 0.05, 1.6, 12),
     new THREE.MeshStandardMaterial({ color: 0xE8F2F1, roughness: 0.5 })
   );
-  mast.position.set(0, water.position.y + 0.9, 0);
   scene.add(mast);
   // Ondas concéntricas.
   const rings = [];
@@ -231,18 +260,33 @@ function buildSurface() {
       glowMaterial(0xBFF7EA, 0.3 - i * 0.08)
     );
     r.rotation.x = -Math.PI / 2;
-    r.position.y = water.position.y + 0.01;
     scene.add(r);
     rings.push(r);
   }
-  camera.position.set(8, 5.5, 8);
-  return { water, buoy, rings, waves: water.geometry.attributes.position };
+  camera.position.set(7.6, 4.6, 7.6);
+  controls.target.set(0, 0.1, 0);
+  return { kind: 'surface', water, ring, buoy, mast, rings, waves: water.geometry.attributes.position };
 }
 
 const ctx = KIND === 'surface' ? buildSurface() : buildWell();
 
 // Puntos de flujo (caudal): partículas que emergen del punto.
 for (let i = 0; i < 5; i++) flowDots.push(makeFlowDot());
+
+// Actualizaciones en caliente desde la app (replay en vivo): nunca se
+// recarga la escena, solo se mueven los objetivos de la interpolación.
+window.addEventListener('message', (event) => {
+  const d = event.data;
+  if (!d || d.source !== 'smarthydro') return;
+  if (typeof d.fill === 'number' && isFinite(d.fill)) target.fill = clamp01(d.fill);
+  if (typeof d.flow === 'number' && isFinite(d.flow)) target.flow = Math.max(0, d.flow);
+  if (typeof d.status === 'string' && COLORS[d.status]) {
+    target.accent = COLORS[d.status];
+    applyAccent(target.accent);
+  }
+});
+
+setTimeout(() => document.getElementById('hint').classList.add('fade'), 4200);
 
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
@@ -256,38 +300,55 @@ resize();
 const clock = new THREE.Clock();
 function animate() {
   requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.1);
   const t = clock.getElapsedTime();
-  if (KIND === 'surface') {
+
+  // Interpolación suave hacia los objetivos (mata los saltos del replay).
+  const k = Math.min(1, dt * 3.2);
+  state.fill += (target.fill - state.fill) * k;
+  state.flow += (target.flow - state.flow) * k;
+
+  if (ctx.kind === 'surface') {
+    const waterY = -0.2 + state.fill * 0.6;
+    ctx.water.position.y = waterY;
     const pos = ctx.waves;
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i), y = pos.getY(i);
       pos.setZ(i, Math.sin(x * 0.6 + t * 1.4) * 0.12 + Math.cos(y * 0.5 + t) * 0.1);
     }
     pos.needsUpdate = true;
-    ctx.buoy.position.y = ctx.water.position.y + 0.2 + Math.sin(t * 1.6) * 0.06;
-    ctx.buoy.position.x = Math.sin(t * 0.5) * 0.05;
+    ctx.ring.position.y = waterY + 0.01;
+    ctx.buoy.position.set(Math.sin(t * 0.5) * 0.05, waterY + 0.2 + Math.sin(t * 1.6) * 0.06, 0);
+    ctx.mast.position.set(0, waterY + 0.9 + Math.sin(t * 1.6) * 0.06, 0);
     ctx.rings.forEach((r, i) => {
       const s = 1 + ((t * 0.4 + i / ctx.rings.length) % 1) * 1.6;
       r.scale.setScalar(s);
+      r.position.y = waterY + 0.01;
       r.material.opacity = 0.3 * (1 - ((t * 0.4 + i / ctx.rings.length) % 1));
     });
   } else {
-    ctx.water.scale.y = 1 + Math.sin(t * 0.8) * 0.02;
+    const h = Math.max(0.15, state.fill * ctx.depth);
+    ctx.h = h;
+    ctx.water.scale.y = h;
+    ctx.water.position.y = -ctx.depth + h / 2;
     ctx.water.material.opacity = 0.8 + Math.sin(t * 0.8) * 0.05;
+    ctx.top.position.y = -ctx.depth + h + 0.002;
+    ctx.top.material.opacity = 0.34 + Math.sin(t * 0.8) * 0.08;
+    ctx.wellLight.position.y = -ctx.depth + h + 0.35;
   }
   flowDots.forEach((d) => {
     if (d.userData.type === 'bubble') {
       const u = (t * d.userData.s * 0.2 + d.userData.o) % 1;
-      const y0 = ctx.depth ? -ctx.depth + 0.2 : 0;
       d.position.set(
         Math.cos(d.userData.a) * d.userData.r,
-        y0 + u * ctx.h,
+        -ctx.depth + 0.2 + u * Math.max(0.2, ctx.h - 0.3),
         Math.sin(d.userData.a) * d.userData.r
       );
       d.material.opacity = Math.sin(u * Math.PI) * 0.6;
     } else {
-      const u = (t * (0.3 + FLOW * 0.05) + d.id * 0.2) % 1;
-      d.position.y = (KIND === 'surface' ? ctx.water.position.y : 0.2) + u * 3;
+      const u = (t * (0.3 + state.flow * 0.05) + d.id * 0.2) % 1;
+      const base = ctx.kind === 'surface' ? ctx.water.position.y : 0.2;
+      d.position.y = base + u * 3;
       d.material.opacity = Math.sin(u * Math.PI) * 0.8;
     }
   });
