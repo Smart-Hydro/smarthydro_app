@@ -18,7 +18,6 @@ import '../../shared/widgets/hydro_glass.dart';
 import '../../shared/widgets/liquid_nav.dart';
 import '../../shared/widgets/water_atmosphere.dart';
 import 'capture_stage.dart';
-import 'capture3d_view.dart';
 import 'point_link.dart';
 import 'widgets/portfolio_network.dart';
 
@@ -361,11 +360,7 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
   void _openPoint(Map<String, dynamic> point) {
     Navigator.of(context).push<void>(
       hydroPageRoute(
-        _PointDetailScreen(
-          api: _api,
-          token: widget.session.token,
-          point: point,
-        ),
+        PointDetailScreen(api: _api, token: widget.session.token, point: point),
       ),
     );
   }
@@ -1077,11 +1072,12 @@ class _MoreTab extends StatelessWidget {
   }
 }
 
-class _PointDetailScreen extends StatefulWidget {
-  const _PointDetailScreen({
+class PointDetailScreen extends StatefulWidget {
+  const PointDetailScreen({
     required this.api,
     required this.token,
     required this.point,
+    super.key,
   });
 
   final SmartHydroApi api;
@@ -1089,10 +1085,10 @@ class _PointDetailScreen extends StatefulWidget {
   final Map<String, dynamic> point;
 
   @override
-  State<_PointDetailScreen> createState() => _PointDetailScreenState();
+  State<PointDetailScreen> createState() => _PointDetailScreenState();
 }
 
-class _PointDetailScreenState extends State<_PointDetailScreen> {
+class _PointDetailScreenState extends State<PointDetailScreen> {
   Map<String, dynamic>? _detail;
   List<Map<String, dynamic>> _history = const [];
   List<Map<String, dynamic>> _replayRecords = const [];
@@ -1109,13 +1105,29 @@ class _PointDetailScreenState extends State<_PointDetailScreen> {
     end: DateTime.now(),
   );
   Timer? _replayTimer;
-  bool _use3d = true;
+  CaptureProfile _profile = const CaptureProfile();
 
   @override
   void initState() {
     super.initState();
     _load();
     _loadReplay();
+    _loadProfile();
+  }
+
+  /// La ficha estática es opcional: si falla, la escena usa proporciones
+  /// estimadas a partir de las lecturas.
+  Future<void> _loadProfile() async {
+    try {
+      final config = await widget.api.pointConfig(
+        widget.token,
+        _int(widget.point['id']),
+      );
+      if (!mounted) return;
+      setState(() => _profile = CaptureProfile.fromConfig(config));
+    } on SmartHydroApiException {
+      return;
+    }
   }
 
   Future<void> _load() async {
@@ -1345,72 +1357,28 @@ class _PointDetailScreenState extends State<_PointDetailScreen> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                _use3d
-                    ? Capture3DView(
-                        levelMeters: level,
-                        levelFill: levelFill,
-                        flowLitersPerSecond: liveFlow,
-                        isSurface: isSurface,
-                        link: pointLinkOf(data),
-                      )
-                    : CaptureStage(
-                        levelMeters: level,
-                        levelFill: levelFill,
-                        levelMin: minimumLevel,
-                        levelMax: maximumLevel,
-                        flowLitersPerSecond: liveFlow,
-                        isSurface: isSurface,
-                        link: pointLinkOf(data),
-                        playing: _replayTimer != null,
-                      ),
-                Positioned(
-                  top: 12,
-                  right: 12,
-                  child: SafeArea(
-                    child: _ViewModeToggle(
-                      use3d: _use3d,
-                      onChanged: (value) => setState(() => _use3d = value),
-                    ),
-                  ),
+                CaptureStage(
+                  levelMeters: level,
+                  levelFill: levelFill,
+                  levelMin: minimumLevel,
+                  levelMax: maximumLevel,
+                  flowLitersPerSecond: liveFlow,
+                  isSurface: isSurface,
+                  link: pointLinkOf(data),
+                  profile: _profile,
+                  playing: _replayTimer != null,
                 ),
                 SafeArea(
+                  bottom: false,
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(4, 4, 12, 0),
-                    child: Row(
-                      children: [
-                        IconButton(
-                          tooltip: 'Volver',
-                          onPressed: () => Navigator.of(context).maybePop(),
-                          icon: const Icon(Icons.arrow_back_rounded),
-                        ),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 16,
-                                ),
-                              ),
-                              Text(
-                                data['project_name'] as String? ?? '',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Color(0xFF9AB0B1),
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        _CaptureTypeChip(isSurface: isSurface),
-                      ],
+                    padding: const EdgeInsets.fromLTRB(20, 20, 0, 0),
+                    child: Align(
+                      alignment: Alignment.topLeft,
+                      child: _FloatingIconButton(
+                        tooltip: 'Volver',
+                        onPressed: () => Navigator.of(context).maybePop(),
+                        icon: Icons.arrow_back_rounded,
+                      ),
                     ),
                   ),
                 ),
@@ -1440,6 +1408,27 @@ class _PointDetailScreenState extends State<_PointDetailScreen> {
                         message: _replayError!,
                         onRetry: _loadReplay,
                       ),
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 17,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    if ((data['project_name'] as String? ?? '').isNotEmpty)
+                      Text(
+                        data['project_name'] as String,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF9AB0B1),
+                          fontSize: 11.5,
+                        ),
+                      ),
+                    const SizedBox(height: 12),
                     _ReadoutStrip(
                       flow: liveFlow,
                       total: liveTotal,
@@ -1672,127 +1661,64 @@ class _PointDetailScreenState extends State<_PointDetailScreen> {
   }
 }
 
-/// Chip que distingue el tipo de captación en el encabezado del detalle.
-class _CaptureTypeChip extends StatelessWidget {
-  const _CaptureTypeChip({required this.isSurface});
-
-  final bool isSurface;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = isSurface ? const Color(0xFF69B9FF) : IkoluColors.cyan;
-    final label = isSurface ? 'Superficial' : 'Pozo';
-    final icon = isSurface
-        ? Icons.waves_rounded
-        : Icons.vertical_align_bottom_rounded;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFF071114).withValues(alpha: 0.85),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.45), width: 1),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: color),
-          const SizedBox(width: 5),
-          Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Alterna entre la vista 2D (minimalista) y la vista 3D (Three.js).
-class _ViewModeToggle extends StatelessWidget {
-  const _ViewModeToggle({required this.use3d, required this.onChanged});
-
-  final bool use3d;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    const accent = IkoluColors.cyan;
-    return Material(
-      color: const Color(0xFF071114).withValues(alpha: 0.7),
-      borderRadius: BorderRadius.circular(999),
-      child: Container(
-        padding: const EdgeInsets.all(3),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.08),
-            width: 1,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _ModeButton(
-              label: '2D',
-              selected: !use3d,
-              accent: accent,
-              onTap: () => onChanged(false),
-            ),
-            _ModeButton(
-              label: '3D',
-              selected: use3d,
-              accent: accent,
-              onTap: () => onChanged(true),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ModeButton extends StatelessWidget {
-  const _ModeButton({
-    required this.label,
-    required this.selected,
-    required this.accent,
-    required this.onTap,
+/// Botón de icono flotante para la barra superior de la vista del punto.
+class _FloatingIconButton extends StatefulWidget {
+  const _FloatingIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
   });
 
-  final String label;
-  final bool selected;
-  final Color accent;
-  final VoidCallback onTap;
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+
+  @override
+  State<_FloatingIconButton> createState() => _FloatingIconButtonState();
+}
+
+class _FloatingIconButtonState extends State<_FloatingIconButton> {
+  bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(999),
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected ? accent.withValues(alpha: 0.2) : Colors.transparent,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: selected
-                ? accent.withValues(alpha: 0.5)
-                : Colors.transparent,
-            width: 1,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? accent : const Color(0xFF9AB0B1),
-            fontSize: 11,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0.6,
+    final enabled = widget.onPressed != null;
+    const accent = IkoluColors.cyan;
+    return MouseRegion(
+      onEnter: enabled ? (_) => setState(() => _hovered = true) : null,
+      onExit: enabled ? (_) => setState(() => _hovered = false) : null,
+      child: Tooltip(
+        message: widget.tooltip,
+        child: Material(
+          color: const Color(0xFF12252A).withValues(alpha: 0.92),
+          borderRadius: BorderRadius.circular(12),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: widget.onPressed,
+            child: AnimatedScale(
+              scale: _hovered && enabled ? 1.06 : 1,
+              duration: const Duration(milliseconds: 140),
+              curve: Curves.easeOut,
+              child: Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: _hovered && enabled
+                        ? accent.withValues(alpha: 0.5)
+                        : accent.withValues(alpha: 0.18),
+                    width: 1,
+                  ),
+                ),
+                child: Icon(
+                  widget.icon,
+                  size: 20,
+                  color: enabled
+                      ? (_hovered ? accent : const Color(0xFFB4C7C8))
+                      : const Color(0xFF5A6B6D),
+                ),
+              ),
+            ),
           ),
         ),
       ),
@@ -2047,31 +1973,39 @@ class _ReadoutStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final readouts = [
+      if (flow != null)
+        _Readout(
+          label: 'Caudal',
+          value: flow!.toStringAsFixed(2),
+          unit: 'L/s',
+          accent: IkoluColors.cyan,
+        ),
+      if (total != null)
+        _Readout(
+          label: 'Total',
+          value: total!.toStringAsFixed(1),
+          unit: 'm³',
+          accent: const Color(0xFF69B9FF),
+        ),
+      if (level != null)
+        _Readout(
+          label: 'Nivel',
+          value: level!.toStringAsFixed(2),
+          unit: 'm',
+          accent: const Color(0xFFB39DDB),
+        ),
+    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            _Readout(
-              label: 'Caudal',
-              value: flow == null ? '—' : flow!.toStringAsFixed(2),
-              unit: 'L/s',
-              accent: IkoluColors.cyan,
-            ),
-            _Readout(
-              label: 'Total',
-              value: total == null ? '—' : total!.toStringAsFixed(1),
-              unit: 'm³',
-              accent: const Color(0xFF69B9FF),
-            ),
-            _Readout(
-              label: 'Nivel',
-              value: level == null ? '—' : level!.toStringAsFixed(2),
-              unit: 'm',
-              accent: const Color(0xFFB39DDB),
-            ),
-          ],
-        ),
+        if (readouts.isEmpty)
+          const Text(
+            'Sin lecturas disponibles para este punto.',
+            style: TextStyle(color: Color(0xFF8FA8A8), fontSize: 12),
+          )
+        else
+          Row(children: readouts),
         const SizedBox(height: 6),
         Text(
           stamp,
