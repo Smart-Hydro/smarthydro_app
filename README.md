@@ -95,16 +95,16 @@ Paleta de producto (alineada a la app):
 flutter pub get
 
 # Web / PWA (Brave u otro navegador)
-# N1_WEB_APP_URL = URL /exec de la Web App N1 (ver docs/N1_INTEGRATION.md)
-flutter run -d web-server --web-hostname localhost --web-port 3001 \
-  --dart-define=N1_WEB_APP_URL=
+# N1 usa por defecto la Web App prod (override opcional con N1_WEB_APP_URL).
+flutter run -d web-server --web-hostname localhost --web-port 3001
 # → http://localhost:3001
 
 # Android
 flutter emulators --launch medium_phone
-flutter run -d emulator-5554 \
-  --dart-define=N1_WEB_APP_URL=
+flutter run -d emulator-5554
 ```
+
+N1 (Asistente): ver [`docs/N1_INTEGRATION.md`](docs/N1_INTEGRATION.md). URL prod por defecto en `N1Config.defaultProdWebAppUrl` (pública `/exec`, no es secreto). Smoke: `dart run tool/n1_smoke.dart`.
 
 ---
 

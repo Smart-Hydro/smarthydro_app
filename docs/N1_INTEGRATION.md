@@ -33,9 +33,23 @@ Si la respuesta trae `pending` / `async` o el texto empieza con `⏳`, la UI mar
 
 ## Config
 
+La URL `/exec` de la Web App es **pública** (no es un secreto). Por defecto la app usa el despliegue prod:
+
+`N1Config.defaultProdWebAppUrl` → verificado con `GET ?op=health` → `ok` / `version: 2026-10-12-flutter-app`.
+
+Override opcional:
+
 ```bash
-flutter run --dart-define=N1_WEB_APP_URL=https://script.google.com/macros/s/<DEPLOYMENT_ID>/exec
-# igual para build web / appbundle
+flutter run --dart-define=N1_WEB_APP_URL=https://script.google.com/macros/s/<OTRO_DEPLOYMENT>/exec
+flutter build web --dart-define=N1_WEB_APP_URL=…
 ```
 
-Sin `N1_WEB_APP_URL` la pantalla Asistente avisa que falta configuración (no hay secretos hardcodeados).
+## Apps Script redirects
+
+`doPost` responde `302` a `script.googleusercontent.com/macros/echo`. El cliente (`N1Api`) hace POST sin seguir redirects y luego **GET** del `Location` para leer el JSON. Re-POSTear el echo suele devolver HTML.
+
+Smoke (health + capabilities GET + ping unauthorized):
+
+```bash
+dart run tool/n1_smoke.dart
+```

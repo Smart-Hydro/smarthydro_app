@@ -49,6 +49,16 @@ void main() {
         isTrue,
       );
     });
+
+    test('default prod apunta al /exec verificado', () {
+      expect(N1Config.defaultProdWebAppUrl, contains('/macros/s/'));
+      expect(N1Config.defaultProdWebAppUrl, endsWith('/exec'));
+      expect(N1Config.fromEnvironment().isConfigured, isTrue);
+      expect(
+        N1Config.fromEnvironment().webAppUrl,
+        N1Config.defaultProdWebAppUrl,
+      );
+    });
   });
 
   group('N1Response', () {
@@ -246,6 +256,45 @@ void main() {
               .having((e) => e.message, 'message', contains('Token')),
         ),
       );
+    });
+
+    test('POST 302 → GET Location (Apps Script echo)', () async {
+      final calls = <RequestOptions>[];
+      dio.httpClientAdapter = _Adapter((options) async {
+        calls.add(options);
+        if (calls.length == 1) {
+          return ResponseBody.fromString(
+            '',
+            302,
+            headers: {
+              'location': [
+                'https://script.googleusercontent.com/macros/echo?k=1',
+              ],
+            },
+          );
+        }
+        return _json({
+          'ok': false,
+          'error': 'Autorización requerida (Token o sobre HMAC).',
+          'code': 'unauthorized',
+        });
+      });
+
+      await expectLater(
+        () => api.ping(token: 'bad', requester: 'a@b.cl'),
+        throwsA(
+          isA<N1ApiException>().having(
+            (e) => e.code,
+            'code',
+            'unauthorized',
+          ),
+        ),
+      );
+      expect(calls, hasLength(2));
+      expect(calls[0].method, 'POST');
+      expect(calls[0].followRedirects, isFalse);
+      expect(calls[1].method, 'GET');
+      expect(calls[1].uri.toString(), contains('googleusercontent.com/macros/echo'));
     });
 
     test('sin N1_WEB_APP_URL falla con no_config', () async {
