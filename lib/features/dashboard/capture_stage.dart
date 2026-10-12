@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' show PointMode;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -65,13 +66,28 @@ class CaptureProfile {
   }
 }
 
+/// Partes de la escena que el usuario puede señalar para que se expliquen.
+enum ScenePart {
+  level,
+  sensor,
+  pump,
+  depth,
+  casing,
+  aquifer,
+  soil,
+  rock,
+  logger,
+  flowmeter,
+  water,
+  intake,
+}
+
 /// Vista singular del punto: una lámina isométrica interactiva.
 ///
-/// Un bloque de terreno en corte que se gira arrastrando y que acompaña al
-/// puntero. El pozo muestra su profundidad real, el nivel freático como un
-/// plano que atraviesa el acuífero, el sensor y la bomba a su cota, y la
-/// impulsión hasta el flujómetro y la descarga. La captación superficial
-/// muestra el cauce en sección con su altura de agua y la corriente.
+/// Un bloque de terreno en corte que gira 360° al arrastrar y acompaña al
+/// puntero. Solo se dibuja lo que el punto tiene: el pozo usa su ficha real
+/// (profundidad, bomba, sensor, ductos) y las variables con dato; lo que no
+/// existe no aparece. Al pasar el puntero o tocar una parte se explica qué es.
 class CaptureStage extends StatefulWidget {
   const CaptureStage({
     required this.levelMeters,
@@ -121,34 +137,50 @@ class _CaptureStageState extends State<CaptureStage>
     duration: const Duration(milliseconds: 1100),
   );
 
+  final _SceneHits _hits = _SceneHits();
   bool _hovered = false;
-  bool _dragging = false;
   bool _touched = false;
   Offset _pointer = Offset.zero;
   double _dragYaw = 0;
   double _dragPitch = 0;
   double _yaw = _baseYaw;
   double _pitch = _basePitch;
-  DateTime _lastInteraction = DateTime.fromMillisecondsSinceEpoch(0);
+  ScenePart? _hoverPart;
+  ScenePart? _pinnedPart;
 
-  double get _targetYaw =>
-      (_baseYaw + _dragYaw + _pointer.dx * 0.12).clamp(0.16, 1.40);
+  /// Valores mostrados: siguen a los del replay con suavidad para que el
+  /// agua suba y baje de forma continua entre registros.
+  double? _level;
+  double? _shownFlow;
+  double _levelMotion = 0;
+
+  double get _targetYaw => _baseYaw + _dragYaw + _pointer.dx * 0.12;
   double get _targetPitch =>
-      (_basePitch + _dragPitch + _pointer.dy * 0.06).clamp(0.26, 0.80);
+      (_basePitch + _dragPitch + _pointer.dy * 0.06).clamp(0.20, 0.92);
 
-  /// Suaviza la cámara hacia el objetivo y, tras unos segundos sin tocar,
-  /// la devuelve con calma a la pose isométrica.
   void _ease() {
-    final idle =
-        !_dragging &&
-        DateTime.now().difference(_lastInteraction) >
-            const Duration(seconds: 3);
-    if (idle) {
-      _dragYaw *= 0.96;
-      _dragPitch *= 0.96;
-    }
     _yaw += (_targetYaw - _yaw) * 0.14;
     _pitch += (_targetPitch - _pitch) * 0.14;
+
+    final level = widget.levelMeters;
+    if (level == null || _level == null) {
+      _level = level;
+    } else {
+      final delta = level - _level!;
+      _level = _level! + delta * 0.06;
+      final span = (widget.levelMax ?? 0) - (widget.levelMin ?? 0);
+      final scale = span > 0.01 ? span : 1.0;
+      _levelMotion = (_levelMotion * 0.92 + (delta.abs() / scale) * 0.6).clamp(
+        0.0,
+        1.0,
+      );
+    }
+    final flow = widget.flowLitersPerSecond;
+    if (flow == null || _shownFlow == null) {
+      _shownFlow = flow;
+    } else {
+      _shownFlow = _shownFlow! + (flow - _shownFlow!) * 0.06;
+    }
   }
 
   void _snapIfStatic() {
@@ -156,7 +188,16 @@ class _CaptureStageState extends State<CaptureStage>
     setState(() {
       _yaw = _targetYaw;
       _pitch = _targetPitch;
+      _level = widget.levelMeters;
+      _shownFlow = widget.flowLitersPerSecond;
     });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _level = widget.levelMeters;
+    _shownFlow = widget.flowLitersPerSecond;
   }
 
   @override
@@ -176,6 +217,10 @@ class _CaptureStageState extends State<CaptureStage>
   @override
   void didUpdateWidget(covariant CaptureStage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!_flow.isAnimating) {
+      _level = widget.levelMeters;
+      _shownFlow = widget.flowLitersPerSecond;
+    }
     if (widget.playing && !oldWidget.playing) {
       _playPulse.repeat(reverse: true);
     } else if (!widget.playing && oldWidget.playing) {
@@ -195,27 +240,36 @@ class _CaptureStageState extends State<CaptureStage>
   }
 
   void _onHover(PointerHoverEvent event, Size size) {
-    if (_dragging || size.isEmpty) return;
+    if (size.isEmpty) return;
     _pointer = Offset(
       (event.localPosition.dx / size.width) * 2 - 1,
       (event.localPosition.dy / size.height) * 2 - 1,
     );
+    final part = _hits.at(event.localPosition);
+    if (part != _hoverPart) setState(() => _hoverPart = part);
     _snapIfStatic();
   }
 
+  void _onTapUp(TapUpDetails details) {
+    final part = _hits.at(details.localPosition);
+    setState(() => _pinnedPart = part == _pinnedPart ? null : part);
+  }
+
   void _onPanUpdate(DragUpdateDetails details) {
-    _dragYaw = (_dragYaw - details.delta.dx * 0.006).clamp(-0.55, 0.75);
-    _dragPitch = (_dragPitch + details.delta.dy * 0.004).clamp(-0.22, 0.36);
-    _lastInteraction = DateTime.now();
+    _dragYaw -= details.delta.dx * 0.009;
+    _dragPitch = (_dragPitch + details.delta.dy * 0.004).clamp(-0.28, 0.46);
     if (!_touched) setState(() => _touched = true);
     _snapIfStatic();
   }
 
+  /// Vuelve a la pose base por el camino más corto, sin dar vueltas extra.
   void _reset() {
+    const tau = math.pi * 2;
+    final turns = (_dragYaw / tau).roundToDouble();
+    _yaw -= turns * tau;
     _dragYaw = 0;
     _dragPitch = 0;
     _pointer = Offset.zero;
-    _lastInteraction = DateTime.fromMillisecondsSinceEpoch(0);
     _snapIfStatic();
   }
 
@@ -223,12 +277,10 @@ class _CaptureStageState extends State<CaptureStage>
     final p = widget.profile;
     final parts = <String>[
       widget.isSurface ? 'Captación superficial' : 'Pozo subterráneo',
-      widget.levelMeters == null
-          ? 'sin nivel'
-          : 'nivel ${widget.levelMeters!.toStringAsFixed(2)} metros',
-      widget.flowLitersPerSecond == null
-          ? 'sin caudal'
-          : 'caudal ${widget.flowLitersPerSecond!.toStringAsFixed(2)} litros por segundo',
+      if (widget.levelMeters != null)
+        'nivel ${widget.levelMeters!.toStringAsFixed(2)} metros',
+      if (widget.flowLitersPerSecond != null)
+        'caudal ${widget.flowLitersPerSecond!.toStringAsFixed(2)} litros por segundo',
       if (p.depth != null) 'profundidad ${p.depth!.toStringAsFixed(1)} metros',
       if (p.pumpDepth != null)
         'bomba a ${p.pumpDepth!.toStringAsFixed(1)} metros',
@@ -239,9 +291,148 @@ class _CaptureStageState extends State<CaptureStage>
     return parts.join(', ');
   }
 
+  String _m(double v) => '${v.toStringAsFixed(v >= 100 ? 0 : 1)} m';
+
+  ({String title, String? value, String body, Color color}) _explain(
+    ScenePart part,
+  ) {
+    final p = widget.profile;
+    final level = widget.levelMeters;
+    final flow = widget.flowLitersPerSecond;
+    switch (part) {
+      case ScenePart.level:
+        return widget.isSurface
+            ? (
+                title: 'Altura de agua',
+                value: level == null ? null : '${level.toStringAsFixed(2)} m',
+                body:
+                    'Altura de la lámina de agua en el cauce medida por el '
+                    'sensor. Sube con crecidas y baja en estiaje.',
+                color: _Palette.level,
+              )
+            : (
+                title: 'Nivel freático',
+                value: level == null ? null : '${level.toStringAsFixed(2)} m',
+                body:
+                    'Profundidad desde la superficie hasta el agua del '
+                    'acuífero. Más metros significa que el agua está más '
+                    'abajo.',
+                color: _Palette.level,
+              );
+      case ScenePart.sensor:
+        return (
+          title: 'Sensor de nivel',
+          value: p.sensorDepth == null
+              ? null
+              : 'instalado a ${_m(p.sensorDepth!)}',
+          body: widget.isSurface
+              ? 'Mide desde arriba la distancia a la lámina de agua y la '
+                    'convierte en altura.'
+              : 'Sonda sumergida que mide la presión del agua sobre ella para '
+                    'calcular el nivel. Debe quedar siempre bajo el agua.',
+          color: _Palette.sensor,
+        );
+      case ScenePart.pump:
+        final submergence = (p.pumpDepth != null && level != null)
+            ? p.pumpDepth! - level
+            : null;
+        return (
+          title: 'Bomba',
+          value: p.pumpDepth == null
+              ? null
+              : submergence == null
+              ? 'a ${_m(p.pumpDepth!)}'
+              : submergence >= 0
+              ? 'a ${_m(p.pumpDepth!)} · ${_m(submergence)} bajo el agua'
+              : 'a ${_m(p.pumpDepth!)} · sobre el nivel',
+          body:
+              'Extrae el agua del pozo y la impulsa a la superficie. Debe '
+              'quedar bajo el nivel freático; si el agua baja de la bomba, '
+              'trabaja en seco.',
+          color: _Palette.pump,
+        );
+      case ScenePart.depth:
+        return (
+          title: 'Fondo del pozo',
+          value: p.depth == null ? null : _m(p.depth!),
+          body: 'Profundidad total perforada, medida desde la superficie.',
+          color: _Palette.fog,
+        );
+      case ScenePart.casing:
+        return (
+          title: 'Entubación',
+          value: null,
+          body:
+              'Tubo que sostiene las paredes del pozo. El tramo ranurado '
+              '(criba) deja entrar el agua del acuífero.',
+          color: _Palette.steel,
+        );
+      case ScenePart.aquifer:
+        return (
+          title: 'Acuífero · zona saturada',
+          value: null,
+          body:
+              'Terreno bajo el nivel freático cuyos poros están llenos de '
+              'agua. Desde aquí el pozo se recarga.',
+          color: _Palette.aquifer,
+        );
+      case ScenePart.soil:
+        return (
+          title: 'Zona no saturada',
+          value: null,
+          body:
+              'Terreno sobre el nivel freático: sus poros tienen aire y el '
+              'agua solo lo atraviesa al infiltrarse.',
+          color: _Palette.soilText,
+        );
+      case ScenePart.rock:
+        return (
+          title: 'Bajo el fondo',
+          value: null,
+          body: 'Terreno bajo la perforación, fuera del alcance del pozo.',
+          color: _Palette.faint,
+        );
+      case ScenePart.logger:
+        return (
+          title: 'Datalogger',
+          value: pointLinkLabel(widget.link),
+          body:
+              'Registra las mediciones del sensor y del flujómetro y las '
+              'transmite a SmartHydro.',
+          color: _Palette.linkColor(widget.link),
+        );
+      case ScenePart.flowmeter:
+        return (
+          title: 'Flujómetro',
+          value: flow == null ? null : '${flow.toStringAsFixed(2)} L/s',
+          body:
+              'Mide el caudal que sale por la impulsión y acumula el volumen '
+              'total extraído (m³).',
+          color: _Palette.flow,
+        );
+      case ScenePart.water:
+        return (
+          title: 'Cauce',
+          value: null,
+          body:
+              'Curso de agua superficial. Las líneas sobre la lámina muestran '
+              'la corriente; más rápidas, más caudal.',
+          color: _Palette.surfaceWater,
+        );
+      case ScenePart.intake:
+        return (
+          title: 'Toma',
+          value: flow == null ? null : '${flow.toStringAsFixed(2)} L/s',
+          body: 'Punto donde se capta el agua del cauce hacia la impulsión.',
+          color: _Palette.flow,
+        );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final textScaler = MediaQuery.textScalerOf(context);
+    final focus = _hoverPart ?? _pinnedPart;
     return Semantics(
       container: true,
       label: _semantics(),
@@ -249,21 +440,22 @@ class _CaptureStageState extends State<CaptureStage>
         builder: (context, constraints) {
           final size = constraints.biggest;
           return MouseRegion(
+            cursor: _hoverPart == null
+                ? SystemMouseCursors.grab
+                : SystemMouseCursors.click,
             onEnter: (_) => setState(() => _hovered = true),
             onExit: (_) {
               _pointer = Offset.zero;
-              setState(() => _hovered = false);
+              setState(() {
+                _hovered = false;
+                _hoverPart = null;
+              });
             },
             onHover: (event) => _onHover(event, size),
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onPanStart: (_) => _dragging = true,
               onPanUpdate: _onPanUpdate,
-              onPanEnd: (_) {
-                _dragging = false;
-                _lastInteraction = DateTime.now();
-              },
-              onPanCancel: () => _dragging = false,
+              onTapUp: _onTapUp,
               onDoubleTap: _reset,
               child: ExcludeSemantics(
                 child: Stack(
@@ -283,49 +475,47 @@ class _CaptureStageState extends State<CaptureStage>
                             layoutYaw: _baseYaw,
                             layoutPitch: _basePitch,
                             topInset: widget.topInset,
-                            levelMeters: widget.levelMeters,
-                            levelFill: widget.levelFill,
+                            levelMeters: _level,
+                            levelMotion: _levelMotion,
                             levelMin: widget.levelMin,
                             levelMax: widget.levelMax,
                             textScaler: textScaler,
-                            flow: widget.flowLitersPerSecond,
+                            flow: _shownFlow,
                             isSurface: widget.isSurface,
                             link: widget.link,
                             profile: widget.profile,
                             hovered: _hovered,
                             alive: alive,
+                            focus: focus,
+                            hits: _hits,
                           ),
                           child: const SizedBox.expand(),
                         );
                       },
                     ),
                     Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 14,
-                      child: IgnorePointer(
-                        child: AnimatedOpacity(
-                          opacity: _touched ? 0 : 0.7,
-                          duration: const Duration(milliseconds: 500),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.threed_rotation_rounded,
-                                size: 14,
-                                color: Color(0xFF9AB0B1),
-                              ),
-                              SizedBox(width: 6),
-                              Text(
-                                'Arrastra para girar',
-                                style: TextStyle(
-                                  color: Color(0xFF9AB0B1),
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
+                      left: 16,
+                      right: 16,
+                      bottom: 16,
+                      child: Center(
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 180),
+                          child: focus == null
+                              ? IgnorePointer(
+                                  key: const ValueKey('hint'),
+                                  child: AnimatedOpacity(
+                                    opacity: _touched ? 0.35 : 0.75,
+                                    duration: const Duration(milliseconds: 500),
+                                    child: const _HintRow(),
+                                  ),
+                                )
+                              : _InfoCard(
+                                  key: ValueKey(focus),
+                                  info: _explain(focus),
+                                  pinned: _pinnedPart == focus,
+                                  onClose: () =>
+                                      setState(() => _pinnedPart = null),
                                 ),
-                              ),
-                            ],
-                          ),
                         ),
                       ),
                     ),
@@ -340,24 +530,190 @@ class _CaptureStageState extends State<CaptureStage>
   }
 }
 
+class _HintRow extends StatelessWidget {
+  const _HintRow();
+
+  @override
+  Widget build(BuildContext context) => const Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(Icons.threed_rotation_rounded, size: 14, color: _Palette.faint),
+      SizedBox(width: 6),
+      Flexible(
+        child: Text(
+          'Arrastra para girar · toca una parte para saber qué es',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: _Palette.faint,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
+class _InfoCard extends StatelessWidget {
+  const _InfoCard({
+    required this.info,
+    required this.pinned,
+    required this.onClose,
+    super.key,
+  });
+
+  final ({String title, String? value, String body, Color color}) info;
+  final bool pinned;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 440),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: _Palette.card.withValues(alpha: 0.96),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: info.color.withValues(alpha: 0.45)),
+          boxShadow: const [
+            BoxShadow(color: Color(0x66000000), blurRadius: 18),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 4,
+                height: 34,
+                margin: const EdgeInsets.only(top: 2, right: 10),
+                decoration: BoxDecoration(
+                  color: info.color,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(
+                            text: info.title,
+                            style: TextStyle(
+                              color: info.color,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 13,
+                            ),
+                          ),
+                          if (info.value != null)
+                            TextSpan(
+                              text: '  ${info.value}',
+                              style: const TextStyle(
+                                color: _Palette.fog,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 13,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      info.body,
+                      style: TextStyle(
+                        color: _Palette.fog.withValues(alpha: 0.78),
+                        fontSize: 12,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (pinned)
+                IconButton(
+                  tooltip: 'Cerrar',
+                  visualDensity: VisualDensity.compact,
+                  iconSize: 16,
+                  onPressed: onClose,
+                  icon: const Icon(Icons.close_rounded, color: _Palette.faint),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+abstract final class _Palette {
+  static const card = Color(0xFF0F2227);
+  static const fog = Color(0xFFE8F2F1);
+  static const faint = Color(0xFF9AB0B1);
+  static const steel = Color(0xFFB4C7C8);
+  static const coral = Color(0xFFFF847A);
+
+  /// Mismos acentos que las lecturas del panel: nivel violeta, caudal cian.
+  static const level = Color(0xFFC3B1F0);
+  static const flow = IkoluColors.cyan;
+  static const sensor = Color(0xFFFFD27A);
+  static const pump = steel;
+
+  static const wellWater = IkoluColors.cyan;
+  static const surfaceWater = Color(0xFF69B9FF);
+  static const aquifer = Color(0xFF4A9BEA);
+  static const soilText = Color(0xFFD2C29A);
+
+  static Color linkColor(PointLink link) => switch (link) {
+    PointLink.connected => const Color(0xFF66E0C2),
+    PointLink.gap => const Color(0xFFFFC46B),
+    PointLink.incident => coral,
+  };
+}
+
+/// Regiones señalables registradas por el pintor en cada cuadro.
+class _SceneHits {
+  final List<(ScenePart, Path)> _regions = [];
+
+  void clear() => _regions.clear();
+
+  void add(ScenePart part, Path path) => _regions.add((part, path));
+
+  void rect(ScenePart part, Rect rect) => add(part, Path()..addRect(rect));
+
+  ScenePart? at(Offset point) {
+    for (final (part, path) in _regions.reversed) {
+      if (path.contains(point)) return part;
+    }
+    return null;
+  }
+}
+
 /// Proyección axonométrica con giro (yaw) e inclinación (pitch). `y` es la
 /// altura en píxeles (negativa bajo el terreno).
 class _Iso {
   _Iso(this.origin, double yaw, double pitch)
-    : _cy = math.cos(yaw),
-      _sy = math.sin(yaw),
+    : cy = math.cos(yaw),
+      sy = math.sin(yaw),
       ps = math.sin(pitch),
       pc = math.cos(pitch);
 
   final Offset origin;
-  final double _cy;
-  final double _sy;
+  final double cy;
+  final double sy;
   final double ps;
   final double pc;
 
+  /// Signo de las caras laterales que miran al observador.
+  double get sx => sy >= 0 ? 1 : -1;
+  double get sz => cy >= 0 ? 1 : -1;
+
   Offset p(double x, double y, double z) {
-    final xr = x * _cy - z * _sy;
-    final zr = x * _sy + z * _cy;
+    final xr = x * cy - z * sy;
+    final zr = x * sy + z * cy;
     return Offset(origin.dx + xr, origin.dy - y * pc + zr * ps);
   }
 
@@ -369,17 +725,54 @@ class _Iso {
         height: radius * 2 * ps,
       );
 
-  Path quad(List<Offset> points) => Path()..addPolygon(points, true);
+  /// Cara lateral en x = ±h visible, entre las alturas [y0] y [y1].
+  List<Offset> xFace(double h, double y0, double y1) => [
+    p(sx * h, y0, -h * sx),
+    p(sx * h, y0, h * sx),
+    p(sx * h, y1, h * sx),
+    p(sx * h, y1, -h * sx),
+  ];
+
+  /// Cara lateral en z = ±h visible, entre las alturas [y0] y [y1].
+  List<Offset> zFace(double h, double y0, double y1) => [
+    p(-h * sz, y0, sz * h),
+    p(h * sz, y0, sz * h),
+    p(h * sz, y1, sz * h),
+    p(-h * sz, y1, sz * h),
+  ];
 }
 
-class _Marker {
-  _Marker(this.text, this.anchor, this.color, {this.strong = false});
+/// Rótulo de una parte: leyenda corta en mayúsculas + valor destacado.
+class _Tag {
+  _Tag(
+    this.part,
+    this.caption,
+    this.value,
+    this.anchor,
+    this.color, {
+    this.detail,
+    this.lift = 0,
+  });
 
-  final String text;
+  /// Desplaza el rótulo hacia arriba (positivo) o abajo para sacarlo de la
+  /// figura cuando hay espacio libre.
+  final double lift;
+  final ScenePart part;
+  final String caption;
+  final String value;
+  final String? detail;
   final Offset anchor;
   final Color color;
-  final bool strong;
 }
+
+/// Granos deterministas (u, v en 0..1) para texturizar caras de terreno.
+final List<Offset> _grain = List.generate(240, (i) {
+  double fract(double v) => v - v.floorToDouble();
+  return Offset(
+    fract(math.sin(i * 12.9898) * 43758.5453),
+    fract(math.sin(i * 78.233 + 1.3) * 12543.217),
+  );
+});
 
 class _CaptureStagePainter extends CustomPainter {
   _CaptureStagePainter({
@@ -390,7 +783,7 @@ class _CaptureStagePainter extends CustomPainter {
     required this.layoutPitch,
     required this.topInset,
     required this.levelMeters,
-    required this.levelFill,
+    required this.levelMotion,
     required this.levelMin,
     required this.levelMax,
     required this.textScaler,
@@ -400,6 +793,8 @@ class _CaptureStagePainter extends CustomPainter {
     required this.profile,
     required this.hovered,
     required this.alive,
+    required this.focus,
+    required this.hits,
   });
 
   final double phase;
@@ -409,7 +804,7 @@ class _CaptureStagePainter extends CustomPainter {
   final double layoutPitch;
   final double topInset;
   final double? levelMeters;
-  final double? levelFill;
+  final double levelMotion;
   final double? levelMin;
   final double? levelMax;
   final TextScaler textScaler;
@@ -419,18 +814,12 @@ class _CaptureStagePainter extends CustomPainter {
   final CaptureProfile profile;
   final bool hovered;
   final double alive;
+  final ScenePart? focus;
+  final _SceneHits hits;
 
   static const _tau = math.pi * 2;
-  static const _surfaceCard = Color(0xFF12252A);
-  static const _blue = Color(0xFF69B9FF);
-  static const _fog = Color(0xFFE8F2F1);
-  static const _faint = Color(0xFF9AB0B1);
-  static const _coral = Color(0xFFFF847A);
-  static const _soilTop = Color(0xFF1A3634);
-  static const _soilDeep = Color(0xFF0B1B1E);
-  static const _steel = Color(0xFFB4C7C8);
 
-  Color get _accent => isSurface ? _blue : IkoluColors.cyan;
+  Size _size = Size.zero;
 
   double get _q => (flow ?? 0).clamp(0.0, double.infinity).toDouble();
 
@@ -442,11 +831,13 @@ class _CaptureStagePainter extends CustomPainter {
     return (_q / max).clamp(0.0, 1.0).toDouble();
   }
 
-  Size _size = Size.zero;
+  /// Vida del agua: base + replay + movimiento real del nivel.
+  double get _agitation => (0.25 + alive * 0.5 + levelMotion).clamp(0.0, 1.4);
 
   @override
   void paint(Canvas canvas, Size size) {
     _size = size;
+    hits.clear();
     final backdrop = Offset.zero & size;
     canvas.drawRect(
       backdrop,
@@ -462,7 +853,7 @@ class _CaptureStagePainter extends CustomPainter {
       RRect.fromRectAndRadius(backdrop.deflate(10), const Radius.circular(20)),
       Paint()
         ..color = hovered
-            ? _accent.withValues(alpha: 0.20)
+            ? IkoluColors.cyan.withValues(alpha: 0.18)
             : Colors.white.withValues(alpha: 0.05)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1,
@@ -476,22 +867,22 @@ class _CaptureStagePainter extends CustomPainter {
 
   // ---------------------------------------------------------------- layout
 
-  /// Calcula el tamaño del bloque y su origen para que quede centrado en el
-  /// área libre. Se usa la pose base para que el encuadre no salte al girar.
+  /// Tamaño del bloque y origen para que quede centrado en el área libre. Se
+  /// usa la pose base para que el encuadre no salte al girar.
   ({double half, double depth, Offset origin}) _layout(
     Size size, {
     required double depthShare,
+    required double headroom,
     double widthShare = 0.27,
     double heightShare = 0.32,
-    required double headroom,
   }) {
     final top = topInset;
-    const bottom = 34.0;
+    const bottom = 70.0;
     final availH = math.max(160.0, size.height - top - bottom);
     final spread = math.sin(layoutYaw).abs() + math.cos(layoutYaw).abs();
     var half = math.min(
       size.width * widthShare,
-      math.min(availH * heightShare, 210.0),
+      math.min(availH * heightShare, 200.0),
     );
     final diamond = 2 * half * spread * math.sin(layoutPitch);
     var depth =
@@ -523,13 +914,210 @@ class _CaptureStagePainter extends CustomPainter {
     return Rect.fromLTRB(l, t, r, b);
   }
 
+  Path _poly(List<Offset> pts) => Path()..addPolygon(pts, true);
+
+  Offset _bilerp(List<Offset> q, double u, double v) {
+    final top = Offset.lerp(q[0], q[1], u)!;
+    final bottom = Offset.lerp(q[3], q[2], u)!;
+    return Offset.lerp(top, bottom, v)!;
+  }
+
+  // -------------------------------------------------------------- texturas
+
+  void _soilBand(Canvas canvas, List<Offset> q, {required double shade}) {
+    final bounds = _boundsOf(q);
+    canvas.drawPath(
+      _poly(q),
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color.lerp(const Color(0xFF37433A), Colors.black, shade)!,
+            Color.lerp(const Color(0xFF232C26), Colors.black, shade)!,
+          ],
+        ).createShader(bounds),
+    );
+    final sand = <Offset>[];
+    final pebbles = <Offset>[];
+    for (var i = 0; i < 150; i++) {
+      final g = _grain[i];
+      (i % 9 == 0 ? pebbles : sand).add(_bilerp(q, g.dx, g.dy));
+    }
+    canvas.drawPoints(
+      PointMode.points,
+      sand,
+      Paint()
+        ..color = _Palette.soilText.withValues(alpha: 0.22)
+        ..strokeWidth = 1.6
+        ..strokeCap = StrokeCap.round,
+    );
+    canvas.drawPoints(
+      PointMode.points,
+      pebbles,
+      Paint()
+        ..color = const Color(0xFF8C7F63).withValues(alpha: 0.45)
+        ..strokeWidth = 3.4
+        ..strokeCap = StrokeCap.round,
+    );
+    final strata = Paint()
+      ..color = _Palette.soilText.withValues(alpha: 0.07)
+      ..strokeWidth = 1;
+    for (var i = 1; i < 4; i++) {
+      final v = i / 4 + math.sin(i * 1.7) * 0.04;
+      canvas.drawLine(_bilerp(q, 0, v), _bilerp(q, 1, v), strata);
+    }
+  }
+
+  void _aquiferBand(Canvas canvas, List<Offset> q, {required double shade}) {
+    final bounds = _boundsOf(q);
+    canvas.drawPath(
+      _poly(q),
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color.lerp(const Color(0xFF15476A), Colors.black, shade)!,
+            Color.lerp(const Color(0xFF0B2943), Colors.black, shade)!,
+          ],
+        ).createShader(bounds),
+    );
+    final pores = <Offset>[];
+    for (var i = 100; i < 240; i++) {
+      final g = _grain[i];
+      pores.add(_bilerp(q, g.dx, g.dy));
+    }
+    canvas.drawPoints(
+      PointMode.points,
+      pores,
+      Paint()
+        ..color = const Color(0xFF9BD3FF).withValues(alpha: 0.28)
+        ..strokeWidth = 2
+        ..strokeCap = StrokeCap.round,
+    );
+    // Flujo subterráneo: trazos que avanzan lentamente por la napa.
+    final dash = Paint()
+      ..color = const Color(0xFFA9DBFF).withValues(alpha: 0.30)
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round;
+    for (var row = 0; row < 4; row++) {
+      final v = 0.18 + row * 0.22;
+      for (var k = 0; k < 5; k++) {
+        final u = ((k / 5) + phase * (0.3 + row * 0.05)) % 1;
+        final a = _bilerp(q, u, v);
+        final b = _bilerp(q, math.min(1, u + 0.07), v);
+        canvas.drawLine(a, b, dash);
+      }
+    }
+  }
+
+  void _rockBand(Canvas canvas, List<Offset> q, {required double shade}) {
+    canvas.drawPath(
+      _poly(q),
+      Paint()
+        ..color = Color.lerp(const Color(0xFF1C2224), Colors.black, shade)!,
+    );
+    canvas.save();
+    canvas.clipPath(_poly(q));
+    final hatch = Paint()
+      ..color = _Palette.fog.withValues(alpha: 0.07)
+      ..strokeWidth = 1;
+    final b = _boundsOf(q);
+    for (var x = b.left - b.height; x < b.right; x += 9) {
+      canvas.drawLine(Offset(x, b.bottom), Offset(x + b.height, b.top), hatch);
+    }
+    canvas.restore();
+  }
+
+  void _waterTableLine(Canvas canvas, List<Offset> q) {
+    final line = Path();
+    for (var s = 0; s <= 28; s++) {
+      final u = s / 28;
+      final pt = _bilerp(q, u, 0);
+      final y = pt.dy + math.sin(u * _tau * 2 + phase * _tau * 2) * 1.4;
+      if (s == 0) {
+        line.moveTo(pt.dx, y);
+      } else {
+        line.lineTo(pt.dx, y);
+      }
+    }
+    canvas.drawPath(
+      line,
+      Paint()
+        ..color = _Palette.aquifer.withValues(alpha: 0.35)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 5
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+    );
+    canvas.drawPath(
+      line,
+      Paint()
+        ..color = const Color(0xFFBFE4FF)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4,
+    );
+  }
+
+  /// Caja isométrica pequeña (datalogger, bomba de superficie).
+  Rect _box(
+    Canvas canvas,
+    _Iso iso, {
+    required double x,
+    required double z,
+    required double w,
+    required double d,
+    required double h,
+    required Color color,
+    double y = 0,
+  }) {
+    final hw = w / 2, hd = d / 2;
+    final top = [
+      iso.p(x - hw, y + h, z - hd),
+      iso.p(x + hw, y + h, z - hd),
+      iso.p(x + hw, y + h, z + hd),
+      iso.p(x - hw, y + h, z + hd),
+    ];
+    final fx = x + iso.sx * hw;
+    final xSide = [
+      iso.p(fx, y + h, z - hd),
+      iso.p(fx, y + h, z + hd),
+      iso.p(fx, y, z + hd),
+      iso.p(fx, y, z - hd),
+    ];
+    final fz = z + iso.sz * hd;
+    final zSide = [
+      iso.p(x - hw, y + h, fz),
+      iso.p(x + hw, y + h, fz),
+      iso.p(x + hw, y, fz),
+      iso.p(x - hw, y, fz),
+    ];
+    canvas.drawPath(
+      _poly(xSide),
+      Paint()..color = Color.lerp(color, Colors.black, 0.35)!,
+    );
+    canvas.drawPath(
+      _poly(zSide),
+      Paint()..color = Color.lerp(color, Colors.black, 0.18)!,
+    );
+    canvas.drawPath(_poly(top), Paint()..color = color);
+    final edge = Paint()
+      ..color = Colors.white.withValues(alpha: 0.18)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.8;
+    canvas.drawPath(_poly(top), edge);
+    return _boundsOf([...top, ...xSide, ...zSide]);
+  }
+
   // ------------------------------------------------------------------ pozo
 
   void _paintWell(Canvas canvas, Size size) {
-    final l = _layout(size, depthShare: 1, headroom: 30);
-    final iso = _Iso(l.origin, yaw + math.sin(phase * _tau) * 0.02, pitch);
+    final l = _layout(size, depthShare: 1, headroom: 40);
+    final iso = _Iso(l.origin, yaw + math.sin(phase * _tau) * 0.015, pitch);
     final half = l.half;
-    final depthPx = l.depth;
+    final known = profile.depth != null;
+    final blockPx = l.depth;
+    final wellPx = known ? blockPx * 0.9 : blockPx;
 
     final candidates = <double>[
       ?profile.pumpDepth,
@@ -539,233 +1127,405 @@ class _CaptureStagePainter extends CustomPainter {
     ];
     final deepest = candidates.isEmpty ? 0.0 : candidates.reduce(math.max);
     final depthM = profile.depth ?? math.max(30.0, deepest * 1.3);
-    final m2px = depthPx / depthM;
+    final m2px = wellPx / depthM;
     double yAt(double meters) => -(meters.clamp(0.0, depthM).toDouble() * m2px);
 
     final levelY = levelMeters == null ? null : yAt(levelMeters!);
-    final radius = half * 0.2;
-    final bottomY = -depthPx;
+    final bottomY = -wellPx;
+    final blockBottom = -blockPx;
+    final outerR = half * 0.25;
+    final innerR = outerR * 0.78;
+    final axis = iso.p(0, 0, 0);
 
-    _paintBlock(canvas, iso, half, depthPx, aquiferTop: levelY);
-
-    // Hueco del pozo: el interior se ve "en rayos X" a través del terreno.
-    final shaftTop = iso.ring(0, radius);
-    final shaftBottom = iso.ring(bottomY, radius);
-    final shaft = Path()
-      ..addOval(shaftBottom)
-      ..addRect(
-        Rect.fromLTRB(
-          shaftTop.left,
-          shaftTop.center.dy,
-          shaftTop.right,
-          shaftBottom.center.dy,
-        ),
-      )
-      ..addOval(shaftTop);
-    canvas.drawPath(
-      shaft,
-      Paint()..color = const Color(0xFF040C0F).withValues(alpha: 0.88),
+    // Sombra.
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: iso.p(0, blockBottom, 0) + const Offset(0, 18),
+        width: half * 3.1,
+        height: half * 3.1 * iso.ps * 0.6,
+      ),
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.4)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18),
     );
 
-    if (levelY != null) {
-      _paintWellWater(canvas, iso, radius, levelY, bottomY);
+    final sceneBounds = Offset.zero & size;
+    if (!known) canvas.saveLayer(sceneBounds, Paint());
+
+    // Caras del bloque por bandas: suelo, acuífero y bajo el fondo.
+    for (final isX in [true, false]) {
+      List<Offset> band(double y0, double y1) =>
+          isX ? iso.xFace(half, y0, y1) : iso.zFace(half, y0, y1);
+      final shade = isX ? 0.28 : 0.0;
+      final dryBottom = levelY ?? (known ? bottomY : blockBottom);
+      final dry = band(0, dryBottom);
+      _soilBand(canvas, dry, shade: shade);
+      hits.add(ScenePart.soil, _poly(dry));
+      if (levelY != null) {
+        final wetBottom = known ? bottomY : blockBottom;
+        if (wetBottom < levelY) {
+          final wet = band(levelY, wetBottom);
+          _aquiferBand(canvas, wet, shade: shade);
+          hits.add(ScenePart.aquifer, _poly(wet));
+        }
+      }
+      if (known) {
+        final rock = band(bottomY, blockBottom);
+        _rockBand(canvas, rock, shade: shade);
+        hits.add(ScenePart.rock, _poly(rock));
+      }
+      if (levelY != null) _waterTableLine(canvas, band(levelY, levelY - 1));
+      canvas.drawPath(
+        _poly(band(0, blockBottom)),
+        Paint()
+          ..color = _Palette.fog.withValues(alpha: 0.12)
+          ..style = PaintingStyle.stroke,
+      );
     }
 
-    _paintReplayBand(canvas, iso, radius, yAt);
-
-    // Fuste de vidrio.
-    final wall = Paint()
-      ..color = _fog.withValues(alpha: 0.30)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.3;
-    canvas.drawLine(
-      Offset(shaftTop.left, shaftTop.center.dy),
-      Offset(shaftBottom.left, shaftBottom.center.dy),
-      wall,
-    );
-    canvas.drawLine(
-      Offset(shaftTop.right, shaftTop.center.dy),
-      Offset(shaftBottom.right, shaftBottom.center.dy),
-      wall,
-    );
-    canvas.drawArc(shaftBottom, 0, math.pi, false, wall);
-    final glint = shaftTop.left + shaftTop.width * 0.78;
-    canvas.drawLine(
-      Offset(glint, shaftTop.center.dy + 8),
-      Offset(glint, shaftBottom.center.dy - 6),
+    // Superficie del terreno.
+    final top = [
+      iso.p(-half, 0, -half),
+      iso.p(half, 0, -half),
+      iso.p(half, 0, half),
+      iso.p(-half, 0, half),
+    ];
+    canvas.drawPath(
+      _poly(top),
       Paint()
-        ..shader =
-            LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                _fog.withValues(alpha: 0.22 + alive * 0.1),
-                _fog.withValues(alpha: 0),
-              ],
-            ).createShader(
-              Rect.fromLTRB(
-                glint - 1,
-                shaftTop.top,
-                glint + 1,
-                shaftBottom.bottom,
-              ),
-            )
-        ..strokeWidth = 2.4
+        ..shader = const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF2F4B40), Color(0xFF213A32)],
+        ).createShader(_boundsOf(top)),
+    );
+    canvas.drawPoints(
+      PointMode.points,
+      [for (var i = 0; i < 90; i++) _bilerp(top, _grain[i].dx, _grain[i].dy)],
+      Paint()
+        ..color = const Color(0xFF6E9A7E).withValues(alpha: 0.25)
+        ..strokeWidth = 1.6
         ..strokeCap = StrokeCap.round,
     );
-
-    // Losa y brocal.
-    canvas.drawOval(
-      iso.ring(1, radius * 1.9),
-      Paint()..color = const Color(0xFF2A4542).withValues(alpha: 0.9),
-    );
-    canvas.drawOval(
-      iso.ring(1, radius * 1.9),
+    canvas.drawPath(
+      _poly(top),
       Paint()
-        ..color = _fog.withValues(alpha: 0.12)
+        ..color = _Palette.fog.withValues(alpha: 0.18)
         ..style = PaintingStyle.stroke,
     );
-    canvas.drawOval(
-      iso.ring(2, radius),
-      Paint()..color = const Color(0xFF051013),
-    );
-    canvas.drawOval(
-      iso.ring(2, radius),
+
+    // Cono de nivel: el plano freático se extiende alrededor del pozo.
+    if (levelY != null) {
+      final cone = iso.ring(levelY, outerR * 2.6);
+      canvas.drawOval(
+        cone,
+        Paint()
+          ..shader = RadialGradient(
+            colors: [
+              _Palette.aquifer.withValues(alpha: 0.45),
+              _Palette.aquifer.withValues(alpha: 0),
+            ],
+          ).createShader(cone),
+      );
+    }
+
+    // Pozo en corte: perforación, entubación, agua y equipos.
+    final ringTop = iso.ring(0, outerR);
+    final ringBottom = iso.ring(bottomY, outerR);
+    final hole = Path()
+      ..addOval(ringBottom)
+      ..addRect(
+        Rect.fromLTRB(
+          ringTop.left,
+          ringTop.center.dy,
+          ringTop.right,
+          ringBottom.center.dy,
+        ),
+      )
+      ..addOval(ringTop);
+    canvas.drawPath(hole, Paint()..color = const Color(0xFF030A0C));
+    final innerTop = iso.ring(0, innerR);
+    final innerBottom = iso.ring(bottomY, innerR);
+    canvas.drawRect(
+      Rect.fromLTRB(
+        innerTop.left,
+        innerTop.center.dy,
+        innerTop.right,
+        innerBottom.center.dy,
+      ),
       Paint()
-        ..color = _fog.withValues(alpha: 0.55)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.6,
+        ..shader = const LinearGradient(
+          colors: [Color(0xFF0A1A1F), Color(0xFF13272D), Color(0xFF081418)],
+        ).createShader(innerTop),
     );
 
-    final markersLeft = <_Marker>[];
-    final markersRight = <_Marker>[];
+    if (levelY != null) _paintWellWater(canvas, iso, innerR, levelY, bottomY);
+    _paintCasing(canvas, iso, outerR, innerR, bottomY, levelY);
+    hits.add(ScenePart.casing, hole);
+    if (levelY != null) {
+      hits.rect(ScenePart.level, iso.ring(levelY, innerR).inflate(6));
+    }
+    if (known) {
+      canvas.drawOval(
+        ringBottom,
+        Paint()
+          ..color = _Palette.fog.withValues(alpha: 0.75)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.8,
+      );
+      hits.rect(ScenePart.depth, ringBottom.inflate(8));
+    }
 
-    // Sensor de nivel colgado de su cable.
+    final tags = <_Tag>[];
+
+    // Sensor de nivel colgado de su cable hasta el datalogger.
+    final logger = (x: -half * 0.58, z: half * 0.40);
+    final sensorX = -innerR * 0.45;
     if (profile.sensorDepth != null) {
-      final sx = -radius * 0.45;
       final sy = yAt(profile.sensorDepth!);
-      final top = iso.p(sx, 2, 0);
-      final at = iso.p(sx, sy, 0);
+      final at = iso.p(sensorX, sy, 0);
       canvas.drawLine(
-        top,
+        iso.p(sensorX, 4, 0),
         at,
         Paint()
-          ..color = _fog.withValues(alpha: 0.28)
+          ..color = _Palette.sensor.withValues(alpha: 0.55)
           ..strokeWidth = 1,
       );
       final pulse = (phase * 3) % 1;
       canvas.drawCircle(
         at,
-        4 + pulse * 10,
+        5 + pulse * 10,
         Paint()
-          ..color = _accent.withValues(alpha: (1 - pulse) * 0.45)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.2,
+          ..color = _Palette.sensor.withValues(alpha: (1 - pulse) * 0.5)
+          ..style = PaintingStyle.stroke,
       );
       canvas.drawRRect(
         RRect.fromRectAndRadius(
-          Rect.fromCenter(center: at, width: 6, height: 12),
-          const Radius.circular(3),
+          Rect.fromCenter(center: at, width: 7, height: 15),
+          const Radius.circular(3.5),
         ),
-        Paint()..color = _accent,
+        Paint()..color = _Palette.sensor,
       );
-      markersLeft.add(
-        _Marker('Sensor ${_m(profile.sensorDepth!)}', at, _accent),
+      hits.rect(
+        ScenePart.sensor,
+        Rect.fromCenter(center: at, width: 26, height: 30),
+      );
+      tags.add(
+        _Tag(
+          ScenePart.sensor,
+          'SENSOR DE NIVEL',
+          _m(profile.sensorDepth!),
+          at,
+          _Palette.sensor,
+        ),
       );
     }
 
-    // Bomba e impulsión.
+    // Bomba sumergible.
     final pumpDepth = profile.pumpDepth;
-    final pumpX = radius * 0.42;
+    final pumpX = innerR * 0.40;
     final pumpY = pumpDepth == null ? null : yAt(pumpDepth);
     final dry =
         pumpDepth != null && levelMeters != null && pumpDepth < levelMeters!;
     if (pumpY != null) {
-      final jitter = _flowing ? math.sin(phase * _tau * 40) * 0.6 : 0.0;
+      final jitter = _flowing ? math.sin(phase * _tau * 40) * 0.5 : 0.0;
       final at = iso.p(pumpX, pumpY, 0) + Offset(jitter, 0);
       final body = RRect.fromRectAndRadius(
-        Rect.fromCenter(center: at, width: 9, height: 26),
-        const Radius.circular(4),
+        Rect.fromCenter(center: at, width: 11, height: 30),
+        const Radius.circular(5),
       );
       canvas.drawRRect(
         body,
         Paint()
           ..shader = LinearGradient(
-            colors: [_steel, _steel.withValues(alpha: 0.55)],
+            colors: [_Palette.steel, _Palette.steel.withValues(alpha: 0.55)],
           ).createShader(body.outerRect),
       );
       canvas.drawLine(
-        at + const Offset(-4.5, 4),
-        at + const Offset(4.5, 4),
+        at + const Offset(-5.5, 6),
+        at + const Offset(5.5, 6),
         Paint()
-          ..color = dry ? _coral : _accent
+          ..color = dry ? _Palette.coral : _Palette.flow
           ..strokeWidth = 2,
       );
       if (_flowing && !dry && levelY != null) {
-        _paintBubbles(canvas, iso, pumpX, pumpY, levelY, radius);
+        _paintBubbles(canvas, iso, pumpX, pumpY, levelY, innerR);
       }
-      if (dry) {
-        markersRight.add(
-          _Marker(
-            'Bomba ${_m(pumpDepth)} · sobre el nivel',
-            at,
-            _coral,
-            strong: true,
-          ),
-        );
-      } else {
-        markersRight.add(_Marker('Bomba ${_m(pumpDepth!)}', at, _steel));
-      }
-    }
-
-    // Recorrido del agua: bomba → superficie → flujómetro → descarga.
-    final riseFrom = pumpY == null ? (levelY ?? bottomY * 0.6) : pumpY + 13;
-    final headY = 26.0;
-    final outlet = (x: half * 0.70, z: -half * 0.62);
-    final route = <Offset>[
-      iso.p(pumpX, riseFrom, 0),
-      iso.p(pumpX, headY - 8, 0),
-      iso.p(pumpX + 10, headY, 0),
-      iso.p(outlet.x - 10, headY, 0),
-      iso.p(outlet.x, headY, -10),
-      iso.p(outlet.x, headY, outlet.z),
-    ];
-    _paintPool(canvas, iso, outlet.x, outlet.z, half * 0.22);
-    _paintPipe(canvas, route);
-    _paintFlowmeter(canvas, iso.p(half * 0.38, headY, 0));
-    _paintDischarge(canvas, iso, outlet.x, headY, outlet.z);
-
-    if (levelY != null) {
-      markersLeft.add(
-        _Marker(
-          'Nivel freático ${levelMeters!.toStringAsFixed(2)} m',
-          iso.p(-radius, levelY, 0),
-          _accent,
-          strong: true,
-        ),
-      );
-    } else {
-      markersLeft.add(
-        _Marker(
-          'Sin lectura de nivel',
-          iso.p(-radius, bottomY * 0.4, 0),
-          _faint,
+      hits.rect(ScenePart.pump, body.outerRect.inflate(10));
+      final submergence = levelMeters == null
+          ? null
+          : pumpDepth! - levelMeters!;
+      tags.add(
+        _Tag(
+          ScenePart.pump,
+          dry ? 'BOMBA · EN SECO' : 'BOMBA',
+          _m(pumpDepth!),
+          at,
+          dry ? _Palette.coral : _Palette.pump,
+          detail: submergence == null || dry
+              ? null
+              : '${_m(submergence)} bajo el agua',
         ),
       );
     }
-    markersRight.add(
-      _Marker(
-        profile.depth == null
-            ? 'Fondo ~${_m(depthM)}'
-            : 'Profundidad ${_m(depthM)}',
-        iso.p(radius, bottomY, 0),
-        _faint,
+
+    // Columna de impulsión hasta el cabezal.
+    const headY = 26.0;
+    final hasFlow = flow != null;
+    if (pumpY != null || hasFlow) {
+      final from = pumpY != null ? pumpY + 15 : (levelY ?? bottomY * 0.6);
+      _paintPipe(canvas, [
+        iso.p(pumpX, from, 0),
+        iso.p(pumpX, hasFlow ? headY - 8 : 10, 0),
+      ], moving: hasFlow);
+    }
+
+    // Brocal y losa.
+    canvas.drawOval(
+      iso.ring(1, outerR * 1.9),
+      Paint()..color = const Color(0xFF3A4F4B),
+    );
+    canvas.drawOval(
+      iso.ring(1, outerR * 1.9),
+      Paint()
+        ..color = _Palette.fog.withValues(alpha: 0.16)
+        ..style = PaintingStyle.stroke,
+    );
+    final collar = iso.ring(3, outerR);
+    canvas.drawOval(collar, Paint()..color = const Color(0xFF8FA5A6));
+    canvas.drawOval(
+      iso.ring(3, innerR),
+      Paint()..color = const Color(0xFF040C0F),
+    );
+    if (levelY == null) {
+      canvas.drawOval(
+        iso.ring(3, innerR),
+        Paint()
+          ..color = _Palette.fog.withValues(alpha: 0.25)
+          ..style = PaintingStyle.stroke,
+      );
+    }
+
+    if (!known) {
+      // Sin ficha: el fondo no se conoce y se desvanece.
+      final fadeTop = iso.p(0, blockBottom * 0.62, 0).dy;
+      final fadeBottom =
+          _boundsOf([
+            for (final x in [-half, half])
+              for (final z in [-half, half]) iso.p(x, blockBottom, z),
+          ]).bottom +
+          20;
+      final fade = Rect.fromLTRB(0, fadeTop, size.width, fadeBottom);
+      canvas.drawRect(
+        fade,
+        Paint()
+          ..blendMode = BlendMode.dstOut
+          ..shader = const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0x00000000), Color(0xFF000000)],
+          ).createShader(fade),
+      );
+      canvas.restore();
+    }
+
+    // Datalogger con cable al sensor.
+    final loggerBase = iso.p(logger.x, 0, logger.z);
+    if (profile.sensorDepth != null) {
+      _dashed(
+        canvas,
+        iso.p(sensorX, 4, 0),
+        loggerBase,
+        Paint()
+          ..color = _Palette.sensor.withValues(alpha: 0.5)
+          ..strokeWidth = 1,
+      );
+    }
+    final loggerRect = _paintLogger(canvas, iso, logger.x, logger.z);
+    tags.add(
+      _Tag(
+        ScenePart.logger,
+        'DATALOGGER',
+        pointLinkLabel(link),
+        loggerRect.topCenter,
+        _Palette.linkColor(link),
       ),
     );
 
-    _paintDepthRuler(canvas, iso, half, depthPx);
-    _paintMarkers(canvas, size, markersLeft, left: true);
-    _paintMarkers(canvas, size, markersRight, left: false);
+    // Impulsión en superficie: flujómetro y descarga.
+    if (hasFlow) {
+      final outlet = (x: half * 0.70, z: -half * 0.62);
+      final route = <Offset>[
+        iso.p(pumpX, headY - 8, 0),
+        iso.p(pumpX + 10, headY, 0),
+        iso.p(outlet.x - 10, headY, 0),
+        iso.p(outlet.x, headY, -10),
+        iso.p(outlet.x, headY, outlet.z),
+      ];
+      _paintPool(canvas, iso, outlet.x, outlet.z, half * 0.22);
+      _paintPipe(canvas, route, moving: true);
+      final meterAt = iso.p(half * 0.36, headY, 0);
+      _dashed(
+        canvas,
+        iso.p(half * 0.36, 0, 0),
+        loggerBase,
+        Paint()
+          ..color = _Palette.flow.withValues(alpha: 0.35)
+          ..strokeWidth = 1,
+      );
+      canvas.drawLine(
+        meterAt,
+        iso.p(half * 0.36, 0, 0),
+        Paint()
+          ..color = const Color(0xFF6E8586)
+          ..strokeWidth = 2,
+      );
+      final r = _paintFlowmeter(canvas, meterAt);
+      _paintDischarge(canvas, iso, outlet.x, headY, outlet.z);
+      hits.rect(
+        ScenePart.flowmeter,
+        Rect.fromCircle(center: meterAt, radius: r + 8),
+      );
+      tags.add(
+        _Tag(
+          ScenePart.flowmeter,
+          'FLUJÓMETRO',
+          '${flow!.toStringAsFixed(2)} L/s',
+          meterAt,
+          _Palette.flow,
+        ),
+      );
+    }
+
+    if (levelY != null) {
+      final column = known ? profile.depth! - levelMeters! : null;
+      tags.add(
+        _Tag(
+          ScenePart.level,
+          'NIVEL FREÁTICO',
+          '${levelMeters!.toStringAsFixed(2)} m',
+          iso.p(-innerR, levelY, 0),
+          _Palette.level,
+          detail: column == null || column <= 0
+              ? null
+              : 'columna de agua ${_m(column)}',
+        ),
+      );
+    }
+    if (known) {
+      tags.add(
+        _Tag(
+          ScenePart.depth,
+          'FONDO DEL POZO',
+          _m(depthM),
+          iso.p(outerR, bottomY, 0),
+          _Palette.fog,
+        ),
+      );
+    }
+
+    _paintDepthRuler(canvas, iso, half, wellPx, depthM, faded: !known);
+    _paintTags(canvas, size, tags, axisX: axis.dx, clearance: outerR + 26);
   }
 
   void _paintWellWater(
@@ -775,9 +1535,8 @@ class _CaptureStagePainter extends CustomPainter {
     double levelY,
     double bottomY,
   ) {
-    final inner = radius - 2;
-    final surface = iso.ring(levelY, inner);
-    final floor = iso.ring(bottomY, inner);
+    final surface = iso.ring(levelY, radius);
+    final floor = iso.ring(bottomY, radius);
     if (floor.center.dy - surface.center.dy < 2) return;
     final body = Path()
       ..addOval(floor)
@@ -795,16 +1554,16 @@ class _CaptureStagePainter extends CustomPainter {
       surface.right,
       floor.bottom,
     );
-    // Volumen cilíndrico: bordes oscuros y centro luminoso.
+    const water = _Palette.wellWater;
     canvas.drawPath(
       body,
       Paint()
         ..shader = LinearGradient(
           colors: [
-            _accent.withValues(alpha: 0.16),
-            _accent.withValues(alpha: 0.46),
-            _accent.withValues(alpha: 0.30),
-            _accent.withValues(alpha: 0.10),
+            water.withValues(alpha: 0.22),
+            water.withValues(alpha: 0.62),
+            water.withValues(alpha: 0.40),
+            water.withValues(alpha: 0.14),
           ],
           stops: const [0, 0.38, 0.7, 1],
         ).createShader(bounds),
@@ -817,71 +1576,153 @@ class _CaptureStagePainter extends CustomPainter {
           end: Alignment.bottomCenter,
           colors: [
             Colors.white.withValues(alpha: 0.10),
-            Colors.black.withValues(alpha: 0.35),
+            Colors.black.withValues(alpha: 0.40),
           ],
         ).createShader(bounds),
     );
 
-    // Bandas de luz que descienden lentamente por la columna.
+    // Luz que desciende suavemente por la columna.
     canvas.save();
     canvas.clipPath(body);
     final columnH = floor.center.dy - surface.center.dy;
-    for (var i = 0; i < 3; i++) {
-      final t = (phase * (0.6 + alive * 0.6) + i / 3) % 1;
-      final cy = surface.center.dy + t * columnH;
+    for (var i = 0; i < 4; i++) {
+      final t = (phase * (0.5 + _agitation * 0.6) + i / 4) % 1;
       final band = Rect.fromCenter(
-        center: Offset(surface.center.dx, cy),
-        width: surface.width,
-        height: surface.height * 1.6,
+        center: Offset(surface.center.dx, surface.center.dy + t * columnH),
+        width: surface.width * 1.1,
+        height: surface.height * 1.8,
       );
       canvas.drawOval(
         band,
         Paint()
-          ..color = _fog.withValues(alpha: 0.05 * math.sin(t * math.pi))
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+          ..color = _Palette.fog.withValues(alpha: 0.07 * math.sin(t * math.pi))
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
       );
     }
     canvas.restore();
 
-    // Superficie del agua: lámina elíptica, ondas concéntricas y brillo.
-    canvas.drawOval(
-      surface,
+    // Lámina: menisco luminoso con oleaje que crece al moverse el nivel.
+    final amp = 0.8 + _agitation * 2.2;
+    final wobble = Path();
+    for (var s = 0; s <= 36; s++) {
+      final a = s / 36 * _tau;
+      final r = 1 + math.sin(a * 3 + phase * _tau * (2 + _agitation)) * 0.02;
+      final pt = Offset(
+        surface.center.dx + math.cos(a) * surface.width / 2 * r,
+        surface.center.dy +
+            math.sin(a) * surface.height / 2 * r +
+            math.sin(a * 2 + phase * _tau * 3) * amp * 0.5,
+      );
+      if (s == 0) {
+        wobble.moveTo(pt.dx, pt.dy);
+      } else {
+        wobble.lineTo(pt.dx, pt.dy);
+      }
+    }
+    wobble.close();
+    canvas.drawPath(
+      wobble,
       Paint()
         ..shader = RadialGradient(
           center: const Alignment(-0.3, -0.4),
           colors: [
-            _fog.withValues(alpha: 0.42 + alive * 0.15),
-            _accent.withValues(alpha: 0.50),
-            _accent.withValues(alpha: 0.32),
+            _Palette.fog.withValues(alpha: 0.55),
+            water.withValues(alpha: 0.65),
+            water.withValues(alpha: 0.40),
           ],
           stops: const [0, 0.45, 1],
         ).createShader(surface),
     );
     canvas.save();
-    canvas.clipRect(surface);
-    final speed = 1.0 + _flowNorm * 1.5 + alive;
+    canvas.clipPath(wobble);
+    final speed = 0.8 + _flowNorm * 1.2 + _agitation;
     for (var i = 0; i < 3; i++) {
       final t = (phase * speed * 2 + i / 3) % 1;
-      final ring = Rect.fromCenter(
-        center: surface.center,
-        width: surface.width * (0.18 + t * 0.9),
-        height: surface.height * (0.18 + t * 0.9),
-      );
       canvas.drawOval(
-        ring,
+        Rect.fromCenter(
+          center: surface.center,
+          width: surface.width * (0.15 + t * 0.95),
+          height: surface.height * (0.15 + t * 0.95),
+        ),
         Paint()
-          ..color = _fog.withValues(alpha: (1 - t) * 0.40)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1,
+          ..color = _Palette.fog.withValues(alpha: (1 - t) * 0.45)
+          ..style = PaintingStyle.stroke,
       );
     }
     canvas.restore();
-    canvas.drawOval(
-      surface,
+    canvas.drawPath(
+      wobble,
       Paint()
-        ..color = _fog.withValues(alpha: 0.75)
+        ..color = _Palette.fog.withValues(alpha: 0.85)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2,
+        ..strokeWidth = 1.3,
+    );
+  }
+
+  void _paintCasing(
+    Canvas canvas,
+    _Iso iso,
+    double outerR,
+    double innerR,
+    double bottomY,
+    double? levelY,
+  ) {
+    final top = iso.ring(0, outerR);
+    final bottom = iso.ring(bottomY, outerR);
+    final innerTop = iso.ring(0, innerR);
+    final metal = Paint()
+      ..shader = const LinearGradient(
+        colors: [Color(0xFF5F7576), Color(0xFFC9D8D9), Color(0xFF6F8687)],
+      ).createShader(Rect.fromLTRB(top.left, 0, innerTop.left, 1));
+    final metalR = Paint()
+      ..shader = const LinearGradient(
+        colors: [Color(0xFF6F8687), Color(0xFFAFC0C1), Color(0xFF4D6061)],
+      ).createShader(Rect.fromLTRB(innerTop.right, 0, top.right, 1));
+    final leftWall = Rect.fromLTRB(
+      top.left,
+      top.center.dy,
+      innerTop.left,
+      bottom.center.dy,
+    );
+    final rightWall = Rect.fromLTRB(
+      innerTop.right,
+      top.center.dy,
+      top.right,
+      bottom.center.dy,
+    );
+    canvas.drawRect(leftWall, metal);
+    canvas.drawRect(rightWall, metalR);
+
+    // Criba: ranuras en el tramo inferior, bajo el nivel.
+    final screenTop = math.min(
+      levelY ?? bottomY * 0.7,
+      bottomY + (-bottomY) * 0.32,
+    );
+    final slot = Paint()
+      ..color = const Color(0xFF0A1A1F)
+      ..strokeWidth = 1.4;
+    for (var y = bottomY + 6; y < screenTop - 2; y += 5) {
+      final ly = iso.p(0, y, 0).dy;
+      canvas.drawLine(
+        Offset(leftWall.left + 1.5, ly),
+        Offset(leftWall.right - 1, ly),
+        slot,
+      );
+      canvas.drawLine(
+        Offset(rightWall.left + 1, ly),
+        Offset(rightWall.right - 1.5, ly),
+        slot,
+      );
+    }
+    canvas.drawArc(
+      bottom,
+      0,
+      math.pi,
+      false,
+      Paint()
+        ..color = const Color(0xFF8FA5A6)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4,
     );
   }
 
@@ -895,204 +1736,72 @@ class _CaptureStagePainter extends CustomPainter {
   ) {
     final span = toY - fromY;
     if (span <= 4) return;
-    final count = 4 + (_flowNorm * 8).round();
+    final count = 5 + (_flowNorm * 8).round();
     for (var i = 0; i < count; i++) {
       final seed = i * 0.6180339;
-      final t = (phase * (1.6 + _flowNorm * 2) + seed) % 1;
-      final wobble = math.sin((t * 6 + seed * 10) * math.pi) * radius * 0.25;
+      final t = (phase * (1.2 + _flowNorm * 1.6) + seed) % 1;
+      final wobble = math.sin((t * 6 + seed * 10) * math.pi) * radius * 0.2;
       final at = iso.p(x - radius * 0.3 + wobble, fromY + span * t, 0);
       canvas.drawCircle(
         at,
-        0.8 + t * 1.6,
+        0.8 + t * 1.8,
         Paint()
-          ..color = _fog.withValues(alpha: 0.55 * math.sin(t * math.pi))
+          ..color = _Palette.fog.withValues(alpha: 0.6 * math.sin(t * math.pi))
           ..style = PaintingStyle.stroke
           ..strokeWidth = 0.9,
       );
     }
   }
 
-  void _paintReplayBand(
-    Canvas canvas,
-    _Iso iso,
-    double radius,
-    double Function(double meters) yAt,
-  ) {
-    if (levelMin == null || levelMax == null || levelMax! <= levelMin!) return;
-    final a = iso.p(-radius - 5, yAt(levelMin!), 0);
-    final b = iso.p(-radius - 5, yAt(levelMax!), 0);
-    canvas.drawLine(
-      a,
-      b,
-      Paint()
-        ..color = _accent.withValues(alpha: 0.55)
-        ..strokeWidth = 3
-        ..strokeCap = StrokeCap.round,
+  Rect _paintLogger(Canvas canvas, _Iso iso, double x, double z) {
+    final rect = _box(
+      canvas,
+      iso,
+      x: x,
+      z: z,
+      w: 16,
+      d: 10,
+      h: 24,
+      color: const Color(0xFFDDE7E6),
     );
+    final head = iso.p(x, 24, z);
+    final tip = iso.p(x + 4, 46, z);
+    canvas.drawLine(
+      head,
+      tip,
+      Paint()
+        ..color = _Palette.steel
+        ..strokeWidth = 1.4,
+    );
+    final color = _Palette.linkColor(link);
+    canvas.drawCircle(tip, 2.4, Paint()..color = color);
+    if (link == PointLink.connected) {
+      final t = (phase * 2) % 1;
+      canvas.drawArc(
+        Rect.fromCircle(center: tip, radius: 5 + t * 10),
+        -math.pi * 0.85,
+        math.pi * 0.7,
+        false,
+        Paint()
+          ..color = color.withValues(alpha: (1 - t) * 0.8)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.3,
+      );
+    }
+    final blink = (math.sin(phase * _tau * 6) + 1) / 2;
+    canvas.drawCircle(
+      iso.p(x, 14, z + iso.sz * 5.2),
+      2,
+      Paint()..color = color.withValues(alpha: 0.4 + blink * 0.6),
+    );
+    final area = rect.expandToInclude(Rect.fromCircle(center: tip, radius: 6));
+    hits.rect(ScenePart.logger, area.inflate(6));
+    return area;
   }
 
   // --------------------------------------------------- piezas compartidas
 
-  /// Bloque de terreno en corte con estratos y, si hay nivel, el acuífero
-  /// saturado bajo el plano freático.
-  void _paintBlock(
-    Canvas canvas,
-    _Iso iso,
-    double half,
-    double depthPx, {
-    double? aquiferTop,
-  }) {
-    final h = half;
-    final d = -depthPx;
-    final top = [
-      iso.p(-h, 0, -h),
-      iso.p(h, 0, -h),
-      iso.p(h, 0, h),
-      iso.p(-h, 0, h),
-    ];
-    final right = [
-      iso.p(h, 0, -h),
-      iso.p(h, 0, h),
-      iso.p(h, d, h),
-      iso.p(h, d, -h),
-    ];
-    final front = [
-      iso.p(-h, 0, h),
-      iso.p(h, 0, h),
-      iso.p(h, d, h),
-      iso.p(-h, d, h),
-    ];
-
-    // Sombra en el suelo.
-    final shadowCenter = iso.p(0, d - 6, 0);
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: shadowCenter + const Offset(0, 14),
-        width: h * 3.2,
-        height: h * 3.2 * iso.ps * 0.7,
-      ),
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.35)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18),
-    );
-
-    void face(List<Offset> pts, double light) {
-      final path = iso.quad(pts);
-      final bounds = _boundsOf(pts);
-      canvas.drawPath(
-        path,
-        Paint()
-          ..shader = LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color.lerp(
-                _soilTop,
-                Colors.white,
-                light * 0.08,
-              )!.withValues(alpha: 0.78),
-              _soilDeep.withValues(alpha: 0.72),
-            ],
-          ).createShader(bounds),
-      );
-      // Estratos.
-      final strata = Paint()
-        ..color = _fog.withValues(alpha: 0.05)
-        ..strokeWidth = 1;
-      for (var i = 1; i < 6; i++) {
-        final t = i / 6 + math.sin(i * 1.7) * 0.03;
-        canvas.drawLine(
-          Offset.lerp(pts[0], pts[3], t)!,
-          Offset.lerp(pts[1], pts[2], t)!,
-          strata,
-        );
-      }
-      if (aquiferTop != null && aquiferTop > d) {
-        final t = (aquiferTop / d).clamp(0.0, 1.0);
-        final wet = [
-          Offset.lerp(pts[0], pts[3], t)!,
-          Offset.lerp(pts[1], pts[2], t)!,
-          pts[2],
-          pts[3],
-        ];
-        canvas.drawPath(
-          iso.quad(wet),
-          Paint()
-            ..shader = LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                _accent.withValues(alpha: 0.20),
-                _accent.withValues(alpha: 0.05),
-              ],
-            ).createShader(_boundsOf(wet)),
-        );
-        // Línea freática que ondula suavemente sobre la cara.
-        final a = wet[0];
-        final b = wet[1];
-        final line = Path()..moveTo(a.dx, a.dy);
-        for (var s = 1; s <= 24; s++) {
-          final u = s / 24;
-          final pt = Offset.lerp(a, b, u)!;
-          line.lineTo(
-            pt.dx,
-            pt.dy + math.sin(u * _tau * 2 + phase * _tau * 2) * 1.2,
-          );
-        }
-        canvas.drawPath(
-          line,
-          Paint()
-            ..color = _accent.withValues(alpha: 0.75)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.4,
-        );
-      }
-      canvas.drawPath(
-        path,
-        Paint()
-          ..color = _fog.withValues(alpha: 0.10)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1,
-      );
-    }
-
-    face(right, 0);
-    face(front, 1);
-
-    // Plano freático atravesando el bloque.
-    if (aquiferTop != null && aquiferTop > d) {
-      final plane = [
-        iso.p(-h, aquiferTop, -h),
-        iso.p(h, aquiferTop, -h),
-        iso.p(h, aquiferTop, h),
-        iso.p(-h, aquiferTop, h),
-      ];
-      canvas.drawPath(
-        iso.quad(plane),
-        Paint()..color = _accent.withValues(alpha: 0.07 + alive * 0.04),
-      );
-    }
-
-    // Superficie del terreno.
-    canvas.drawPath(
-      iso.quad(top),
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [const Color(0xFF26443F), const Color(0xFF1B3431)],
-        ).createShader(_boundsOf(top)),
-    );
-    canvas.drawPath(
-      iso.quad(top),
-      Paint()
-        ..color = _fog.withValues(alpha: 0.16)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1,
-    );
-  }
-
-  void _paintPipe(Canvas canvas, List<Offset> route) {
+  void _paintPipe(Canvas canvas, List<Offset> route, {required bool moving}) {
     final path = Path()..moveTo(route.first.dx, route.first.dy);
     for (final p in route.skip(1)) {
       path.lineTo(p.dx, p.dy);
@@ -1107,23 +1816,24 @@ class _CaptureStagePainter extends CustomPainter {
         ..strokeJoin = StrokeJoin.round
         ..strokeCap = StrokeCap.round,
     );
+    final active = moving && _flowing;
     canvas.drawPath(
       path,
       Paint()
-        ..color = _flowing
-            ? _accent.withValues(alpha: 0.30 + _flowNorm * 0.45)
+        ..color = active
+            ? _Palette.flow.withValues(alpha: 0.35 + _flowNorm * 0.45)
             : const Color(0xFF2A3B3D)
         ..style = PaintingStyle.stroke
         ..strokeWidth = width - 1
         ..strokeJoin = StrokeJoin.round
         ..strokeCap = StrokeCap.round,
     );
-    if (!_flowing) return;
+    if (!active) return;
     final metric = path.computeMetrics().firstOrNull;
-    if (metric == null) return;
-    final count = 6 + (_flowNorm * 14).round();
+    if (metric == null || metric.length < 1) return;
+    final count = math.max(3, (metric.length / 18).round());
     final speed = 0.35 + _flowNorm * 1.1 + alive * 0.4;
-    final dot = Paint()..color = _fog.withValues(alpha: 0.85);
+    final dot = Paint()..color = _Palette.fog.withValues(alpha: 0.85);
     for (var i = 0; i < count; i++) {
       final t = (phase * speed * 3 + i / count) % 1;
       final tangent = metric.getTangentForOffset(metric.length * t);
@@ -1132,28 +1842,29 @@ class _CaptureStagePainter extends CustomPainter {
     }
   }
 
-  void _paintFlowmeter(Canvas canvas, Offset at) {
-    final r = ((profile.flowmeterInches ?? 3) * 1.6)
-        .clamp(5.0, 11.0)
+  double _paintFlowmeter(Canvas canvas, Offset at) {
+    final r = ((profile.flowmeterInches ?? 3) * 1.8)
+        .clamp(6.0, 12.0)
         .toDouble();
-    canvas.drawCircle(at, r + 2, Paint()..color = const Color(0xFF0B1A1D));
+    canvas.drawCircle(at, r + 2.5, Paint()..color = const Color(0xFF0B1A1D));
     canvas.drawCircle(
       at,
-      r + 2,
+      r + 2.5,
       Paint()
-        ..color = _steel.withValues(alpha: 0.9)
+        ..color = _Palette.flow.withValues(alpha: 0.9)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.6,
+        ..strokeWidth = 1.8,
     );
-    final sweep = _flowing ? phase * _tau * (2 + _flowNorm * 6) : 0.0;
+    final sweep = _flowing ? phase * _tau * (2 + _flowNorm * 6) : -math.pi / 2;
     canvas.drawLine(
       at,
       at + Offset(math.cos(sweep), math.sin(sweep)) * r,
       Paint()
-        ..color = _flowing ? _accent : _faint
-        ..strokeWidth = 1.6
+        ..color = _flowing ? _Palette.flow : _Palette.faint
+        ..strokeWidth = 1.8
         ..strokeCap = StrokeCap.round,
     );
+    return r;
   }
 
   void _paintPool(Canvas canvas, _Iso iso, double x, double z, double r) {
@@ -1163,15 +1874,15 @@ class _CaptureStagePainter extends CustomPainter {
       Paint()
         ..shader = RadialGradient(
           colors: [
-            _accent.withValues(alpha: 0.55),
-            _accent.withValues(alpha: 0.18),
+            _Palette.wellWater.withValues(alpha: 0.6),
+            _Palette.wellWater.withValues(alpha: 0.2),
           ],
         ).createShader(pool),
     );
     canvas.drawOval(
       pool,
       Paint()
-        ..color = _fog.withValues(alpha: 0.35)
+        ..color = _Palette.fog.withValues(alpha: 0.35)
         ..style = PaintingStyle.stroke,
     );
     if (!_flowing) return;
@@ -1179,15 +1890,14 @@ class _CaptureStagePainter extends CustomPainter {
     canvas.clipPath(Path()..addOval(pool));
     for (var i = 0; i < 3; i++) {
       final t = (phase * (2 + _flowNorm * 3) + i / 3) % 1;
-      final ring = Rect.fromCenter(
-        center: pool.center,
-        width: pool.width * t,
-        height: pool.height * t,
-      );
       canvas.drawOval(
-        ring,
+        Rect.fromCenter(
+          center: pool.center,
+          width: pool.width * t,
+          height: pool.height * t,
+        ),
         Paint()
-          ..color = _fog.withValues(alpha: (1 - t) * 0.55)
+          ..color = _Palette.fog.withValues(alpha: (1 - t) * 0.55)
           ..style = PaintingStyle.stroke,
       );
     }
@@ -1213,8 +1923,8 @@ class _CaptureStagePainter extends CustomPainter {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            _fog.withValues(alpha: 0.85),
-            _accent.withValues(alpha: 0.35),
+            _Palette.fog.withValues(alpha: 0.85),
+            _Palette.wellWater.withValues(alpha: 0.35),
           ],
         ).createShader(Rect.fromPoints(a, b).inflate(width))
         ..strokeWidth = width
@@ -1225,385 +1935,230 @@ class _CaptureStagePainter extends CustomPainter {
       canvas.drawCircle(
         Offset.lerp(a, b, t)! + Offset(math.sin(i * 2.1) * width * 0.4, 0),
         1 + width * 0.18,
-        Paint()..color = _fog.withValues(alpha: 0.8 * (1 - t * 0.6)),
+        Paint()..color = _Palette.fog.withValues(alpha: 0.8 * (1 - t * 0.6)),
       );
     }
   }
 
-  void _paintDepthRuler(Canvas canvas, _Iso iso, double half, double depthPx) {
-    final top = iso.p(-half, 0, half);
-    final bottom = iso.p(-half, -depthPx, half);
-    final tick = Paint()
-      ..color = _faint.withValues(alpha: 0.35)
-      ..strokeWidth = 1;
-    const steps = 5;
-    for (var i = 0; i <= steps; i++) {
-      final at = Offset.lerp(top, bottom, i / steps)!;
-      canvas.drawLine(at, at + const Offset(-5, 0), tick);
-    }
-    _chip(
-      canvas,
-      '0 m',
-      top + const Offset(-8, 0),
-      _faint,
-      alignRight: true,
-      small: true,
+  /// Regla de profundidad sobre la arista visible más a la izquierda.
+  void _paintDepthRuler(
+    Canvas canvas,
+    _Iso iso,
+    double half,
+    double wellPx,
+    double depthM, {
+    required bool faded,
+  }) {
+    final edges = [
+      (iso.sx * half, -iso.sz * half),
+      (-iso.sx * half, iso.sz * half),
+    ];
+    final edge = edges.reduce(
+      (a, b) => iso.p(a.$1, 0, a.$2).dx < iso.p(b.$1, 0, b.$2).dx ? a : b,
     );
+    const steps = [1.0, 2.0, 5.0, 10.0, 20.0, 25.0, 50.0, 100.0, 200.0];
+    final step = steps.firstWhere((s) => depthM / s <= 6, orElse: () => 500);
+    final tick = Paint()
+      ..color = _Palette.faint.withValues(alpha: 0.55)
+      ..strokeWidth = 1;
+    for (var m = 0.0; m <= depthM + 0.001; m += step) {
+      final y = -(m / depthM) * wellPx;
+      final at = iso.p(edge.$1, y, edge.$2);
+      final fade = faded ? (1 - (m / depthM) * 0.8) : 1.0;
+      canvas.drawLine(at, at + const Offset(-6, 0), tick);
+      _text(
+        canvas,
+        '${m.toStringAsFixed(0)} m',
+        at + const Offset(-9, 0),
+        _Palette.faint.withValues(alpha: 0.85 * fade),
+        size: 10,
+        alignRight: true,
+      );
+    }
   }
 
-  /// Rótulos con guía, apilados sin superponerse en su columna.
-  void _paintMarkers(
+  /// Rótulos junto a cada parte, a ambos lados del eje, apilados sin
+  /// superponerse. Las guías son cortas y se dibujan sobre la escena.
+  void _paintTags(
     Canvas canvas,
     Size size,
-    List<_Marker> markers, {
-    required bool left,
+    List<_Tag> tags, {
+    required double axisX,
+    required double clearance,
   }) {
-    if (markers.isEmpty) return;
-    markers.sort((a, b) => a.anchor.dy.compareTo(b.anchor.dy));
-    const gap = 24.0;
-    final ys = <double>[];
-    for (final m in markers) {
-      final y = ys.isEmpty ? m.anchor.dy : math.max(m.anchor.dy, ys.last + gap);
-      ys.add(y);
-    }
-    final overflow = ys.last - (size.height - 24);
-    if (overflow > 0) {
-      for (var i = 0; i < ys.length; i++) {
-        ys[i] -= overflow;
-      }
-    }
-    final columnX = left
-        ? math.max(size.width * 0.20, size.width / 2 - 260)
-        : math.min(size.width * 0.80, size.width / 2 + 260);
-    for (var i = 0; i < markers.length; i++) {
-      final m = markers[i];
-      final end = Offset(
-        left
-            ? math.min(columnX, m.anchor.dx - 18)
-            : math.max(columnX, m.anchor.dx + 18),
-        ys[i],
+    final left = tags.where((t) => t.anchor.dx <= axisX).toList();
+    final right = tags.where((t) => t.anchor.dx > axisX).toList();
+    for (final (side, isLeft) in [(left, true), (right, false)]) {
+      side.sort(
+        (a, b) => (a.anchor.dy - a.lift).compareTo(b.anchor.dy - b.lift),
       );
-      final elbow = Offset(left ? end.dx + 10 : end.dx - 10, ys[i]);
-      final guide = Path()
-        ..moveTo(m.anchor.dx, m.anchor.dy)
-        ..lineTo(elbow.dx, elbow.dy)
-        ..lineTo(end.dx, end.dy);
-      canvas.drawPath(
-        guide,
-        Paint()
-          ..color = m.color.withValues(alpha: 0.45)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1,
-      );
-      canvas.drawCircle(m.anchor, 2, Paint()..color = m.color);
-      _chip(
-        canvas,
-        m.text,
-        end + Offset(left ? -4 : 4, 0),
-        m.color,
-        alignRight: left,
-        small: !m.strong,
-      );
-    }
-  }
-
-  // ------------------------------------------------------------ superficial
-
-  void _paintSurface(Canvas canvas, Size size) {
-    final l = _layout(
-      size,
-      depthShare: 0.38,
-      headroom: 34,
-      widthShare: 0.34,
-      heightShare: 0.44,
-    );
-    final iso = _Iso(l.origin, yaw + math.sin(phase * _tau) * 0.02, pitch);
-    final h = l.half;
-    final depthPx = l.depth;
-    final c = h * 0.42; // medio ancho del cauce
-    final bedY = -depthPx * 0.62;
-    final bankBottom = -depthPx;
-
-    final scaleMax = math.max(
-      0.5,
-      math.max(levelMax ?? 0, levelMeters ?? 0) * 1.35,
-    );
-    final fill = levelMeters != null
-        ? (levelMeters! / scaleMax).clamp(0.06, 0.95).toDouble()
-        : (levelFill ?? 0.3).clamp(0.06, 0.95).toDouble();
-    final waterY = bedY * (1 - fill);
-
-    // Sombra.
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: iso.p(0, bankBottom - 6, 0) + const Offset(0, 14),
-        width: h * 3.2,
-        height: h * 3.2 * iso.ps * 0.7,
-      ),
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.35)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18),
-    );
-
-    final soil = Paint()
-      ..shader = const LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [Color(0xFF1A3634), Color(0xFF0B1B1E)],
-      ).createShader(_boundsOf([iso.p(0, 0, h), iso.p(0, bankBottom, h)]));
-    final edge = Paint()
-      ..color = _fog.withValues(alpha: 0.10)
-      ..style = PaintingStyle.stroke;
-
-    // Cara derecha (x = +h).
-    final right = iso.quad([
-      iso.p(h, 0, -h),
-      iso.p(h, 0, h),
-      iso.p(h, bankBottom, h),
-      iso.p(h, bankBottom, -h),
-    ]);
-    canvas.drawPath(right, soil);
-    canvas.drawPath(right, edge);
-
-    // Pared interior izquierda del cauce (x = -c, mira hacia +x).
-    final innerWall = iso.quad([
-      iso.p(-c, 0, -h),
-      iso.p(-c, 0, h),
-      iso.p(-c, bedY, h),
-      iso.p(-c, bedY, -h),
-    ]);
-    canvas.drawPath(innerWall, Paint()..color = const Color(0xFF16302E));
-    // Lecho.
-    canvas.drawPath(
-      iso.quad([
-        iso.p(-c, bedY, -h),
-        iso.p(c, bedY, -h),
-        iso.p(c, bedY, h),
-        iso.p(-c, bedY, h),
-      ]),
-      Paint()..color = const Color(0xFF0E2124),
-    );
-
-    // Lámina de agua.
-    final water = [
-      iso.p(-c, waterY, -h),
-      iso.p(c, waterY, -h),
-      iso.p(c, waterY, h),
-      iso.p(-c, waterY, h),
-    ];
-    final waterPath = iso.quad(water);
-    canvas.drawPath(
-      waterPath,
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            _accent.withValues(alpha: 0.35),
-            _accent.withValues(alpha: 0.62),
-          ],
-        ).createShader(_boundsOf(water)),
-    );
-    canvas.save();
-    canvas.clipPath(waterPath);
-    final speed = _flowing ? 0.6 + _flowNorm * 2.2 + alive * 0.5 : 0.08;
-    final streak = Paint()
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = 1.4;
-    for (var i = 0; i < 14; i++) {
-      final lane = ((i * 0.618) % 1) * 2 - 1;
-      final t = (phase * speed * 2 + i / 14) % 1;
-      final z0 = -h + t * 2.2 * h - 0.1 * h;
-      final len = h * (0.10 + _flowNorm * 0.18);
-      final a = iso.p(lane * c * 0.85, waterY, z0);
-      final b = iso.p(lane * c * 0.85, waterY, z0 + len);
-      streak.color = _fog.withValues(alpha: 0.45 * math.sin(t * math.pi));
-      canvas.drawLine(a, b, streak);
-    }
-    // Ondas transversales.
-    for (var k = 0; k < 4; k++) {
-      final z = -h + ((phase * speed + k / 4) % 1) * 2 * h;
-      final wave = Path();
-      for (var s = 0; s <= 16; s++) {
-        final u = s / 16;
-        final x = -c + u * 2 * c;
-        final pt = iso.p(
-          x,
-          waterY + math.sin(u * _tau + phase * _tau * 3) * 1.4,
-          z,
+      var cursor = topInset - 4;
+      for (final tag in side) {
+        final layout = _tagLayout(tag);
+        final cy = math.max(
+          tag.anchor.dy - tag.lift,
+          cursor + layout.height / 2,
         );
-        if (s == 0) {
-          wave.moveTo(pt.dx, pt.dy);
-        } else {
-          wave.lineTo(pt.dx, pt.dy);
-        }
-      }
-      canvas.drawPath(
-        wave,
-        Paint()
-          ..color = _fog.withValues(alpha: 0.12)
-          ..style = PaintingStyle.stroke,
-      );
-    }
-    canvas.restore();
-
-    // Cara frontal (z = +h) con la sección en U del cauce.
-    final frontLeft = [
-      iso.p(-h, 0, h),
-      iso.p(-c, 0, h),
-      iso.p(-c, bedY, h),
-      iso.p(c, bedY, h),
-      iso.p(c, 0, h),
-      iso.p(h, 0, h),
-      iso.p(h, bankBottom, h),
-      iso.p(-h, bankBottom, h),
-    ];
-    final frontPath = Path()..addPolygon(frontLeft, true);
-    canvas.drawPath(frontPath, soil);
-    final strata = Paint()
-      ..color = _fog.withValues(alpha: 0.05)
-      ..strokeWidth = 1;
-    for (var i = 1; i < 4; i++) {
-      final y = bedY + (bankBottom - bedY) * (i / 4);
-      canvas.drawLine(iso.p(-h, y, h), iso.p(h, y, h), strata);
-    }
-    canvas.drawPath(frontPath, edge);
-    // Sección de agua en la cara frontal.
-    final section = [
-      iso.p(-c, waterY, h),
-      iso.p(c, waterY, h),
-      iso.p(c, bedY, h),
-      iso.p(-c, bedY, h),
-    ];
-    canvas.drawPath(
-      iso.quad(section),
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            _accent.withValues(alpha: 0.65),
-            _accent.withValues(alpha: 0.25),
-          ],
-        ).createShader(_boundsOf(section)),
-    );
-    final crest = Path();
-    for (var s = 0; s <= 20; s++) {
-      final u = s / 20;
-      final pt = iso.p(
-        -c + u * 2 * c,
-        waterY + math.sin(u * _tau * 1.5 + phase * _tau * (2 + alive)) * 1.6,
-        h,
-      );
-      if (s == 0) {
-        crest.moveTo(pt.dx, pt.dy);
-      } else {
-        crest.lineTo(pt.dx, pt.dy);
-      }
-    }
-    canvas.drawPath(
-      crest,
-      Paint()
-        ..color = _fog.withValues(alpha: 0.8)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.3,
-    );
-
-    // Riberas.
-    for (final side in [-1.0, 1.0]) {
-      final inner = side * c;
-      final outer = side * h;
-      final bank = [
-        iso.p(math.min(inner, outer), 0, -h),
-        iso.p(math.max(inner, outer), 0, -h),
-        iso.p(math.max(inner, outer), 0, h),
-        iso.p(math.min(inner, outer), 0, h),
-      ];
-      canvas.drawPath(
-        iso.quad(bank),
-        Paint()
-          ..shader = const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF26443F), Color(0xFF1B3431)],
-          ).createShader(_boundsOf(bank)),
-      );
-      canvas.drawPath(
-        iso.quad(bank),
-        Paint()
-          ..color = _fog.withValues(alpha: 0.14)
-          ..style = PaintingStyle.stroke,
-      );
-    }
-
-    // Toma en la ribera derecha: succión → bomba → flujómetro → estanque.
-    final pumpAt = (x: c + (h - c) * 0.38, z: h * 0.15);
-    final headY = 18.0;
-    final outlet = (x: c + (h - c) * 0.55, z: -h * 0.62);
-    final route = <Offset>[
-      iso.p(c * 0.35, waterY - 6, pumpAt.z),
-      iso.p(c * 0.35, headY, pumpAt.z),
-      iso.p(pumpAt.x, headY, pumpAt.z),
-      iso.p(pumpAt.x, headY, outlet.z + 10),
-      iso.p(outlet.x, headY, outlet.z),
-    ];
-    _paintPool(canvas, iso, outlet.x, outlet.z, (h - c) * 0.32);
-    _paintPipe(canvas, route);
-    final pump = iso.p(pumpAt.x, headY, pumpAt.z);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromCenter(center: pump, width: 18, height: 12),
-        const Radius.circular(4),
-      ),
-      Paint()..color = _steel,
-    );
-    _paintFlowmeter(canvas, iso.p(pumpAt.x, headY, (pumpAt.z + outlet.z) / 2));
-    _paintDischarge(canvas, iso, outlet.x, headY, outlet.z);
-    if (_flowing) {
-      final intake = iso.p(c * 0.35, waterY, pumpAt.z);
-      for (var i = 0; i < 2; i++) {
-        final t = (phase * 3 + i / 2) % 1;
-        canvas.drawOval(
-          Rect.fromCenter(
-            center: intake,
-            width: 6 + t * 26,
-            height: (6 + t * 26) * iso.ps,
-          ),
+        cursor = cy + layout.height / 2 + 6;
+        final edgeX = isLeft
+            ? math.min(axisX - clearance, tag.anchor.dx - 18)
+            : math.max(axisX + clearance, tag.anchor.dx + 18);
+        var rectLeft = isLeft ? edgeX - layout.width : edgeX;
+        rectLeft = rectLeft
+            .clamp(12.0, math.max(12.0, size.width - layout.width - 12))
+            .toDouble();
+        final rect = Rect.fromLTWH(
+          rectLeft,
+          cy - layout.height / 2,
+          layout.width,
+          layout.height,
+        );
+        final focused = focus == tag.part;
+        final attach = Offset(isLeft ? rect.right : rect.left, rect.center.dy);
+        final guide = Path()
+          ..moveTo(tag.anchor.dx, tag.anchor.dy)
+          ..lineTo(attach.dx + (isLeft ? 8 : -8), attach.dy)
+          ..lineTo(attach.dx, attach.dy);
+        canvas.drawPath(
+          guide,
           Paint()
-            ..color = _fog.withValues(alpha: (1 - t) * 0.6)
+            ..color = const Color(0xFF040C0F).withValues(alpha: 0.7)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 3,
+        );
+        canvas.drawPath(
+          guide,
+          Paint()
+            ..color = tag.color.withValues(alpha: focused ? 1 : 0.75)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = focused ? 1.6 : 1.1,
+        );
+        canvas.drawCircle(
+          tag.anchor,
+          focused ? 4 : 3,
+          Paint()..color = tag.color,
+        );
+        canvas.drawCircle(
+          tag.anchor,
+          focused ? 8 : 5.5,
+          Paint()
+            ..color = tag.color.withValues(alpha: 0.4)
             ..style = PaintingStyle.stroke,
         );
+        _drawTag(canvas, rect, tag, layout, focused: focused);
+        hits.rect(tag.part, rect.inflate(2));
       }
     }
-
-    final markersLeft = <_Marker>[
-      _Marker(
-        levelMeters == null
-            ? 'Sin lectura de nivel'
-            : 'Altura de agua ${levelMeters!.toStringAsFixed(2)} m',
-        iso.p(-c, waterY, h),
-        levelMeters == null ? _faint : _accent,
-        strong: levelMeters != null,
-      ),
-    ];
-    final markersRight = <_Marker>[
-      _Marker('Toma', iso.p(c * 0.35, waterY, pumpAt.z), _steel),
-    ];
-    _paintMarkers(canvas, size, markersLeft, left: true);
-    _paintMarkers(canvas, size, markersRight, left: false);
   }
 
-  // ---------------------------------------------------------------- texto
+  ({
+    double width,
+    double height,
+    TextPainter caption,
+    TextPainter value,
+    TextPainter? detail,
+  })
+  _tagLayout(_Tag tag) {
+    TextPainter painter(String text, TextStyle style) => TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+      textScaler: textScaler,
+      maxLines: 1,
+      ellipsis: '…',
+    )..layout(maxWidth: 140);
+    final caption = painter(
+      tag.caption,
+      TextStyle(
+        color: tag.color,
+        fontSize: 9.5,
+        fontWeight: FontWeight.w800,
+        letterSpacing: 0.7,
+      ),
+    );
+    final value = painter(
+      tag.value,
+      const TextStyle(
+        color: _Palette.fog,
+        fontSize: 14,
+        fontWeight: FontWeight.w800,
+        letterSpacing: -0.2,
+      ),
+    );
+    final detail = tag.detail == null
+        ? null
+        : painter(
+            tag.detail!,
+            TextStyle(
+              color: _Palette.fog.withValues(alpha: 0.7),
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+          );
+    final width =
+        [caption.width, value.width, detail?.width ?? 0].reduce(math.max) + 22;
+    final height = caption.height + value.height + (detail?.height ?? 0) + 10;
+    return (
+      width: width,
+      height: height,
+      caption: caption,
+      value: value,
+      detail: detail,
+    );
+  }
 
-  String _m(double meters) =>
-      '${meters.toStringAsFixed(meters >= 100 ? 0 : 1)} m';
+  void _drawTag(
+    Canvas canvas,
+    Rect rect,
+    _Tag tag,
+    ({
+      double width,
+      double height,
+      TextPainter caption,
+      TextPainter value,
+      TextPainter? detail,
+    })
+    layout, {
+    required bool focused,
+  }) {
+    final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(10));
+    canvas.drawRRect(
+      rrect.shift(const Offset(0, 2)),
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.35)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+    );
+    canvas.drawRRect(
+      rrect,
+      Paint()..color = _Palette.card.withValues(alpha: 0.95),
+    );
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..color = tag.color.withValues(alpha: focused ? 0.9 : 0.3)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = focused ? 1.4 : 1,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(rect.left + 5, rect.top + 6, 3, rect.height - 12),
+        const Radius.circular(1.5),
+      ),
+      Paint()..color = tag.color,
+    );
+    var y = rect.top + 5;
+    layout.caption.paint(canvas, Offset(rect.left + 13, y));
+    y += layout.caption.height;
+    layout.value.paint(canvas, Offset(rect.left + 13, y));
+    y += layout.value.height;
+    layout.detail?.paint(canvas, Offset(rect.left + 13, y));
+  }
 
-  void _chip(
+  void _text(
     Canvas canvas,
     String text,
     Offset anchor,
     Color color, {
-    bool small = false,
+    double size = 11,
     bool alignRight = false,
   }) {
     final painter = TextPainter(
@@ -1611,52 +2166,461 @@ class _CaptureStagePainter extends CustomPainter {
         text: text,
         style: TextStyle(
           color: color,
-          fontSize: small ? 10.5 : 12,
-          fontWeight: small ? FontWeight.w600 : FontWeight.w800,
+          fontSize: size,
+          fontWeight: FontWeight.w700,
         ),
       ),
       textDirection: TextDirection.ltr,
       textScaler: textScaler,
       maxLines: 1,
-      ellipsis: '…',
-    )..layout(maxWidth: 170);
-    final w = painter.width + 14;
-    final h = painter.height + 6;
-    final left = (alignRight ? anchor.dx - w : anchor.dx)
-        .clamp(12.0, math.max(12.0, _size.width - w - 12))
-        .toDouble();
-    final rect = RRect.fromRectAndRadius(
-      Rect.fromLTWH(left, anchor.dy - h / 2, w, h),
-      const Radius.circular(8),
+    )..layout();
+    var left = alignRight ? anchor.dx - painter.width : anchor.dx;
+    left = left.clamp(4.0, math.max(4.0, _size.width - painter.width - 4));
+    painter.paint(canvas, Offset(left, anchor.dy - painter.height / 2));
+  }
+
+  void _dashed(Canvas canvas, Offset from, Offset to, Paint paint) {
+    const dash = 4.0;
+    const gap = 3.0;
+    final dir = to - from;
+    final len = dir.distance;
+    if (len < 0.01) return;
+    final unit = dir / len;
+    for (var d = 0.0; d < len; d += dash + gap) {
+      canvas.drawLine(
+        from + unit * d,
+        from + unit * math.min(d + dash, len),
+        paint,
+      );
+    }
+  }
+
+  String _m(double meters) =>
+      '${meters.toStringAsFixed(meters >= 100 ? 0 : 1)} m';
+
+  // ------------------------------------------------------------ superficial
+
+  void _paintSurface(Canvas canvas, Size size) {
+    final l = _layout(
+      size,
+      depthShare: 0.38,
+      headroom: 50,
+      widthShare: 0.34,
+      heightShare: 0.44,
     );
-    canvas.drawRRect(
-      rect,
-      Paint()..color = _surfaceCard.withValues(alpha: 0.9),
+    final iso = _Iso(l.origin, yaw + math.sin(phase * _tau) * 0.015, pitch);
+    final h = l.half;
+    final depthPx = l.depth;
+    final c = h * 0.42;
+    final bedY = -depthPx * 0.62;
+    final bankBottom = -depthPx;
+
+    final hasLevel = levelMeters != null;
+    final scaleMax = math.max(
+      0.5,
+      math.max(levelMax ?? 0, levelMeters ?? 0) * 1.35,
     );
-    canvas.drawRRect(
-      rect,
+    final fill = hasLevel
+        ? (levelMeters! / scaleMax).clamp(0.06, 0.95).toDouble()
+        : 0.0;
+    final waterY = bedY * (1 - fill);
+    const water = _Palette.surfaceWater;
+
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: iso.p(0, bankBottom, 0) + const Offset(0, 18),
+        width: h * 3.1,
+        height: h * 3.1 * iso.ps * 0.6,
+      ),
       Paint()
-        ..color = color.withValues(alpha: 0.18)
+        ..color = Colors.black.withValues(alpha: 0.4)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18),
+    );
+
+    // Cara lateral exterior (el cauce corre a lo largo de z).
+    final side = iso.xFace(h, 0, bankBottom);
+    _soilBand(canvas, side, shade: 0.28);
+    hits.add(ScenePart.soil, _poly(side));
+
+    // Pared interior del cauce que mira al observador y lecho.
+    final wallX = -iso.sx * c;
+    final wall = [
+      iso.p(wallX, 0, -h),
+      iso.p(wallX, 0, h),
+      iso.p(wallX, bedY, h),
+      iso.p(wallX, bedY, -h),
+    ];
+    _soilBand(canvas, wall, shade: 0.45);
+    canvas.drawPath(
+      _poly([
+        iso.p(-c, bedY, -h),
+        iso.p(c, bedY, -h),
+        iso.p(c, bedY, h),
+        iso.p(-c, bedY, h),
+      ]),
+      Paint()..color = const Color(0xFF14262A),
+    );
+
+    // Lámina de agua.
+    if (hasLevel) {
+      final sheet = [
+        iso.p(-c, waterY, -h),
+        iso.p(c, waterY, -h),
+        iso.p(c, waterY, h),
+        iso.p(-c, waterY, h),
+      ];
+      final sheetPath = _poly(sheet);
+      canvas.drawPath(
+        sheetPath,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              water.withValues(alpha: 0.45),
+              water.withValues(alpha: 0.75),
+            ],
+          ).createShader(_boundsOf(sheet)),
+      );
+      hits.add(ScenePart.water, sheetPath);
+      canvas.save();
+      canvas.clipPath(sheetPath);
+      final moving = _flowing;
+      final speed = moving ? 0.5 + _flowNorm * 2.0 + alive * 0.4 : 0.06;
+      final streak = Paint()
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = 1.5;
+      for (var i = 0; i < 16; i++) {
+        final lane = ((i * 0.618) % 1) * 2 - 1;
+        final t = (phase * speed * 2 + i / 16) % 1;
+        final z0 = -h * 1.1 + t * 2.3 * h;
+        final len = h * (0.10 + _flowNorm * 0.2);
+        streak.color = _Palette.fog.withValues(
+          alpha: 0.5 * math.sin(t * math.pi),
+        );
+        canvas.drawLine(
+          iso.p(lane * c * 0.85, waterY, z0),
+          iso.p(lane * c * 0.85, waterY, z0 + len),
+          streak,
+        );
+      }
+      for (var k = 0; k < 5; k++) {
+        final z = -h + ((phase * (speed + 0.1) + k / 5) % 1) * 2 * h;
+        final wave = Path();
+        for (var s = 0; s <= 18; s++) {
+          final u = s / 18;
+          final pt = iso.p(
+            -c + u * 2 * c,
+            waterY + math.sin(u * _tau + phase * _tau * 3) * (1 + _agitation),
+            z,
+          );
+          if (s == 0) {
+            wave.moveTo(pt.dx, pt.dy);
+          } else {
+            wave.lineTo(pt.dx, pt.dy);
+          }
+        }
+        canvas.drawPath(
+          wave,
+          Paint()
+            ..color = _Palette.fog.withValues(alpha: 0.14)
+            ..style = PaintingStyle.stroke,
+        );
+      }
+      // Destellos.
+      for (var i = 0; i < 6; i++) {
+        final g = _grain[i * 7];
+        final tw = (math.sin(phase * _tau * 3 + i * 1.9) + 1) / 2;
+        canvas.drawCircle(
+          iso.p(-c + g.dx * 2 * c, waterY, -h + g.dy * 2 * h),
+          0.8 + tw * 1.4,
+          Paint()..color = Colors.white.withValues(alpha: tw * 0.55),
+        );
+      }
+      canvas.restore();
+    }
+
+    // Cara frontal con la sección en U del cauce.
+    final zf = iso.sz * h;
+    final front = [
+      iso.p(-h, 0, zf),
+      iso.p(-c, 0, zf),
+      iso.p(-c, bedY, zf),
+      iso.p(c, bedY, zf),
+      iso.p(c, 0, zf),
+      iso.p(h, 0, zf),
+      iso.p(h, bankBottom, zf),
+      iso.p(-h, bankBottom, zf),
+    ];
+    final frontPath = _poly(front);
+    canvas.save();
+    canvas.clipPath(frontPath);
+    _soilBand(canvas, iso.zFace(h, 0, bankBottom), shade: 0);
+    canvas.restore();
+    hits.add(ScenePart.soil, frontPath);
+    canvas.drawPath(
+      frontPath,
+      Paint()
+        ..color = _Palette.fog.withValues(alpha: 0.12)
         ..style = PaintingStyle.stroke,
     );
-    painter.paint(canvas, Offset(left + 7, anchor.dy - h / 2 + 3));
+    if (hasLevel) {
+      final section = [
+        iso.p(-c, waterY, zf),
+        iso.p(c, waterY, zf),
+        iso.p(c, bedY, zf),
+        iso.p(-c, bedY, zf),
+      ];
+      final sectionPath = _poly(section);
+      canvas.drawPath(
+        sectionPath,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              water.withValues(alpha: 0.75),
+              const Color(0xFF1D5A8F).withValues(alpha: 0.8),
+            ],
+          ).createShader(_boundsOf(section)),
+      );
+      canvas.save();
+      canvas.clipPath(sectionPath);
+      for (var i = 0; i < 18; i++) {
+        final g = _grain[i * 5 + 3];
+        final drift = (g.dx + phase * (0.2 + _flowNorm)) % 1;
+        canvas.drawCircle(
+          _bilerp(section, drift, 0.1 + g.dy * 0.85),
+          1,
+          Paint()..color = _Palette.fog.withValues(alpha: 0.25),
+        );
+      }
+      canvas.restore();
+      hits.add(ScenePart.level, sectionPath);
+      final crest = Path();
+      for (var s = 0; s <= 22; s++) {
+        final u = s / 22;
+        final pt = _bilerp(section, u, 0);
+        final y =
+            pt.dy +
+            math.sin(u * _tau * 1.5 + phase * _tau * (2 + _agitation)) *
+                (1 + _agitation * 1.5);
+        if (s == 0) {
+          crest.moveTo(pt.dx, y);
+        } else {
+          crest.lineTo(pt.dx, y);
+        }
+      }
+      canvas.drawPath(
+        crest,
+        Paint()
+          ..color = _Palette.fog.withValues(alpha: 0.9)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.4,
+      );
+    }
+
+    // Riberas.
+    for (final sign in [-1.0, 1.0]) {
+      final a = sign * c;
+      final b = sign * h;
+      final bank = [
+        iso.p(math.min(a, b), 0, -h),
+        iso.p(math.max(a, b), 0, -h),
+        iso.p(math.max(a, b), 0, h),
+        iso.p(math.min(a, b), 0, h),
+      ];
+      canvas.drawPath(
+        _poly(bank),
+        Paint()
+          ..shader = const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF2F4B40), Color(0xFF213A32)],
+          ).createShader(_boundsOf(bank)),
+      );
+      canvas.drawPoints(
+        PointMode.points,
+        [
+          for (var i = 0; i < 40; i++)
+            _bilerp(bank, _grain[i + 60].dx, _grain[i + 60].dy),
+        ],
+        Paint()
+          ..color = const Color(0xFF6E9A7E).withValues(alpha: 0.25)
+          ..strokeWidth = 1.6
+          ..strokeCap = StrokeCap.round,
+      );
+      canvas.drawPath(
+        _poly(bank),
+        Paint()
+          ..color = _Palette.fog.withValues(alpha: 0.16)
+          ..style = PaintingStyle.stroke,
+      );
+    }
+
+    final tags = <_Tag>[];
+    final axis = iso.p(0, 0, 0);
+
+    // Sensor de nivel sobre el cauce y datalogger en la ribera.
+    final logger = (x: -c - (h - c) * 0.5, z: h * 0.45);
+    if (hasLevel) {
+      final postX = -c - 6;
+      const postZ = 0.0;
+      const armY = 54.0;
+      final base = iso.p(postX, 0, postZ);
+      final topPt = iso.p(postX, armY, postZ);
+      final sensorPt = iso.p(-c * 0.15, armY, postZ);
+      final post = Paint()
+        ..color = _Palette.steel
+        ..strokeWidth = 2.2
+        ..strokeCap = StrokeCap.round;
+      canvas.drawLine(base, topPt, post);
+      canvas.drawLine(topPt, sensorPt, post);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(
+            center: sensorPt + const Offset(0, 4),
+            width: 14,
+            height: 9,
+          ),
+          const Radius.circular(3),
+        ),
+        Paint()..color = _Palette.sensor,
+      );
+      final target = iso.p(-c * 0.15, waterY, postZ);
+      for (var i = 0; i < 3; i++) {
+        final t = (phase * 4 + i / 3) % 1;
+        final at = Offset.lerp(sensorPt + const Offset(0, 9), target, t)!;
+        canvas.drawArc(
+          Rect.fromCenter(center: at, width: 12, height: 5),
+          0,
+          math.pi,
+          false,
+          Paint()
+            ..color = _Palette.sensor.withValues(alpha: 0.7 * (1 - t))
+            ..style = PaintingStyle.stroke,
+        );
+      }
+      hits.rect(
+        ScenePart.sensor,
+        Rect.fromCenter(center: sensorPt, width: 30, height: 26),
+      );
+      tags.add(
+        _Tag(
+          ScenePart.sensor,
+          'SENSOR DE NIVEL',
+          'sobre el cauce',
+          sensorPt,
+          _Palette.sensor,
+          lift: 80,
+        ),
+      );
+      _dashed(
+        canvas,
+        base,
+        iso.p(logger.x, 0, logger.z),
+        Paint()
+          ..color = _Palette.sensor.withValues(alpha: 0.5)
+          ..strokeWidth = 1,
+      );
+      tags.add(
+        _Tag(
+          ScenePart.level,
+          'ALTURA DE AGUA',
+          '${levelMeters!.toStringAsFixed(2)} m',
+          iso.p(-c, waterY, zf),
+          _Palette.level,
+          lift: -110,
+        ),
+      );
+    }
+    final loggerRect = _paintLogger(canvas, iso, logger.x, logger.z);
+    tags.add(
+      _Tag(
+        ScenePart.logger,
+        'DATALOGGER',
+        pointLinkLabel(link),
+        loggerRect.topCenter,
+        _Palette.linkColor(link),
+        lift: 70,
+      ),
+    );
+
+    // Toma, bomba, flujómetro y estanque solo si el punto mide caudal.
+    if (flow != null) {
+      final pumpAt = (x: c + (h - c) * 0.38, z: h * 0.15);
+      const headY = 18.0;
+      final outlet = (x: c + (h - c) * 0.55, z: -h * 0.62);
+      final intakeY = hasLevel ? waterY - 6 : bedY + 6;
+      final route = <Offset>[
+        iso.p(c * 0.35, intakeY, pumpAt.z),
+        iso.p(c * 0.35, headY, pumpAt.z),
+        iso.p(pumpAt.x, headY, pumpAt.z),
+        iso.p(pumpAt.x, headY, outlet.z + 10),
+        iso.p(outlet.x, headY, outlet.z),
+      ];
+      _paintPool(canvas, iso, outlet.x, outlet.z, (h - c) * 0.32);
+      _paintPipe(canvas, route, moving: true);
+      _box(
+        canvas,
+        iso,
+        x: pumpAt.x,
+        z: pumpAt.z,
+        w: 16,
+        d: 12,
+        h: 12,
+        y: headY - 6,
+        color: _Palette.steel,
+      );
+      final meterAt = iso.p(pumpAt.x, headY, (pumpAt.z + outlet.z) / 2);
+      final r = _paintFlowmeter(canvas, meterAt);
+      _paintDischarge(canvas, iso, outlet.x, headY, outlet.z);
+      final intake = iso.p(c * 0.35, hasLevel ? waterY : bedY, pumpAt.z);
+      if (_flowing && hasLevel) {
+        for (var i = 0; i < 2; i++) {
+          final t = (phase * 3 + i / 2) % 1;
+          canvas.drawOval(
+            Rect.fromCenter(
+              center: intake,
+              width: 6 + t * 26,
+              height: (6 + t * 26) * iso.ps,
+            ),
+            Paint()
+              ..color = _Palette.fog.withValues(alpha: (1 - t) * 0.6)
+              ..style = PaintingStyle.stroke,
+          );
+        }
+      }
+      hits.rect(ScenePart.intake, Rect.fromCircle(center: intake, radius: 14));
+      hits.rect(
+        ScenePart.flowmeter,
+        Rect.fromCircle(center: meterAt, radius: r + 8),
+      );
+      tags.add(
+        _Tag(
+          ScenePart.flowmeter,
+          'FLUJÓMETRO',
+          '${flow!.toStringAsFixed(2)} L/s',
+          meterAt,
+          _Palette.flow,
+          lift: 80,
+        ),
+      );
+      tags.add(
+        _Tag(
+          ScenePart.intake,
+          'TOMA',
+          'captación',
+          intake,
+          _Palette.flow,
+          lift: -120,
+        ),
+      );
+    }
+
+    _paintTags(canvas, size, tags, axisX: axis.dx, clearance: c * 0.6);
   }
 
   @override
-  bool shouldRepaint(covariant _CaptureStagePainter old) =>
-      old.phase != phase ||
-      old.yaw != yaw ||
-      old.pitch != pitch ||
-      old.topInset != topInset ||
-      old.levelMeters != levelMeters ||
-      old.levelFill != levelFill ||
-      old.levelMin != levelMin ||
-      old.levelMax != levelMax ||
-      old.textScaler != textScaler ||
-      old.flow != flow ||
-      old.isSurface != isSurface ||
-      old.link != link ||
-      old.profile != profile ||
-      old.hovered != hovered ||
-      old.alive != alive;
+  bool shouldRepaint(covariant _CaptureStagePainter old) => true;
 }
