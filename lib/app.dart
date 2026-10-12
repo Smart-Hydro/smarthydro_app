@@ -43,7 +43,10 @@ class SmartHydroApp extends ConsumerWidget {
   Widget _buildHome(SmartHydroSession? session) {
     return AnimatedSwitcher(
       duration:
-          WidgetsBinding.instance.platformDispatcher.accessibilityFeatures
+          WidgetsBinding
+              .instance
+              .platformDispatcher
+              .accessibilityFeatures
               .disableAnimations
           ? Duration.zero
           : const Duration(milliseconds: 600),

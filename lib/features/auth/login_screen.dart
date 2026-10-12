@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api/smarthydro_api.dart';
 import '../../core/session/session_provider.dart';
 import '../../shared/widgets/hydro_entrance.dart';
+import '../../shared/widgets/hydro_glass.dart';
 import '../../shared/widgets/water_atmosphere.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -256,12 +257,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                       mainAxisAlignment:
                                           MainAxisAlignment.center,
                                       children: [
-                                        SizedBox.square(
-                                          dimension: 20,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        ),
+                                        HydroSpinner(size: 20),
                                         SizedBox(width: 12),
                                         Text(
                                           'Conectando…',

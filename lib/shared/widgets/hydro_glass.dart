@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 /// Superficie translúcida. Sin borde: el brillo superior separa la pieza del fondo.
@@ -169,4 +171,208 @@ class _LoadingLinePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _LoadingLinePainter oldDelegate) =>
       oldDelegate.travel != travel;
+}
+
+/// Barra lineal de carga con identidad SmartHydro: una gota de menta que
+/// recorre una pista fina. Reemplaza al LinearProgressIndicator genérico
+/// en cabeceras y listas mientras se cargan datos.
+class HydroLinearBar extends StatefulWidget {
+  const HydroLinearBar({this.height = 3, super.key});
+
+  final double height;
+
+  @override
+  State<HydroLinearBar> createState() => _HydroLinearBarState();
+}
+
+class _HydroLinearBarState extends State<HydroLinearBar>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1400),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.of(context).disableAnimations) {
+      _controller.stop();
+      _controller.value = 0.5;
+    } else if (!_controller.isAnimating) {
+      _controller.repeat();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: widget.height,
+      width: double.infinity,
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, _) => CustomPaint(
+          painter: _LinearBarPainter(travel: _controller.value),
+          size: Size.infinite,
+        ),
+      ),
+    );
+  }
+}
+
+class _LinearBarPainter extends CustomPainter {
+  const _LinearBarPainter({required this.travel});
+
+  final double travel;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final y = size.height / 2;
+    // Pista fina de menta muy tenue.
+    canvas.drawLine(
+      Offset(0, y),
+      Offset(size.width, y),
+      Paint()
+        ..color = const Color(0xFF66E0C2).withValues(alpha: 0.12)
+        ..strokeWidth = size.height
+        ..strokeCap = StrokeCap.round,
+    );
+    // Estela: degradado que sigue a la gota.
+    final head = travel * size.width;
+    final tailLen = size.width * 0.28;
+    final tailStart = (head - tailLen).clamp(0.0, size.width);
+    canvas.drawLine(
+      Offset(tailStart, y),
+      Offset(head, y),
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment(tailStart, y),
+          end: Alignment(head, y),
+          colors: [
+            const Color(0xFF66E0C2).withValues(alpha: 0),
+            const Color(0xFF66E0C2).withValues(alpha: 0.9),
+          ],
+        ).createShader(Rect.fromPoints(Offset(tailStart, y), Offset(head, y)))
+        ..strokeWidth = size.height
+        ..strokeCap = StrokeCap.round,
+    );
+    // Gota cabeza brillante.
+    canvas.drawCircle(
+      Offset(head, y),
+      size.height * 0.9,
+      Paint()..color = const Color(0xFFEFFFFA),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _LinearBarPainter oldDelegate) =>
+      oldDelegate.travel != travel;
+}
+
+/// Spinner circular marcado SmartHydro: anillo de menta con una gota
+/// brillante en cabeza, para botones en estado de envío. Reemplaza al
+/// CircularProgressIndicator genérico.
+class HydroSpinner extends StatefulWidget {
+  const HydroSpinner({this.size = 20, this.strokeWidth = 2.4, super.key});
+
+  final double size;
+  final double strokeWidth;
+
+  @override
+  State<HydroSpinner> createState() => _HydroSpinnerState();
+}
+
+class _HydroSpinnerState extends State<HydroSpinner>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.of(context).disableAnimations) {
+      _controller.stop();
+      _controller.value = 0.25;
+    } else if (!_controller.isAnimating) {
+      _controller.repeat();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: widget.size,
+      height: widget.size,
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, _) => Transform.rotate(
+          angle: _controller.value * 2 * math.pi,
+          child: CustomPaint(
+            painter: _SpinnerPainter(stroke: widget.strokeWidth),
+            size: Size(widget.size, widget.size),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SpinnerPainter extends CustomPainter {
+  const _SpinnerPainter({required this.stroke});
+
+  final double stroke;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final center = rect.center;
+    final radius = (size.shortestSide - stroke) / 2;
+    // Anillo base tenue.
+    canvas.drawArc(
+      rect.deflate(stroke / 2),
+      0,
+      2 * math.pi,
+      false,
+      Paint()
+        ..color = const Color(0xFF66E0C2).withValues(alpha: 0.18)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke
+        ..strokeCap = StrokeCap.round,
+    );
+    // Arco de menta (~270°) que da la sensación de giro.
+    canvas.drawArc(
+      rect.deflate(stroke / 2),
+      -math.pi / 2,
+      math.pi * 1.5,
+      false,
+      Paint()
+        ..color = const Color(0xFF66E0C2)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke
+        ..strokeCap = StrokeCap.round,
+    );
+    // Gota brillante en la cabeza del arco.
+    canvas.drawCircle(
+      Offset(center.dx, center.dy - radius),
+      stroke * 0.55,
+      Paint()..color = const Color(0xFFEFFFFA),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _SpinnerPainter oldDelegate) =>
+      oldDelegate.stroke != stroke;
 }

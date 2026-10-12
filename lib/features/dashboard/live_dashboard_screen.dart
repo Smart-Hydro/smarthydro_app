@@ -993,7 +993,7 @@ class _NotificationsTab extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            if (loading) const LinearProgressIndicator(),
+            if (loading) const HydroLinearBar(),
             _IncidentBoard(summary: summary),
             const SizedBox(height: 22),
             const _SectionTitle(title: 'Soporte y tickets'),
@@ -1437,7 +1437,7 @@ class _PointDetailScreenState extends State<_PointDetailScreen> {
                     left: 0,
                     right: 0,
                     top: 0,
-                    child: LinearProgressIndicator(),
+                    child: HydroLinearBar(),
                   ),
               ],
             ),
@@ -1649,7 +1649,7 @@ class _PointDetailScreenState extends State<_PointDetailScreen> {
                     ),
                     const SizedBox(height: 12),
                     if (_historyLoading)
-                      const LinearProgressIndicator()
+                      const HydroLinearBar()
                     else if (_historyError != null)
                       _InlineError(
                         message: _historyError!,

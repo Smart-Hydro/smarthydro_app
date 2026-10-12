@@ -135,7 +135,7 @@ class _ComplianceScreenState extends State<ComplianceScreen> {
               ),
             ],
             const SizedBox(height: 10),
-            if (_loading) const LinearProgressIndicator(),
+            if (_loading) const HydroLinearBar(),
             if (_error != null) _ErrorCard(message: _error!, onRetry: _load),
             if (!_loading && _error == null && _points.isEmpty)
               const _EmptyCompliance(),
@@ -517,7 +517,7 @@ class _ComplianceDetailScreenState extends State<_ComplianceDetailScreen> {
               ],
             ),
             const SizedBox(height: 14),
-            if (_loading) const LinearProgressIndicator(),
+            if (_loading) const HydroLinearBar(),
             if (_error != null) _ErrorCard(message: _error!, onRetry: _load),
             _ComplianceSection(
               title: 'Estado actual',

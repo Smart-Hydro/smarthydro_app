@@ -213,17 +213,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 FilledButton.icon(
                   onPressed: _records.isEmpty || _sharing ? null : _shareCsv,
                   icon: _sharing
-                      ? const SizedBox.square(
-                          dimension: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
+                      ? const HydroSpinner(size: 16)
                       : const Icon(Icons.share_rounded, size: 17),
                   label: const Text('Compartir CSV'),
                 ),
               ],
             ),
             const SizedBox(height: 10),
-            if (_loading) const LinearProgressIndicator(),
+            if (_loading) const HydroLinearBar(),
             if (_error != null) _ReportError(message: _error!, onRetry: _load),
             if (!_loading && _error == null && _records.isEmpty)
               const _ReportEmpty(),

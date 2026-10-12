@@ -155,7 +155,7 @@ class _CustomerSupportScreenState extends State<CustomerSupportScreen> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(18, 14, 18, 92),
         children: [
-          if (_loading) const LinearProgressIndicator(),
+          if (_loading) const HydroLinearBar(),
           if (_error != null) _SupportError(message: _error!, onRetry: _load),
           if (!_loading && _error == null && _tickets.isEmpty)
             const _SupportEmpty(),
@@ -345,10 +345,7 @@ class _NewTicketSheetState extends State<_NewTicketSheet> {
           FilledButton.icon(
             onPressed: _submitting ? null : _submit,
             icon: _submitting
-                ? const SizedBox.square(
-                    dimension: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
+                ? const HydroSpinner(size: 18)
                 : const Icon(Icons.send_rounded),
             label: const Text('Enviar solicitud'),
           ),
@@ -452,7 +449,7 @@ class _TicketDetailScreenState extends State<_TicketDetailScreen> {
       appBar: AppBar(title: Text('Solicitud #${widget.ticket['id']}')),
       body: Column(
         children: [
-          if (_loading) const LinearProgressIndicator(),
+          if (_loading) const HydroLinearBar(),
           if (_error != null)
             Padding(
               padding: const EdgeInsets.all(12),
@@ -522,10 +519,7 @@ class _TicketDetailScreenState extends State<_TicketDetailScreen> {
                     tooltip: 'Enviar respuesta',
                     onPressed: _sending ? null : _sendComment,
                     icon: _sending
-                        ? const SizedBox.square(
-                            dimension: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
+                        ? const HydroSpinner(size: 18)
                         : const Icon(Icons.send_rounded),
                   ),
                 ],

@@ -126,7 +126,7 @@ class _SmartAnalysisScreenState extends State<SmartAnalysisScreen> {
             if (_loading)
               const Padding(
                 padding: EdgeInsets.all(28),
-                child: Center(child: CircularProgressIndicator()),
+                child: Center(child: HydroLoading()),
               )
             else if (_error != null)
               _AnalysisError(message: _error!, onRetry: _load)
