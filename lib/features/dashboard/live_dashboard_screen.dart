@@ -633,132 +633,195 @@ class _DashboardTab extends StatelessWidget {
       onRefresh: onRefresh,
       child: HydroFrame(
         child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
-        children: [
-          PortfolioNetwork(points: points, onPointSelected: onSelectPoint),
-          const SizedBox(height: 14),
-          Text(
-            'Hola, $userName',
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 12),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final columns = constraints.maxWidth >= 900
-                  ? 4
-                  : constraints.maxWidth >= 560
-                  ? 2
-                  : 2;
-              const gap = 12.0;
-              final cardWidth =
-                  (constraints.maxWidth - gap * (columns - 1)) / columns;
-              final items = [
-                _MetricData(
-                  'Puntos',
-                  '$total',
-                  Icons.location_on_outlined,
-                  const Color(0xFF66E0C2),
-                ),
-                _MetricData(
-                  'Conectados',
-                  '$connected',
-                  Icons.sensors_rounded,
-                  const Color(0xFF66E0C2),
-                ),
-                _MetricData(
-                  'Advertencias',
-                  '$gaps',
-                  Icons.water_damage_outlined,
-                  const Color(0xFFFFC46B),
-                ),
-                _MetricData(
-                  'Incidencias',
-                  '$incidents',
-                  Icons.report_outlined,
-                  const Color(0xFFFF847A),
-                ),
-              ];
-              return Wrap(
-                spacing: gap,
-                runSpacing: gap,
-                children: [
-                  for (var i = 0; i < items.length; i++)
-                    SizedBox(
-                      width: cardWidth,
-                      child: HydroEntrance(
-                        delay: Duration(milliseconds: 60 * i),
-                        child: _MetricCard(data: items[i]),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+          children: [
+            HydroEntrance(
+              child: PortfolioNetwork(
+                points: points,
+                userName: userName,
+                onPointSelected: onSelectPoint,
+              ),
+            ),
+            const SizedBox(height: 14),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final columns = constraints.maxWidth >= 900
+                    ? 4
+                    : constraints.maxWidth >= 560
+                    ? 4
+                    : 2;
+                const gap = 10.0;
+                final cardWidth =
+                    (constraints.maxWidth - gap * (columns - 1)) / columns;
+                final items = [
+                  _MetricData(
+                    'Puntos',
+                    '$total',
+                    Icons.location_on_outlined,
+                    const Color(0xFF66E0C2),
+                  ),
+                  _MetricData(
+                    'En línea',
+                    '$connected',
+                    Icons.sensors_rounded,
+                    const Color(0xFF66E0C2),
+                  ),
+                  _MetricData(
+                    'Avisos',
+                    '$gaps',
+                    Icons.water_damage_outlined,
+                    const Color(0xFFFFC46B),
+                  ),
+                  _MetricData(
+                    'Tensión',
+                    '$incidents',
+                    Icons.report_outlined,
+                    const Color(0xFFFF847A),
+                  ),
+                ];
+                return Wrap(
+                  spacing: gap,
+                  runSpacing: gap,
+                  children: [
+                    for (var i = 0; i < items.length; i++)
+                      SizedBox(
+                        width: cardWidth,
+                        child: HydroEntrance(
+                          delay: Duration(milliseconds: 60 * i),
+                          child: _MetricCard(data: items[i]),
+                        ),
                       ),
-                    ),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 22),
-          Row(
-            children: [
-              const Spacer(),
-              TextButton.icon(
-                onPressed: onOpenPoints,
-                icon: const Icon(Icons.arrow_forward_rounded, size: 16),
-                label: const Text('Ver todos'),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 18),
+            HydroEntrance(
+              delay: const Duration(milliseconds: 160),
+              child: _QuickActionsRow(
+                onOpenNotifications: onOpenNotifications,
+                onOpenGeo: onOpenGeo,
+                onOpenAnalysis: onOpenAnalysis,
               ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          if (points.isEmpty)
-            const _EmptyState(
-              icon: Icons.water_drop_outlined,
-              title: 'Aún no tienes puntos asignados',
-              message:
-                  'Cuando tu cuenta tenga puntos asociados, aparecerán aquí.',
-            )
-          else
-            for (var i = 0; i < points.take(5).length; i++) ...[
-              HydroEntrance(
-                delay: Duration(milliseconds: 200 + i * 55),
-                child: _PointCard(
-                  point: points[i],
-                  onTap: () => onSelectPoint(points[i]),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                const Text(
+                  'Captaciones',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                    letterSpacing: -0.2,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 10),
-            ],
-          const SizedBox(height: 14),
-          HydroEntrance(
-            delay: const Duration(milliseconds: 420),
-            child: _ActionCard(
-              icon: Icons.notifications_active_outlined,
-              title: 'Revisar avisos',
-              subtitle: 'Notificaciones de tickets y eventos de sistema',
-              color: const Color(0xFF66E0C2),
-              onTap: onOpenNotifications,
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: onOpenPoints,
+                  icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                  label: const Text('Ver todos'),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(height: 10),
-          HydroEntrance(
-            delay: const Duration(milliseconds: 480),
-            child: _ActionCard(
-              icon: Icons.map_outlined,
-              title: 'GEO Smart',
-              subtitle: 'Ubicación y estado de tus puntos con GPS',
-              color: const Color(0xFF66E0C2),
-              onTap: onOpenGeo,
-            ),
-          ),
-          const SizedBox(height: 10),
-          HydroEntrance(
-            delay: const Duration(milliseconds: 540),
-            child: _ActionCard(
-              icon: Icons.query_stats_rounded,
-              title: 'Smart Análisis',
-              subtitle: 'Consumo diario y mensual de un punto',
-              color: const Color(0xFF66E0C2),
-              onTap: onOpenAnalysis,
-            ),
-          ),
-        ],
+            const SizedBox(height: 6),
+            if (points.isEmpty)
+              const _EmptyState(
+                icon: Icons.water_drop_outlined,
+                title: 'Aún no tienes puntos asignados',
+                message:
+                    'Cuando tu cuenta tenga puntos asociados, aparecerán aquí.',
+              )
+            else
+              for (var i = 0; i < points.take(5).length; i++) ...[
+                HydroEntrance(
+                  delay: Duration(milliseconds: 220 + i * 55),
+                  child: _PointCard(
+                    point: points[i],
+                    onTap: () => onSelectPoint(points[i]),
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
+          ],
         ),
+      ),
+    );
+  }
+}
+
+class _QuickActionsRow extends StatelessWidget {
+  const _QuickActionsRow({
+    required this.onOpenNotifications,
+    required this.onOpenGeo,
+    required this.onOpenAnalysis,
+  });
+
+  final VoidCallback onOpenNotifications;
+  final VoidCallback onOpenGeo;
+  final VoidCallback onOpenAnalysis;
+
+  @override
+  Widget build(BuildContext context) {
+    final actions = [
+      (
+        Icons.notifications_active_outlined,
+        'Avisos',
+        'Tickets y eventos',
+        onOpenNotifications,
+      ),
+      (
+        Icons.map_outlined,
+        'GEO Smart',
+        'Mapa y GPS',
+        onOpenGeo,
+      ),
+      (
+        Icons.query_stats_rounded,
+        'Análisis',
+        'Consumo 7/30 d',
+        onOpenAnalysis,
+      ),
+    ];
+    return SizedBox(
+      height: 92,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: actions.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 10),
+        itemBuilder: (context, index) {
+          final action = actions[index];
+          return SizedBox(
+            width: 168,
+            child: HydroGlass(
+              onTap: action.$4,
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+              radius: 18,
+              intensity: HydroGlassIntensity.soft,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(action.$1, color: const Color(0xFF66E0C2), size: 22),
+                  const Spacer(),
+                  Text(
+                    action.$2,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    action.$3,
+                    style: const TextStyle(
+                      color: Color(0xFF91A8AA),
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -1904,7 +1967,11 @@ class _MetricCard extends StatelessWidget {
   final _MetricData data;
 
   @override
-  Widget build(BuildContext context) => _SectionCard(
+  Widget build(BuildContext context) => HydroGlass(
+    padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+    radius: 18,
+    intensity: HydroGlassIntensity.soft,
+    accent: data.color,
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1912,16 +1979,16 @@ class _MetricCard extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Container(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.all(7),
               decoration: BoxDecoration(
                 color: data.color.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(11),
                 border: Border.all(
-                  color: data.color.withValues(alpha: 0.25),
+                  color: data.color.withValues(alpha: 0.28),
                   width: 1,
                 ),
               ),
-              child: Icon(data.icon, color: data.color, size: 20),
+              child: Icon(data.icon, color: data.color, size: 18),
             ),
             Container(
               width: 6,
@@ -1931,7 +1998,7 @@ class _MetricCard extends StatelessWidget {
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: data.color.withValues(alpha: 0.6),
+                    color: data.color.withValues(alpha: 0.55),
                     blurRadius: 6,
                   ),
                 ],
@@ -1939,23 +2006,23 @@ class _MetricCard extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 12),
         Text(
           data.title,
           style: const TextStyle(
             color: Color(0xFFA9BFC0),
-            fontSize: 12,
+            fontSize: 11,
             fontWeight: FontWeight.w600,
             letterSpacing: 0.2,
           ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 2),
         Text(
           data.value,
-          style: const TextStyle(
+          style: TextStyle(
             fontWeight: FontWeight.w900,
-            fontSize: 26,
-            color: Color(0xFFF4FBF8),
+            fontSize: 24,
+            color: data.color.withValues(alpha: 0.95),
             letterSpacing: -0.5,
           ),
         ),
@@ -1970,6 +2037,14 @@ class _PointCard extends StatelessWidget {
   final Map<String, dynamic> point;
   final VoidCallback onTap;
 
+  bool get _isSurface {
+    final dga = point['dga'];
+    if (dga is Map) {
+      return '${dga['type_dga']}'.toUpperCase() == 'SUPERFICIAL';
+    }
+    return '${point['type_dga']}'.toUpperCase() == 'SUPERFICIAL';
+  }
+
   @override
   Widget build(BuildContext context) {
     final telemetry = _map(point['latest_telemetry']);
@@ -1979,12 +2054,25 @@ class _PointCard extends StatelessWidget {
       PointLink.gap => const Color(0xFFFFC46B),
       PointLink.incident => const Color(0xFFFF847A),
     };
-    return _SectionCard(
+    return HydroGlass(
       onTap: onTap,
+      padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
+      radius: 18,
+      intensity: HydroGlassIntensity.standard,
+      accent: color,
       child: Row(
         children: [
-          Icon(Icons.water_drop_rounded, color: color),
-          const SizedBox(width: 14),
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: const Color(0xFF081619).withValues(alpha: 0.55),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: color.withValues(alpha: 0.22)),
+            ),
+            child: MiniIsoWell(link: link, isSurface: _isSurface, size: 48),
+          ),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1993,10 +2081,10 @@ class _PointCard extends StatelessWidget {
                   point['title'] as String? ?? 'Punto sin nombre',
                   style: const TextStyle(
                     fontWeight: FontWeight.w700,
-                    fontSize: 16,
+                    fontSize: 15,
                   ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 4),
                 Text(
                   point['project_name'] as String? ??
                       point['client_name'] as String? ??
@@ -2006,19 +2094,19 @@ class _PointCard extends StatelessWidget {
                     fontSize: 12,
                   ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
                 Text(
                   '${pointLinkLabel(link)} · caudal ${_display(telemetry['flow'], 'L/s')} · ${_formatTimestamp(telemetry['date_time_medition'])}',
                   style: const TextStyle(
                     color: Color(0xFFC3D3D2),
-                    fontSize: 12,
+                    fontSize: 11,
                     height: 1.3,
                   ),
                 ),
               ],
             ),
           ),
-          const Icon(Icons.chevron_right_rounded, color: Color(0xFF91A8AA)),
+          Icon(Icons.chevron_right_rounded, color: color.withValues(alpha: 0.7)),
         ],
       ),
     );
