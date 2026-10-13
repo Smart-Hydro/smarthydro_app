@@ -1,11 +1,11 @@
 {
-    "name": "SmartHydro",
-    "short_name": "SmartHydro",
+    "name": "Ikolu · Smart Hydro",
+    "short_name": "Ikolu",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0B171B",
-    "theme_color": "#0B171B",
-    "description": "Centro de control hídrico SmartHydro.",
+    "theme_color": "#10213A",
+    "description": "Centro de control hídrico Ikolu Smart Hydro.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

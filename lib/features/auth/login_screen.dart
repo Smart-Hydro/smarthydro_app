@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api/smarthydro_api.dart';
 import '../../core/session/session_provider.dart';
 import '../../shared/widgets/hydro_entrance.dart';
+import '../../shared/widgets/hydro_glass.dart';
 import '../../shared/widgets/water_atmosphere.dart';
+import '../../core/brand.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -105,7 +107,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           const _LoginBrand(),
-                          const SizedBox(height: 48),
+                          const SizedBox(height: 36),
                           const Text(
                             'Control de Captaciones',
                             style: TextStyle(
@@ -187,7 +189,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             child: TextButton(
                               onPressed: busy ? null : _forgotPassword,
                               style: TextButton.styleFrom(
-                                foregroundColor: const Color(0xFF66E0C2),
+                                foregroundColor: IkoluColors.cyan,
                               ),
                               child: const Text('¿Olvidaste tu contraseña?'),
                             ),
@@ -242,8 +244,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             onPressed: busy ? null : _signIn,
                             style: FilledButton.styleFrom(
                               minimumSize: const Size.fromHeight(52),
-                              backgroundColor: const Color(0xFF66E0C2),
-                              foregroundColor: const Color(0xFF09201F),
+                              backgroundColor: IkoluColors.cyan,
+                              foregroundColor: IkoluColors.navyDeep,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(15),
                               ),
@@ -256,12 +258,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                       mainAxisAlignment:
                                           MainAxisAlignment.center,
                                       children: [
-                                        SizedBox.square(
-                                          dimension: 20,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        ),
+                                        HydroSpinner(size: 20),
                                         SizedBox(width: 12),
                                         Text(
                                           'Conectando…',
@@ -306,7 +303,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     return InputDecoration(
       labelText: label,
       labelStyle: const TextStyle(color: Color(0xFF8FA8A8), fontSize: 13),
-      prefixIcon: Icon(icon, color: const Color(0xFF66E0C2), size: 20),
+      prefixIcon: Icon(icon, color: IkoluColors.cyan, size: 20),
       filled: true,
       fillColor: const Color(0xFF0C1B20).withValues(alpha: 0.7),
       contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
@@ -317,13 +314,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
         borderSide: BorderSide(
-          color: const Color(0xFF66E0C2).withValues(alpha: 0.15),
+          color: IkoluColors.cyan.withValues(alpha: 0.15),
           width: 1,
         ),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: Color(0xFF66E0C2), width: 1.5),
+        borderSide: const BorderSide(color: IkoluColors.cyan, width: 1.5),
       ),
     );
   }
@@ -334,43 +331,15 @@ class _LoginBrand extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Row(
-      children: [
-        DecoratedBox(
-          decoration: BoxDecoration(
-            color: Color(0x1F66E0C2),
-            borderRadius: BorderRadius.all(Radius.circular(15)),
-          ),
-          child: SizedBox(
-            height: 50,
-            width: 50,
-            child: Icon(
-              Icons.water_drop_rounded,
-              color: Color(0xFF66E0C2),
-              size: 28,
-            ),
-          ),
+    return Center(
+      child: Semantics(
+        label: 'Ikolu Smart Hydro',
+        child: Image.asset(
+          'assets/branding/ikolu_lockup_dark.png',
+          height: 132,
+          fit: BoxFit.contain,
         ),
-        SizedBox(width: 13),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'SmartHydro',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-            ),
-            SizedBox(height: 3),
-            Text(
-              'CENTRO DE CONTROL',
-              style: TextStyle(
-                color: Color(0xFF8FA8A8),
-                fontSize: 9,
-                letterSpacing: 1.3,
-              ),
-            ),
-          ],
-        ),
-      ],
+      ),
     );
   }
 }

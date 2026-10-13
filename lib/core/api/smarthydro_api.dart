@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 
 class SmartHydroSession {
@@ -87,6 +89,34 @@ class SmartHydroApi {
     return _map(response.data);
   }
 
+  /// Ficha estática de la captación: d1 profundidad, d2 bomba, d3 sensor de
+  /// nivel, d4 ducto de salida, d5 flujómetro y límites de procesamiento.
+  Future<Map<String, dynamic>> pointConfig(String token, int pointId) async {
+    final response = await _authorizedGet(
+      '/api/ik/point/$pointId/config/',
+      token,
+    );
+    final data = _map(response.data);
+    final nested = data['config_data'] ?? data['config'];
+    return nested is Map ? _map(nested) : data;
+  }
+
+  /// Variables configuradas del punto (CAUDAL, NIVEL, TOTALIZADO…). Define
+  /// qué lecturas existen de verdad, independientemente de la telemetría.
+  Future<List<Map<String, dynamic>>> pointVariables(
+    String token,
+    int pointId,
+  ) async {
+    final response = await _authorizedGet(
+      '/api/ik/point/$pointId/variables/',
+      token,
+    );
+    final data = _map(response.data);
+    final list = data['variables'];
+    if (list is List) return list.map(_map).toList(growable: false);
+    return const [];
+  }
+
   Future<List<Map<String, dynamic>>> pointCalendar(
     String token,
     int pointId, {
@@ -126,11 +156,12 @@ class SmartHydroApi {
   Future<Map<String, dynamic>> ticketNotifications(
     String token, {
     bool unreadOnly = false,
+    int page = 1,
   }) async {
     final response = await _authorizedGet(
       '/api/ik/tickets/notifications/',
       token,
-      queryParameters: {'unread_only': unreadOnly, 'page': 1},
+      queryParameters: {'unread_only': unreadOnly, 'page': page},
     );
     return _map(response.data);
   }
@@ -147,11 +178,15 @@ class SmartHydroApi {
     return _map(response.data);
   }
 
-  Future<List<Map<String, dynamic>>> systemEvents(String token) async {
+  Future<List<Map<String, dynamic>>> systemEvents(
+    String token, {
+    int page = 1,
+    int pageSize = 20,
+  }) async {
     final response = await _authorizedGet(
       '/api/ik/control_center/system_events/',
       token,
-      queryParameters: {'page': 1, 'page_size': 20},
+      queryParameters: {'page': page, 'page_size': pageSize},
     );
     final data = response.data;
     if (data is List) return data.map(_map).toList(growable: false);
@@ -383,6 +418,80 @@ class SmartHydroApi {
       throw SmartHydroApiException(_messageFor(error));
     }
   }
+
+  /// Ficha DGA del punto y sus últimos intentos de envío (`modules.m2`).
+  Future<Map<String, dynamic>> pointDgaDetail(String token, int pointId) async {
+    final response = await _authorizedGet(
+      '/api/catchment_point/$pointId/',
+      token,
+    );
+    return _map(response.data);
+  }
+
+  /// Planilla DGA (MEE) en XLSX: cada medición del rango con su comprobante.
+  Future<Uint8List> dgaWorkbook(
+    String token,
+    int pointId, {
+    required DateTime start,
+    required DateTime end,
+  }) => _workbook(
+    '/api/interaction_detail_dga/',
+    token,
+    pointId,
+    start: start,
+    end: end,
+  );
+
+  /// Mediciones del punto en XLSX (todas las lecturas del rango).
+  Future<Uint8List> recordsWorkbook(
+    String token,
+    int pointId, {
+    required DateTime start,
+    required DateTime end,
+  }) => _workbook(
+    '/api/interaction_detail/',
+    token,
+    pointId,
+    start: start,
+    end: end,
+  );
+
+  Future<Uint8List> _workbook(
+    String path,
+    String token,
+    int pointId, {
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    try {
+      final response = await _dio.get<List<int>>(
+        path,
+        queryParameters: {
+          'catchment_point': pointId,
+          'date_time_medition__date__range':
+              '${_dateOnly(start)},${_dateOnly(end)}',
+        },
+        options: Options(
+          responseType: ResponseType.bytes,
+          receiveTimeout: const Duration(seconds: 120),
+          headers: {'Authorization': 'Token $token', 'Accept': xlsxMime},
+        ),
+      );
+      final bytes = Uint8List.fromList(response.data ?? const []);
+      // Un XLSX es un ZIP: si no parte con "PK" la API devolvió otra cosa.
+      if (bytes.length < 4 || bytes[0] != 0x50 || bytes[1] != 0x4B) {
+        throw const SmartHydroApiException(
+          'La API no devolvió una planilla válida.',
+        );
+      }
+      return bytes;
+    } on DioException catch (error) {
+      throw SmartHydroApiException(_messageFor(error));
+    }
+  }
+
+  static const xlsxMime =
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
   Future<Response<dynamic>> _authorizedGet(
     String path,

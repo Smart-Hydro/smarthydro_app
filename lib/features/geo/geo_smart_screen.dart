@@ -134,7 +134,9 @@ class _GeoSmartScreenState extends State<GeoSmartScreen> {
                                 child: GestureDetector(
                                   onTap: () {
                                     setState(
-                                      () => _selectedId = _intId(item.point['id']),
+                                      () => _selectedId = _intId(
+                                        item.point['id'],
+                                      ),
                                     );
                                     _focus(item.location);
                                   },
@@ -168,7 +170,7 @@ class _GeoSmartScreenState extends State<GeoSmartScreen> {
                                       Container(
                                         width: 2,
                                         height: 9,
-                                        color: const Color(0xFF66E0C2),
+                                        color: _linkColor(item.point),
                                       ),
                                     ],
                                   ),
@@ -179,9 +181,7 @@ class _GeoSmartScreenState extends State<GeoSmartScreen> {
                       ),
                       const RichAttributionWidget(
                         attributions: [
-                          TextSourceAttribution(
-                            '© OpenStreetMap © CARTO',
-                          ),
+                          TextSourceAttribution('© OpenStreetMap © CARTO'),
                         ],
                       ),
                     ],
@@ -304,7 +304,11 @@ class _MapInfo extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.water_drop_rounded, color: _linkColor(point), size: 18),
+                Icon(
+                  Icons.water_drop_rounded,
+                  color: _linkColor(point),
+                  size: 18,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -316,7 +320,10 @@ class _MapInfo extends StatelessWidget {
                 ),
                 Text(
                   surface ? 'Agua superficial' : 'Pozo',
-                  style: const TextStyle(color: Color(0xFF9AB0B1), fontSize: 11),
+                  style: const TextStyle(
+                    color: Color(0xFF9AB0B1),
+                    fontSize: 11,
+                  ),
                 ),
               ],
             ),
@@ -390,24 +397,24 @@ class _NoGpsPoints extends StatelessWidget {
   @override
   Widget build(BuildContext context) => HydroFrame(
     child: ListView(
-    padding: const EdgeInsets.all(20),
-    children: [
-      const Icon(
-        Icons.location_off_outlined,
-        color: Color(0xFFFFC46B),
-        size: 36,
-      ),
-      const SizedBox(height: 12),
-      const Text(
-        'Tus puntos no tienen coordenadas GPS disponibles.',
-        textAlign: TextAlign.center,
-      ),
-      const SizedBox(height: 20),
-      for (final point in points) ...[
-        _MapPointCard(point: point, onOpen: () => onSelectPoint(point)),
-        const SizedBox(height: 8),
+      padding: const EdgeInsets.all(20),
+      children: [
+        const Icon(
+          Icons.location_off_outlined,
+          color: Color(0xFFFFC46B),
+          size: 36,
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          'Tus puntos no tienen coordenadas GPS disponibles.',
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 20),
+        for (final point in points) ...[
+          _MapPointCard(point: point, onOpen: () => onSelectPoint(point)),
+          const SizedBox(height: 8),
+        ],
       ],
-    ],
     ),
   );
 }

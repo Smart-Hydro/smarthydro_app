@@ -1,11 +1,22 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../../core/api/smarthydro_api.dart';
+import '../../core/files/save_file.dart';
+import '../../shared/ui/hydro_ui.dart';
 import '../../shared/widgets/hydro_glass.dart';
+import '../dashboard/capture_stage.dart' show formatCl;
+import '../dashboard/point_meta.dart';
 
+const _weekdays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+const _monthsShort = [
+  'ene', 'feb', 'mar', 'abr', 'may', 'jun', //
+  'jul', 'ago', 'sep', 'oct', 'nov', 'dic',
+];
+
+/// Registros del punto: lecturas del período y descarga en Excel.
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({
     required this.api,
@@ -22,31 +33,54 @@ class ReportsScreen extends StatefulWidget {
   State<ReportsScreen> createState() => _ReportsScreenState();
 }
 
+enum _Period { today, week, month, custom }
+
 class _ReportsScreenState extends State<ReportsScreen> {
   int? _pointId;
-  DateTimeRange _range = DateTimeRange(
-    start: DateTime.now().subtract(const Duration(days: 6)),
-    end: DateTime.now(),
-  );
+  _Period _period = _Period.week;
+  DateTimeRange _range = _rangeFor(_Period.week);
   List<Map<String, dynamic>> _records = const [];
+  PointVariables _variables = PointVariables.unknownCatalog;
   bool _loading = true;
-  bool _sharing = false;
+  String? _busy;
   String? _error;
+  int _request = 0;
 
   @override
   void initState() {
     super.initState();
     if (widget.points.isNotEmpty) _pointId = _toInt(widget.points.first['id']);
-    _load();
+    _load(reloadVariables: true);
   }
 
-  Future<void> _load() async {
-    final pointId = _pointId;
-    if (pointId == null) {
-      setState(() {
-        _records = const [];
-        _loading = false;
-      });
+  Map<String, dynamic> get _point => widget.points.firstWhere(
+    (p) => _toInt(p['id']) == _pointId,
+    orElse: () => const {},
+  );
+
+  String get _title => _point['title']?.toString() ?? 'Punto';
+
+  static DateTimeRange _rangeFor(_Period p) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    return switch (p) {
+      _Period.today => DateTimeRange(start: today, end: now),
+      _Period.week => DateTimeRange(
+        start: today.subtract(const Duration(days: 6)),
+        end: now,
+      ),
+      _ => DateTimeRange(
+        start: today.subtract(const Duration(days: 30)),
+        end: now,
+      ),
+    };
+  }
+
+  Future<void> _load({bool reloadVariables = false}) async {
+    final id = _pointId;
+    final request = ++_request;
+    if (id == null) {
+      setState(() => _loading = false);
       return;
     }
     setState(() {
@@ -54,20 +88,29 @@ class _ReportsScreenState extends State<ReportsScreen> {
       _error = null;
     });
     try {
+      if (reloadVariables) {
+        try {
+          _variables = PointVariables.fromJson(
+            await widget.api.pointVariables(widget.token, id),
+          );
+        } on SmartHydroApiException {
+          _variables = PointVariables.unknownCatalog;
+        }
+      }
       final records = await widget.api.pointRecords(
         widget.token,
-        pointId,
+        id,
         start: _range.start,
         end: _range.end,
         limit: 500,
       );
-      if (!mounted) return;
+      if (!mounted || request != _request) return;
       setState(() {
         _records = records;
         _loading = false;
       });
     } on SmartHydroApiException catch (error) {
-      if (!mounted) return;
+      if (!mounted || request != _request) return;
       setState(() {
         _error = error.message;
         _loading = false;
@@ -75,263 +118,527 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
   }
 
-  Future<void> _chooseRange() async {
-    final selected = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(2010),
-      lastDate: DateTime.now(),
-      initialDateRange: _range,
-      helpText: 'Selecciona un rango de hasta 31 días',
-      saveText: 'Cargar registros',
-    );
-    if (!mounted || selected == null) return;
-    if (selected.duration.inDays > 31) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('El rango máximo por consulta es de 31 días.'),
-        ),
+  Future<void> _choosePeriod(_Period p) async {
+    if (p == _Period.custom) {
+      final selected = await showDateRangePicker(
+        context: context,
+        firstDate: DateTime(2015),
+        lastDate: DateTime.now(),
+        initialDateRange: _range,
+        helpText: 'Elige hasta 31 días',
+        saveText: 'Ver registros',
       );
-      return;
+      if (!mounted || selected == null) return;
+      if (selected.duration.inDays > 30) {
+        _toast('El rango máximo es de 31 días.');
+        return;
+      }
+      setState(() {
+        _period = p;
+        _range = selected;
+      });
+    } else {
+      setState(() {
+        _period = p;
+        _range = _rangeFor(p);
+      });
     }
-    setState(() => _range = selected);
     _load();
   }
 
-  Future<void> _shareCsv() async {
-    if (_records.isEmpty || _pointId == null) return;
-    setState(() => _sharing = true);
+  String get _fileBase =>
+      '${safeFileName(_title)}_${_iso(_range.start)}_${_iso(_range.end)}';
+
+  Future<void> _downloadXlsx() => _save(
+    () => widget.api.recordsWorkbook(
+      widget.token,
+      _pointId!,
+      start: _range.start,
+      end: _range.end,
+    ),
+    '$_fileBase.xlsx',
+    SmartHydroApi.xlsxMime,
+    'xlsx',
+  );
+
+  Future<void> _downloadCsv() => _save(
+    () async => Uint8List.fromList(utf8.encode(_csv())),
+    '$_fileBase.csv',
+    'text/csv',
+    'csv',
+  );
+
+  Future<void> _save(
+    Future<Uint8List> Function() load,
+    String name,
+    String mime,
+    String key,
+  ) async {
+    setState(() => _busy = key);
     try {
-      final point = widget.points.firstWhere(
-        (item) => _toInt(item['id']) == _pointId,
-        orElse: () => const <String, dynamic>{},
-      );
-      final safeTitle = (point['title']?.toString() ?? 'punto').replaceAll(
-        RegExp(r'[^A-Za-z0-9_-]'),
-        '_',
-      );
-      final filename =
-          'smarthydro_${safeTitle}_${_date(_range.start)}_${_date(_range.end)}.csv';
-      final rows = <List<String>>[
-        ['Punto', point['title']?.toString() ?? ''],
-        ['Período', '${_date(_range.start)} a ${_date(_range.end)}'],
-        [],
-        [
-          'Fecha/hora',
-          'Caudal (L/s)',
-          'Total (m³)',
-          'Variación (m³)',
-          'Nivel (m)',
-          'Nivel freático (m)',
-          'Error',
-        ],
-        for (final record in _records)
-          [
-            record['date_time']?.toString() ?? '',
-            record['flow']?.toString() ?? '',
-            record['total']?.toString() ?? '',
-            record['total_diff']?.toString() ?? '',
-            record['nivel']?.toString() ?? '',
-            record['water_table']?.toString() ?? '',
-            record['is_error']?.toString() ?? '',
-          ],
-      ];
-      final csv =
-          '\uFEFF${rows.map((row) => row.map(_csvField).join(';')).join('\r\n')}';
-      await SharePlus.instance.share(
-        ShareParams(
-          title: 'Registros SmartHydro',
-          text: 'Datos de ${point['title'] ?? 'punto SmartHydro'}',
-          files: [
-            XFile.fromData(
-              utf8.encode(csv),
-              mimeType: 'text/csv',
-              name: filename,
-            ),
-          ],
-          fileNameOverrides: [filename],
-        ),
-      );
+      await saveBytes(await load(), name, mime);
+      _toast('Descargado $name');
+    } on SmartHydroApiException catch (e) {
+      _toast(e.message);
     } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No se pudo preparar el archivo para compartir.'),
-        ),
-      );
+      _toast('No se pudo preparar el archivo.');
     } finally {
-      if (mounted) setState(() => _sharing = false);
+      if (mounted) setState(() => _busy = null);
     }
   }
 
+  String _csv() {
+    final v = _variables;
+    final header = [
+      'Fecha/hora',
+      if (v.hasFlow) 'Caudal (L/s)',
+      if (v.hasTotal) 'Totalizado (m³)',
+      if (v.hasTotal) 'Variación (m³)',
+      if (v.hasLevel) 'Nivel (m)',
+      if (v.hasLevel) 'Nivel freático (m)',
+    ];
+    String cell(dynamic x) => '"${'${x ?? ''}'.replaceAll('"', '""')}"';
+    final lines = [
+      header.map(cell).join(';'),
+      for (final r in _records)
+        [
+          _stamp(_dateOf(r)),
+          if (v.hasFlow) r['flow'],
+          if (v.hasTotal) r['total'],
+          if (v.hasTotal) r['total_diff'],
+          if (v.hasLevel) r['nivel'],
+          if (v.hasLevel) r['water_table'],
+        ].map(cell).join(';'),
+    ];
+    return '\uFEFF${lines.join('\r\n')}';
+  }
+
+  void _toast(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Descarga de registros'),
-        actions: [
-          IconButton(
-            onPressed: _load,
-            tooltip: 'Actualizar',
-            icon: const Icon(Icons.refresh_rounded),
+  Widget build(BuildContext context) => HydroPage(
+    title: 'Registros',
+    subtitle: widget.points.length > 1
+        ? PopupMenuButton<int>(
+            tooltip: 'Cambiar punto',
+            color: HydroTone.menu,
+            onSelected: (id) {
+              setState(() => _pointId = id);
+              _load(reloadVariables: true);
+            },
+            itemBuilder: (_) => [
+              for (final p in widget.points)
+                PopupMenuItem<int>(
+                  value: _toInt(p['id']),
+                  child: Text(
+                    '${p['title'] ?? 'Punto'}',
+                    style: TextStyle(
+                      color: _toInt(p['id']) == _pointId
+                          ? HydroTone.accent
+                          : HydroTone.fog,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+            ],
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    _title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: HydroTone.accent,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                const Icon(
+                  Icons.expand_more_rounded,
+                  color: HydroTone.accent,
+                  size: 16,
+                ),
+              ],
+            ),
+          )
+        : Text(
+            _title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: HydroText.subtitle,
+          ),
+    body: _body(),
+  );
+
+  Widget _body() {
+    if (_pointId == null) {
+      return const HydroMessage(
+        icon: Icons.water_drop_outlined,
+        title: 'Sin puntos',
+        message: 'Tu cuenta todavía no tiene puntos asignados.',
+      );
+    }
+    final v = _variables;
+    final groups = <DateTime, List<Map<String, dynamic>>>{};
+    for (final r in _records) {
+      final t = _dateOf(r);
+      groups.putIfAbsent(DateTime(t.year, t.month, t.day), () => []).add(r);
+    }
+    final children = <Widget>[
+      _PeriodTabs(selected: _period, onChanged: _choosePeriod),
+      const SizedBox(height: 14),
+      Text(
+        '${_short(_range.start)} – ${_short(_range.end)}',
+        style: const TextStyle(
+          color: HydroTone.fog,
+          fontSize: 15,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+      const SizedBox(height: 2),
+      Text(
+        _loading
+            ? 'Cargando lecturas…'
+            : '${formatCl(_records.length.toDouble(), 0)} lecturas'
+                  '${_records.length >= 500 ? ' · se muestran las 500 más recientes, el Excel trae todas' : ''}',
+        style: const TextStyle(
+          color: HydroTone.faint,
+          fontSize: 11.5,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      const SizedBox(height: 14),
+      Row(
+        children: [
+          Expanded(
+            child: FilledButton.icon(
+              onPressed: _busy != null ? null : _downloadXlsx,
+              style: FilledButton.styleFrom(
+                backgroundColor: HydroTone.accent,
+                foregroundColor: const Color(0xFF06222B),
+                padding: const EdgeInsets.symmetric(vertical: 13),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              icon: _busy == 'xlsx'
+                  ? const HydroSpinner(size: 16, strokeWidth: 2)
+                  : const Icon(Icons.download_rounded, size: 18),
+              label: const Text(
+                'Descargar Excel',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          TextButton(
+            onPressed: _busy != null || _records.isEmpty ? null : _downloadCsv,
+            style: TextButton.styleFrom(
+              foregroundColor: HydroTone.accent,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+            ),
+            child: _busy == 'csv'
+                ? const HydroSpinner(size: 16, strokeWidth: 2)
+                : const Text('CSV'),
           ),
         ],
       ),
-      body: HydroFrame(
-        child: ListView(
-        padding: const EdgeInsets.all(18),
+      const SizedBox(height: 22),
+    ];
+
+    final Widget content;
+    if (_loading) {
+      content = const HydroSkeleton(
+        inline: true,
+        hero: false,
+        kpis: 0,
+        chart: false,
+        rows: 8,
+      );
+    } else if (_error != null) {
+      content = HydroMessage(
+        icon: Icons.cloud_off_rounded,
+        title: 'No pudimos cargar los registros',
+        message: _error!,
+        action: ('Reintentar', _load),
+      );
+    } else if (_records.isEmpty) {
+      content = const HydroMessage(
+        icon: Icons.event_busy_rounded,
+        title: 'Sin lecturas en este período',
+        message: 'Prueba con otro rango de fechas.',
+      );
+    } else {
+      content = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          DropdownButtonFormField<int>(
-            initialValue: _pointId,
-            decoration: const InputDecoration(labelText: 'Punto'),
-            items: [
-              for (final point in widget.points)
-                DropdownMenuItem<int>(
-                  value: _toInt(point['id']),
-                  child: Text(point['title']?.toString() ?? 'Punto'),
-                ),
-            ],
-            onChanged: (value) {
-              setState(() => _pointId = value);
-              _load();
-            },
-          ),
-          const SizedBox(height: 10),
-          OutlinedButton.icon(
-            onPressed: _chooseRange,
-            icon: const Icon(Icons.date_range_rounded),
-            label: Text('${_date(_range.start)} — ${_date(_range.end)}'),
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '${_records.length} registros cargados',
-                  style: const TextStyle(color: Color(0xFF9AB0B1)),
-                ),
-              ),
-              FilledButton.icon(
-                onPressed: _records.isEmpty || _sharing ? null : _shareCsv,
-                icon: _sharing
-                    ? const SizedBox.square(
-                        dimension: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.share_rounded, size: 17),
-                label: const Text('Compartir CSV'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          if (_loading) const LinearProgressIndicator(),
-          if (_error != null) _ReportError(message: _error!, onRetry: _load),
-          if (!_loading && _error == null && _records.isEmpty)
-            const _ReportEmpty(),
-          if (_records.length >= 500)
-            const Padding(
-              padding: EdgeInsets.only(bottom: 8),
-              child: Text(
-                'Se alcanzó el límite de 500 registros; reduce el período para revisar con mayor detalle.',
-                style: TextStyle(color: Color(0xFFFFC46B), fontSize: 11),
+          _ColumnsHeader(variables: v),
+          for (final entry in groups.entries) ...[
+            _DayHeader(day: entry.key, count: entry.value.length),
+            for (final r in entry.value) _RecordRow(record: r, variables: v),
+          ],
+        ],
+      );
+    }
+    children.add(
+      HydroSwap(
+        state: _loading
+            ? 'loading'
+            : _error != null
+            ? 'error'
+            : '$_pointId-${_range.start}-${_range.end}',
+        child: content,
+      ),
+    );
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
+      children: children,
+    );
+  }
+}
+
+class _PeriodTabs extends StatelessWidget {
+  const _PeriodTabs({required this.selected, required this.onChanged});
+
+  final _Period selected;
+  final ValueChanged<_Period> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    const labels = {
+      _Period.today: 'Hoy',
+      _Period.week: '7 días',
+      _Period.month: '31 días',
+      _Period.custom: 'Elegir fechas',
+    };
+    return Wrap(
+      spacing: 4,
+      children: [
+        for (final e in labels.entries)
+          InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => onChanged(e.key),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (e.key == _Period.custom) ...[
+                        Icon(
+                          Icons.date_range_rounded,
+                          size: 14,
+                          color: e.key == selected
+                              ? HydroTone.fog
+                              : HydroTone.faint,
+                        ),
+                        const SizedBox(width: 4),
+                      ],
+                      Text(
+                        e.value,
+                        style: TextStyle(
+                          color: e.key == selected
+                              ? HydroTone.fog
+                              : HydroTone.faint,
+                          fontSize: 12.5,
+                          fontWeight: e.key == selected
+                              ? FontWeight.w800
+                              : FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 240),
+                    width: e.key == selected ? 16 : 0,
+                    height: 2,
+                    decoration: BoxDecoration(
+                      color: HydroTone.accent,
+                      borderRadius: BorderRadius.circular(1),
+                    ),
+                  ),
+                ],
               ),
             ),
-          if (_records.isNotEmpty) _RecordsTable(records: _records),
+          ),
+      ],
+    );
+  }
+}
+
+class _ColumnsHeader extends StatelessWidget {
+  const _ColumnsHeader({required this.variables});
+
+  final PointVariables variables;
+
+  @override
+  Widget build(BuildContext context) {
+    const style = TextStyle(
+      color: HydroTone.faint,
+      fontSize: 10.5,
+      fontWeight: FontWeight.w700,
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          const SizedBox(width: 56, child: Text('Hora', style: style)),
+          if (variables.hasFlow)
+            const Expanded(
+              child: Text('Caudal', textAlign: TextAlign.right, style: style),
+            ),
+          if (variables.hasTotal)
+            const Expanded(
+              flex: 2,
+              child: Text(
+                'Totalizado',
+                textAlign: TextAlign.right,
+                style: style,
+              ),
+            ),
+          if (variables.hasLevel)
+            const Expanded(
+              child: Text('Nivel', textAlign: TextAlign.right, style: style),
+            ),
+          const SizedBox(width: 18),
         ],
-        ),
       ),
     );
   }
 }
 
-class _RecordsTable extends StatelessWidget {
-  const _RecordsTable({required this.records});
+class _DayHeader extends StatelessWidget {
+  const _DayHeader({required this.day, required this.count});
 
-  final List<Map<String, dynamic>> records;
+  final DateTime day;
+  final int count;
 
   @override
-  Widget build(BuildContext context) => SingleChildScrollView(
-    scrollDirection: Axis.horizontal,
-    child: DataTable(
-      columns: const [
-        DataColumn(label: Text('Fecha/hora')),
-        DataColumn(label: Text('Caudal')),
-        DataColumn(label: Text('Total')),
-        DataColumn(label: Text('Variación')),
-        DataColumn(label: Text('Nivel')),
-        DataColumn(label: Text('Error')),
-      ],
-      rows: [
-        for (final record in records)
-          DataRow(
-            cells: [
-              DataCell(Text(_formatDate(record['date_time']))),
-              DataCell(Text(_value(record['flow'], 'L/s'))),
-              DataCell(Text(_value(record['total'], 'm³'))),
-              DataCell(Text(_value(record['total_diff'], 'm³'))),
-              DataCell(
-                Text(_value(record['nivel'] ?? record['water_table'], 'm')),
-              ),
-              DataCell(
-                Icon(
-                  record['is_error'] == true
-                      ? Icons.error_outline
-                      : Icons.check_circle_outline,
-                  color: record['is_error'] == true
-                      ? const Color(0xFFFF847A)
-                      : const Color(0xFF66E0C2),
-                  size: 17,
-                ),
-              ),
-            ],
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 14, bottom: 4),
+    child: Row(
+      children: [
+        Text(
+          '${_weekdays[day.weekday - 1]} ${day.day} ${_monthsShort[day.month - 1]}',
+          style: const TextStyle(
+            color: HydroTone.accent,
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
           ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          '$count lecturas',
+          style: const TextStyle(color: HydroTone.faint, fontSize: 10.5),
+        ),
       ],
     ),
   );
 }
 
-class _ReportEmpty extends StatelessWidget {
-  const _ReportEmpty();
+class _RecordRow extends StatelessWidget {
+  const _RecordRow({required this.record, required this.variables});
+
+  final Map<String, dynamic> record;
+  final PointVariables variables;
 
   @override
-  Widget build(BuildContext context) => const Padding(
-    padding: EdgeInsets.all(24),
-    child: Text(
-      'No hay registros para el punto y período seleccionados.',
-      textAlign: TextAlign.center,
-      style: TextStyle(color: Color(0xFF9AB0B1)),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final r = record;
+    final t = _dateOf(r);
+    final error = r['is_error'] == true;
+    String value(dynamic v, int d, String unit) {
+      final n = v is num ? v.toDouble() : double.tryParse('${v ?? ''}');
+      return n == null ? '—' : '${formatCl(n, d)} $unit';
+    }
+
+    const style = TextStyle(
+      color: HydroTone.fog,
+      fontSize: 12.5,
+      fontWeight: FontWeight.w600,
+      fontFeatures: [FontFeature.tabularFigures()],
+    );
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: HydroTone.hair)),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 56,
+            child: Text(
+              '${_two(t.hour)}:${_two(t.minute)}',
+              style: style.copyWith(fontWeight: FontWeight.w800),
+            ),
+          ),
+          if (variables.hasFlow)
+            Expanded(
+              child: Text(
+                value(r['flow'], 2, 'L/s'),
+                textAlign: TextAlign.right,
+                style: style,
+              ),
+            ),
+          if (variables.hasTotal)
+            Expanded(
+              flex: 2,
+              child: Text(
+                value(r['total'], 1, 'm³'),
+                textAlign: TextAlign.right,
+                style: style,
+              ),
+            ),
+          if (variables.hasLevel)
+            Expanded(
+              child: Text(
+                value(r['nivel'] ?? r['water_table'], 2, 'm'),
+                textAlign: TextAlign.right,
+                style: style,
+              ),
+            ),
+          SizedBox(
+            width: 18,
+            child: error
+                ? const Tooltip(
+                    message: 'El equipo marcó esta lectura con error',
+                    child: Icon(
+                      Icons.error_outline_rounded,
+                      size: 13,
+                      color: Color(0xFFFF847A),
+                    ),
+                  )
+                : null,
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-class _ReportError extends StatelessWidget {
-  const _ReportError({required this.message, required this.onRetry});
+DateTime _dateOf(Map<String, dynamic> r) =>
+    DateTime.tryParse(
+      '${r['date_time'] ?? r['date_time_medition'] ?? ''}',
+    )?.toLocal() ??
+    DateTime.fromMillisecondsSinceEpoch(0);
 
-  final String message;
-  final VoidCallback onRetry;
+String _two(int n) => n.toString().padLeft(2, '0');
 
-  @override
-  Widget build(BuildContext context) => ListTile(
-    leading: const Icon(Icons.error_outline_rounded, color: Color(0xFFFF847A)),
-    title: Text(message),
-    trailing: IconButton(
-      onPressed: onRetry,
-      icon: const Icon(Icons.refresh_rounded),
-    ),
-  );
-}
+String _iso(DateTime d) => '${d.year}-${_two(d.month)}-${_two(d.day)}';
 
-String _date(DateTime date) =>
-    '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+String _short(DateTime d) =>
+    '${d.day} ${_monthsShort[d.month - 1]}${d.year != DateTime.now().year ? ' ${d.year}' : ''}';
+
+String _stamp(DateTime d) => '${_iso(d)} ${_two(d.hour)}:${_two(d.minute)}';
+
 int? _toInt(dynamic value) => value is int ? value : int.tryParse('$value');
-String _value(dynamic value, String unit) =>
-    value == null ? '—' : '$value $unit';
-String _formatDate(dynamic value) {
-  final date = DateTime.tryParse(value?.toString() ?? '')?.toLocal();
-  if (date == null) return '—';
-  return '${_date(date)} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
-}
-
-String _csvField(String value) {
-  final escaped = value.replaceAll('"', '""');
-  return '"$escaped"';
-}

@@ -1,6 +1,8 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
+import '../../core/brand.dart';
+
 class LiquidDestination {
   const LiquidDestination({required this.icon, required this.label});
 
@@ -53,8 +55,8 @@ class LiquidNavBar extends StatelessWidget {
                   ],
                 ),
                 border: Border.all(
-                  color: const Color(0xFF66E0C2).withValues(alpha: 0.22),
-                  width: 1.2,
+                  color: Colors.white.withValues(alpha: 0.08),
+                  width: 1,
                 ),
                 boxShadow: [
                   BoxShadow(
@@ -63,7 +65,7 @@ class LiquidNavBar extends StatelessWidget {
                     offset: const Offset(0, 10),
                   ),
                   BoxShadow(
-                    color: const Color(0xFF66E0C2).withValues(alpha: 0.08),
+                    color: IkoluColors.cyan.withValues(alpha: 0.06),
                     blurRadius: 18,
                     spreadRadius: -2,
                     offset: const Offset(0, -2),
@@ -182,24 +184,21 @@ class _LiquidBlob extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(22),
+        // Cápsula del ítem activo: relleno suave sin borde marcado.
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            const Color(0xFF66E0C2).withValues(alpha: 0.38),
-            const Color(0xFF14757C).withValues(alpha: 0.15),
+            IkoluColors.cyan.withValues(alpha: 0.22),
+            IkoluColors.navy.withValues(alpha: 0.16),
           ],
-        ),
-        border: Border.all(
-          color: const Color(0xFF66E0C2).withValues(alpha: 0.4),
-          width: 1.2,
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF66E0C2).withValues(alpha: 0.28),
-            blurRadius: 14,
-            spreadRadius: 1,
-            offset: const Offset(0, 2),
+            color: IkoluColors.cyan.withValues(alpha: 0.16),
+            blurRadius: 16,
+            spreadRadius: -2,
+            offset: const Offset(0, 3),
           ),
         ],
       ),

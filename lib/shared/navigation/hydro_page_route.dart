@@ -18,18 +18,22 @@ PageRoute<T> hydroPageRoute<T>(Widget page) {
         reverseCurve: Curves.easeInCubic,
       );
       return FadeTransition(
-        opacity: Tween<double>(begin: 1, end: 0.6).animate(leave),
+        opacity: Tween<double>(begin: 1, end: 0.55).animate(leave),
         child: ScaleTransition(
-          scale: Tween<double>(begin: 1, end: 0.97).animate(leave),
+          scale: Tween<double>(begin: 1, end: 0.96).animate(leave),
           child: FadeTransition(
-            opacity: enter,
+            opacity: CurvedAnimation(
+              parent: animation,
+              curve: const Interval(0.15, 1, curve: Curves.easeOut),
+              reverseCurve: Curves.easeInCubic,
+            ),
             child: SlideTransition(
               position: Tween<Offset>(
-                begin: const Offset(0, 0.04),
+                begin: const Offset(0, 0.045),
                 end: Offset.zero,
               ).animate(enter),
               child: ScaleTransition(
-                scale: Tween<double>(begin: 0.985, end: 1).animate(enter),
+                scale: Tween<double>(begin: 0.98, end: 1).animate(enter),
                 child: child,
               ),
             ),
