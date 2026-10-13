@@ -615,85 +615,100 @@ class _DashboardTab extends StatelessWidget {
   Widget build(BuildContext context) {
     return RefreshIndicator(
       onRefresh: onRefresh,
-      child: HydroFrame(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
-          children: [
-            Text(
+      // La ciudad va a sangre (full ancho). El resto sí usa HydroFrame.
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+            child: Text(
               'Hola, $userName',
               style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
             ),
-            const SizedBox(height: 10),
-            PortfolioNetwork(points: points, onPointSelected: onSelectPoint),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                const Text(
-                  'Tus captaciones',
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
-                ),
-                const Spacer(),
-                TextButton.icon(
-                  onPressed: onOpenPoints,
-                  icon: const Icon(Icons.arrow_forward_rounded, size: 16),
-                  label: const Text('Ver todos'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            if (points.isEmpty)
-              const _EmptyState(
-                icon: Icons.water_drop_outlined,
-                title: 'Aún no tienes puntos asignados',
-                message:
-                    'Cuando tu cuenta tenga puntos asociados, aparecerán aquí.',
-              )
-            else
-              for (var i = 0; i < points.take(5).length; i++) ...[
-                HydroEntrance(
-                  delay: Duration(milliseconds: 120 + i * 45),
-                  child: _PointCard(
-                    point: points[i],
-                    onTap: () => onSelectPoint(points[i]),
+          ),
+          PortfolioNetwork(points: points, onPointSelected: onSelectPoint),
+          const SizedBox(height: 18),
+          HydroFrame(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      const Text(
+                        'Tus captaciones',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const Spacer(),
+                      TextButton.icon(
+                        onPressed: onOpenPoints,
+                        icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                        label: const Text('Ver todos'),
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(height: 10),
-              ],
-            const SizedBox(height: 14),
-            HydroEntrance(
-              delay: const Duration(milliseconds: 360),
-              child: _ActionCard(
-                icon: Icons.notifications_active_outlined,
-                title: 'Revisar avisos',
-                subtitle: 'Notificaciones de tickets y eventos de sistema',
-                color: const Color(0xFF66E0C2),
-                onTap: onOpenNotifications,
+                  const SizedBox(height: 4),
+                  if (points.isEmpty)
+                    const _EmptyState(
+                      icon: Icons.water_drop_outlined,
+                      title: 'Aún no tienes puntos asignados',
+                      message:
+                          'Cuando tu cuenta tenga puntos asociados, aparecerán aquí.',
+                    )
+                  else
+                    for (var i = 0; i < points.take(5).length; i++) ...[
+                      HydroEntrance(
+                        delay: Duration(milliseconds: 120 + i * 45),
+                        child: _PointCard(
+                          point: points[i],
+                          onTap: () => onSelectPoint(points[i]),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                  const SizedBox(height: 14),
+                  HydroEntrance(
+                    delay: const Duration(milliseconds: 360),
+                    child: _ActionCard(
+                      icon: Icons.notifications_active_outlined,
+                      title: 'Revisar avisos',
+                      subtitle:
+                          'Notificaciones de tickets y eventos de sistema',
+                      color: const Color(0xFF66E0C2),
+                      onTap: onOpenNotifications,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  HydroEntrance(
+                    delay: const Duration(milliseconds: 420),
+                    child: _ActionCard(
+                      icon: Icons.map_outlined,
+                      title: 'GEO Smart',
+                      subtitle: 'Ubicación y estado de tus puntos con GPS',
+                      color: const Color(0xFF66E0C2),
+                      onTap: onOpenGeo,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  HydroEntrance(
+                    delay: const Duration(milliseconds: 480),
+                    child: _ActionCard(
+                      icon: Icons.query_stats_rounded,
+                      title: 'Smart Análisis',
+                      subtitle: 'Consumo diario y mensual de un punto',
+                      color: const Color(0xFF66E0C2),
+                      onTap: onOpenAnalysis,
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 10),
-            HydroEntrance(
-              delay: const Duration(milliseconds: 420),
-              child: _ActionCard(
-                icon: Icons.map_outlined,
-                title: 'GEO Smart',
-                subtitle: 'Ubicación y estado de tus puntos con GPS',
-                color: const Color(0xFF66E0C2),
-                onTap: onOpenGeo,
-              ),
-            ),
-            const SizedBox(height: 10),
-            HydroEntrance(
-              delay: const Duration(milliseconds: 480),
-              child: _ActionCard(
-                icon: Icons.query_stats_rounded,
-                title: 'Smart Análisis',
-                subtitle: 'Consumo diario y mensual de un punto',
-                color: const Color(0xFF66E0C2),
-                onTap: onOpenAnalysis,
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

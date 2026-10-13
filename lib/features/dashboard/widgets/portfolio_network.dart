@@ -64,125 +64,132 @@ class _PortfolioNetworkState extends State<PortfolioNetwork>
         .where((point) => pointLinkOf(point) == PointLink.incident)
         .length;
 
+    final stageHeight = (MediaQuery.sizeOf(context).height * 0.48).clamp(
+      340.0,
+      520.0,
+    );
+
+    // Escenario a sangre: sin card, sin radio, ancho completo.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            const Text(
-              'Ciudad de telemetría',
-              style: TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 15,
-                letterSpacing: -0.2,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Text(
-              '$connected en línea',
-              style: const TextStyle(
-                color: Color(0xFF66E0C2),
-                fontWeight: FontWeight.w700,
-                fontSize: 11,
-              ),
-            ),
-            const Spacer(),
-            IconButton(
-              tooltip: 'Restablecer vista',
-              visualDensity: VisualDensity.compact,
-              onPressed: _resetView,
-              icon: const Icon(Icons.center_focus_strong_rounded, size: 20),
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Text(
-          gaps + incidents == 0
-              ? 'Pellizca o arrastra para explorar · toca un logger'
-              : '$gaps advertencias · $incidents incidencias · pellizca para explorar',
-          style: const TextStyle(color: Color(0xFF91A8AA), fontSize: 11),
-        ),
-        const SizedBox(height: 10),
-        SizedBox(
-          height: 380,
-          width: double.infinity,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(18),
-            child: DecoratedBox(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Color(0xFF122A30),
-                    Color(0xFF0B1A1E),
-                    Color(0xFF071114),
-                  ],
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 12, 0),
+          child: Row(
+            children: [
+              const Text(
+                'Ciudad de telemetría',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                  letterSpacing: -0.2,
                 ),
               ),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final viewport = Size(
-                    constraints.maxWidth,
-                    constraints.maxHeight,
-                  );
-                  final city = _TelemetryCityLayout.plan(
-                    count: nodes.length,
-                    viewport: viewport,
-                  );
-                  return InteractiveViewer(
-                    transformationController: _transform,
-                    minScale: 0.65,
-                    maxScale: 2.8,
-                    boundaryMargin: const EdgeInsets.all(120),
-                    clipBehavior: Clip.hardEdge,
-                    child: SizedBox(
-                      width: city.canvas.width,
-                      height: city.canvas.height,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTapUp: (details) {
-                          final index = city.hitTest(details.localPosition);
-                          if (index != null) {
-                            widget.onPointSelected(nodes[index]);
-                          }
-                        },
-                        child: AnimatedBuilder(
-                          animation: _animation,
-                          builder: (context, _) => CustomPaint(
-                            painter: _TelemetryCityPainter(
-                              points: nodes,
-                              layout: city,
-                              phase: _animation.value,
-                            ),
-                            child: const SizedBox.expand(),
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                },
+              const SizedBox(width: 10),
+              Text(
+                '$connected en línea',
+                style: const TextStyle(
+                  color: Color(0xFF66E0C2),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 11,
+                ),
               ),
-            ),
+              const Spacer(),
+              IconButton(
+                tooltip: 'Restablecer vista',
+                visualDensity: VisualDensity.compact,
+                onPressed: _resetView,
+                icon: const Icon(Icons.center_focus_strong_rounded, size: 20),
+              ),
+            ],
           ),
         ),
-        if (extraCount > 0)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              '+$extraCount puntos en el listado',
-              style: const TextStyle(color: Color(0xFF91A8AA), fontSize: 10),
-            ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 2, 20, 8),
+          child: Text(
+            gaps + incidents == 0
+                ? 'Pellizca o arrastra para explorar · toca un logger'
+                : '$gaps advertencias · $incidents incidencias · pellizca para explorar',
+            style: const TextStyle(color: Color(0xFF91A8AA), fontSize: 11),
           ),
-        const SizedBox(height: 10),
-        const Wrap(
-          spacing: 16,
-          runSpacing: 6,
-          children: [
-            _NetworkLegend(color: Color(0xFF66E0C2), label: 'Conectado'),
-            _NetworkLegend(color: Color(0xFFFFC46B), label: 'Advertencia'),
-            _NetworkLegend(color: Color(0xFFFF847A), label: 'Incidencia'),
-          ],
+        ),
+        SizedBox(
+          height: stageHeight,
+          width: double.infinity,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final viewport = Size(
+                constraints.maxWidth,
+                constraints.maxHeight,
+              );
+              final city = _TelemetryCityLayout.plan(
+                count: nodes.length,
+                viewport: viewport,
+              );
+              return InteractiveViewer(
+                transformationController: _transform,
+                minScale: 0.65,
+                maxScale: 2.8,
+                boundaryMargin: const EdgeInsets.all(160),
+                clipBehavior: Clip.hardEdge,
+                child: SizedBox(
+                  width: city.canvas.width,
+                  height: city.canvas.height,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTapUp: (details) {
+                      final index = city.hitTest(details.localPosition);
+                      if (index != null) {
+                        widget.onPointSelected(nodes[index]);
+                      }
+                    },
+                    child: AnimatedBuilder(
+                      animation: _animation,
+                      builder: (context, _) => CustomPaint(
+                        painter: _TelemetryCityPainter(
+                          points: nodes,
+                          layout: city,
+                          phase: _animation.value,
+                        ),
+                        child: const SizedBox.expand(),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (extraCount > 0)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    '+$extraCount puntos en el listado',
+                    style: const TextStyle(
+                      color: Color(0xFF91A8AA),
+                      fontSize: 10,
+                    ),
+                  ),
+                ),
+              const Wrap(
+                spacing: 16,
+                runSpacing: 6,
+                children: [
+                  _NetworkLegend(color: Color(0xFF66E0C2), label: 'Conectado'),
+                  _NetworkLegend(
+                    color: Color(0xFFFFC46B),
+                    label: 'Advertencia',
+                  ),
+                  _NetworkLegend(color: Color(0xFFFF847A), label: 'Incidencia'),
+                ],
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -213,24 +220,26 @@ class _NetworkLegend extends StatelessWidget {
   );
 }
 
-/// Rejilla centrada: filas equilibradas y columnas alineadas al eje medio.
+/// Rejilla centrada que se estira al ancho del escenario (sin card).
 class _TelemetryCityLayout {
   const _TelemetryCityLayout({
     required this.canvas,
     required this.nodes,
     required this.columns,
     required this.rows,
+    required this.cellWidth,
+    required this.cellHeight,
   });
 
   final Size canvas;
   final List<Offset> nodes;
   final int columns;
   final int rows;
+  final double cellWidth;
+  final double cellHeight;
 
-  static const double cellWidth = 118;
-  static const double cellHeight = 108;
-  static const double padX = 48;
-  static const double padY = 56;
+  static const double padX = 20;
+  static const double padY = 40;
 
   static _TelemetryCityLayout plan({
     required int count,
@@ -245,6 +254,15 @@ class _TelemetryCityLayout {
         ? 3
         : 4;
     final rows = (n / columns).ceil();
+    // Ocupar casi todo el ancho disponible: sensación de escenario full-bleed.
+    final cellWidth = ((viewport.width - padX * 2) / columns).clamp(
+      108.0,
+      220.0,
+    );
+    final cellHeight = (viewport.height / math.max(rows, 1) * 0.72).clamp(
+      100.0,
+      130.0,
+    );
     final contentW = columns * cellWidth;
     final contentH = rows * cellHeight;
     final canvas = Size(
@@ -252,7 +270,7 @@ class _TelemetryCityLayout {
       math.max(viewport.height, contentH + padY * 2),
     );
     final originX = (canvas.width - contentW) / 2;
-    final originY = (canvas.height - contentH) / 2 + 8;
+    final originY = (canvas.height - contentH) / 2 + 4;
 
     final nodes = <Offset>[];
     for (var index = 0; index < count; index++) {
@@ -261,7 +279,6 @@ class _TelemetryCityLayout {
       final itemsInRow = index ~/ columns == rows - 1
           ? (count - (rows - 1) * columns)
           : columns;
-      // Última fila incompleta: centrar el bloque restante.
       final rowOffset = itemsInRow < columns
           ? (columns - itemsInRow) * cellWidth / 2
           : 0.0;
@@ -277,13 +294,17 @@ class _TelemetryCityLayout {
       nodes: nodes,
       columns: columns,
       rows: rows,
+      cellWidth: cellWidth,
+      cellHeight: cellHeight,
     );
   }
 
   int? hitTest(Offset position) {
+    final hitW = math.min(cellWidth - 8, 120.0);
+    final hitH = math.min(cellHeight - 8, 96.0);
     for (var index = 0; index < nodes.length; index++) {
       final center = nodes[index];
-      final hit = Rect.fromCenter(center: center, width: 104, height: 92);
+      final hit = Rect.fromCenter(center: center, width: hitW, height: hitH);
       if (hit.contains(position)) return index;
     }
     return null;
@@ -479,16 +500,20 @@ class _TelemetryCityPainter extends CustomPainter {
       telemetry['total'] ?? telemetry['total_raw'] ?? telemetry['consumption'],
     );
     final title = point['title']?.toString() ?? 'Logger';
-    final short = title.length > 14 ? '${title.substring(0, 13)}…' : title;
+    final short = title.length > 16 ? '${title.substring(0, 15)}…' : title;
+    final plateW = math.min(layout.cellWidth - 16, 132.0);
+    final plateH = math.min(layout.cellHeight - 18, 86.0);
+    final left = center.dx - plateW / 2;
+    final top = center.dy - plateH / 2;
 
-    // Placa del logger (bloque urbano, no óvalo).
+    // Placa del logger (bloque urbano a escala del ancho disponible).
     final plate = RRect.fromRectAndRadius(
-      Rect.fromCenter(center: center, width: 96, height: 78),
-      const Radius.circular(12),
+      Rect.fromCenter(center: center, width: plateW, height: plateH),
+      const Radius.circular(10),
     );
     canvas.drawRRect(
       plate,
-      Paint()..color = const Color(0xFF0A171B).withValues(alpha: 0.92),
+      Paint()..color = const Color(0xFF0A171B).withValues(alpha: 0.9),
     );
     canvas.drawRRect(
       plate,
@@ -498,9 +523,8 @@ class _TelemetryCityPainter extends CustomPainter {
         ..strokeWidth = 1.3,
     );
 
-    // Faro de estado (cuadrado suave, no óvalo flotante).
     final lamp = RRect.fromRectAndRadius(
-      Rect.fromLTWH(center.dx - 42, center.dy - 33, 8, 8),
+      Rect.fromLTWH(left + 10, top + 10, 8, 8),
       const Radius.circular(2.5),
     );
     canvas.drawRRect(lamp, Paint()..color = color);
@@ -518,15 +542,15 @@ class _TelemetryCityPainter extends CustomPainter {
     _drawText(
       canvas,
       short,
-      Offset(center.dx - 30, center.dy - 34),
-      const TextStyle(color: _fog, fontSize: 10, fontWeight: FontWeight.w800),
-      maxWidth: 68,
+      Offset(left + 24, top + 9),
+      const TextStyle(color: _fog, fontSize: 11, fontWeight: FontWeight.w800),
+      maxWidth: plateW - 36,
     );
 
-    // Tres lecturas rápidas: caudal · nivel · totalizado.
+    final metricX = left + 12;
     _drawMetricRow(
       canvas,
-      Offset(center.dx - 40, center.dy - 12),
+      Offset(metricX, center.dy - 10),
       'Q',
       flow == null ? '—' : _compact(flow),
       'L/s',
@@ -534,7 +558,7 @@ class _TelemetryCityPainter extends CustomPainter {
     );
     _drawMetricRow(
       canvas,
-      Offset(center.dx - 40, center.dy + 6),
+      Offset(metricX, center.dy + 8),
       'N',
       level == null ? '—' : _compact(level),
       'm',
@@ -542,7 +566,7 @@ class _TelemetryCityPainter extends CustomPainter {
     );
     _drawMetricRow(
       canvas,
-      Offset(center.dx - 40, center.dy + 24),
+      Offset(metricX, center.dy + 26),
       'Σ',
       total == null ? '—' : _compact(total),
       'm³',
@@ -553,8 +577,8 @@ class _TelemetryCityPainter extends CustomPainter {
     if (link == PointLink.connected && flow != null && flow > 0.01) {
       final travel = (phase + index * 0.13) % 1;
       final fade = math.sin(travel * math.pi);
-      final y0 = center.dy + 42;
-      final y1 = y0 + 10 + travel * 16;
+      final y0 = top + plateH + 2;
+      final y1 = y0 + 8 + travel * 14;
       canvas.drawLine(
         Offset(center.dx, y0),
         Offset(center.dx, y1),
