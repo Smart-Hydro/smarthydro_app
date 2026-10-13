@@ -22,6 +22,7 @@ import '../../shared/widgets/hydro_glass.dart';
 import '../../shared/widgets/liquid_nav.dart';
 import '../../shared/widgets/water_atmosphere.dart';
 import 'capture_stage.dart';
+import 'capture3d_view.dart';
 import 'point_link.dart';
 import 'point_history_sheet.dart';
 import 'point_system_screen.dart';
@@ -1119,6 +1120,7 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
   );
   bool _replayCustom = false;
   Timer? _replayTimer;
+  bool _use3d = true;
   CaptureProfile _profile = const CaptureProfile();
   PointVariables _variables = PointVariables.unknownCatalog;
   String? _loggerToken;
@@ -1385,22 +1387,31 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                CaptureStage(
-                  levelMeters: liveLevel,
-                  levelFill: levelFill,
-                  levelMin: _variables.hasLevel ? minimumLevel : null,
-                  levelMax: _variables.hasLevel ? maximumLevel : null,
-                  flowLitersPerSecond: liveFlow,
-                  isSurface: isSurface,
-                  link: pointLinkOf(data),
-                  profile: _profile,
-                  playing: _replayTimer != null,
-                  flowMax: _variables.hasFlow && flowMax != null && flowMax > 0
-                      ? flowMax
-                      : null,
-                  totalCubicMeters: liveTotal,
-                  loggerInfo: loggerInfo,
-                ),
+                if (_use3d)
+                  Capture3DView(
+                    levelMeters: liveLevel,
+                    levelFill: levelFill,
+                    flowLitersPerSecond: liveFlow,
+                    isSurface: isSurface,
+                    link: pointLinkOf(data),
+                  )
+                else
+                  CaptureStage(
+                    levelMeters: liveLevel,
+                    levelFill: levelFill,
+                    levelMin: _variables.hasLevel ? minimumLevel : null,
+                    levelMax: _variables.hasLevel ? maximumLevel : null,
+                    flowLitersPerSecond: liveFlow,
+                    isSurface: isSurface,
+                    link: pointLinkOf(data),
+                    profile: _profile,
+                    playing: _replayTimer != null,
+                    flowMax: _variables.hasFlow && flowMax != null && flowMax > 0
+                        ? flowMax
+                        : null,
+                    totalCubicMeters: liveTotal,
+                    loggerInfo: loggerInfo,
+                  ),
                 SafeArea(
                   bottom: false,
                   child: Padding(
@@ -1408,6 +1419,16 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
                     child: Align(
                       alignment: Alignment.topLeft,
                       child: const HydroBackButton(backdrop: true),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: 12,
+                  right: 12,
+                  child: SafeArea(
+                    child: _ViewModeToggle(
+                      use3d: _use3d,
+                      onChanged: (value) => setState(() => _use3d = value),
                     ),
                   ),
                 ),
@@ -1593,6 +1614,95 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
     if (!mounted || _replayRecords.length < 2) return;
     setState(() => _selectedReplayIndex = 0);
     _toggleReplay();
+  }
+}
+
+/// Alterna entre la vista isométrica (CaptureStage) y la vista 3D (Three.js).
+class _ViewModeToggle extends StatelessWidget {
+  const _ViewModeToggle({required this.use3d, required this.onChanged});
+
+  final bool use3d;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    const accent = IkoluColors.cyan;
+    return Material(
+      color: const Color(0xFF071114).withValues(alpha: 0.7),
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.08),
+            width: 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _ModeButton(
+              label: '2D',
+              selected: !use3d,
+              accent: accent,
+              onTap: () => onChanged(false),
+            ),
+            _ModeButton(
+              label: '3D',
+              selected: use3d,
+              accent: accent,
+              onTap: () => onChanged(true),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ModeButton extends StatelessWidget {
+  const _ModeButton({
+    required this.label,
+    required this.selected,
+    required this.accent,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? accent.withValues(alpha: 0.2) : Colors.transparent,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: selected
+                ? accent.withValues(alpha: 0.5)
+                : Colors.transparent,
+            width: 1,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? accent : const Color(0xFF9AB0B1),
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.6,
+          ),
+        ),
+      ),
+    );
   }
 }
 
