@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/smarthydro_api.dart';
 import '../../core/brand.dart';
 import '../../shared/navigation/hydro_page_route.dart';
+import '../../shared/ui/hydro_ui.dart';
 import '../../shared/widgets/hydro_glass.dart';
 
 Future<bool?> showSupportTicketSheet(
@@ -156,7 +157,10 @@ class _CustomerSupportScreenState extends State<CustomerSupportScreen> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(18, 14, 18, 92),
         children: [
-          if (_loading) const HydroLinearBar(),
+          if (_loading && _tickets.isEmpty)
+            const HydroSkeletonCards(height: 72)
+          else if (_loading)
+            const HydroLinearBar(),
           if (_error != null) _SupportError(message: _error!, onRetry: _load),
           if (!_loading && _error == null && _tickets.isEmpty)
             const _SupportEmpty(),
@@ -450,7 +454,7 @@ class _TicketDetailScreenState extends State<_TicketDetailScreen> {
       appBar: AppBar(title: Text('Solicitud #${widget.ticket['id']}')),
       body: Column(
         children: [
-          if (_loading) const HydroLinearBar(),
+          if (_loading && _comments.isNotEmpty) const HydroLinearBar(),
           if (_error != null)
             Padding(
               padding: const EdgeInsets.all(12),
@@ -488,7 +492,13 @@ class _TicketDetailScreenState extends State<_TicketDetailScreen> {
                   style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
                 ),
                 const SizedBox(height: 10),
-                if (_comments.isEmpty && !_loading)
+                if (_comments.isEmpty && _loading)
+                  const HydroShimmer(
+                    child: Column(
+                      children: [HydroBoneRow(seed: 0), HydroBoneRow(seed: 1)],
+                    ),
+                  )
+                else if (_comments.isEmpty)
                   const Text(
                     'Todavía no hay respuestas.',
                     style: TextStyle(color: Color(0xFF9AB0B1)),

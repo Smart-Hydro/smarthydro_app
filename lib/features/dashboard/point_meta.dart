@@ -54,6 +54,14 @@ class PointVariable {
     return 'sin mapear';
   }
 
+  /// Tipo corto para la ficha del logger: Nivel, Caudal o Acumulado.
+  String get simpleType {
+    if (isLevel) return 'Nivel';
+    if (isFlow) return 'Caudal';
+    if (isTotal) return 'Acumulado';
+    return meaning;
+  }
+
   /// Nombre que se muestra a la izquierda: el del esquema del logger.
   String get schemaName => strVariable ?? label ?? type;
 
@@ -214,15 +222,8 @@ class LoggerInfo {
     (label: 'Telemetría', value: telemetry ? 'Activa' : 'Inactiva'),
   ];
 
-  /// Variables del esquema del logger → a qué corresponden en SmartHydro.
-  /// Izquierda: `str_variable`; derecha: etiqueta / tipo.
+  /// Variables del esquema: el texto del logger y el tipo simple.
   List<({String label, String value})> get schemeFields => [
-    for (final v in variables)
-      (
-        label: v.schemaName,
-        value: v.type.isEmpty || v.type == 'NULL'
-            ? v.meaning
-            : '${v.meaning} · ${v.type.replaceAll('_', ' ')}',
-      ),
+    for (final v in variables) (label: v.schemaName, value: v.simpleType),
   ];
 }

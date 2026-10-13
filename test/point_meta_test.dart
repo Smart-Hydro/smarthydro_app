@@ -45,7 +45,11 @@ void main() {
 
     final info = LoggerInfo(variables: [v]);
     expect(info.schemeFields.single.label, 'ai1ActualValue');
-    expect(info.schemeFields.single.value, contains('Caudal'));
-    expect(info.schemeFields.single.value, contains('CAUDAL'));
+    expect(info.schemeFields.single.value, 'Caudal');
+    expect(
+      PointVariable(type: 'TOTALIZADO', strVariable: 'totalizer1').simpleType,
+      'Acumulado',
+    );
+    expect(PointVariable(type: 'NIVEL').simpleType, 'Nivel');
   });
 }

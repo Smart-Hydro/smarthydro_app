@@ -6,19 +6,23 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api/smarthydro_api.dart';
 import '../../core/brand.dart';
 import '../../core/session/session_provider.dart';
-import '../analysis/smart_analysis_screen.dart';
+import '../analysis/analysis_screen.dart';
 import '../profile/profile_screen.dart';
 import '../compliance/compliance_screen.dart';
+import '../compliance/point_compliance_screen.dart';
 import '../geo/geo_smart_screen.dart';
 import '../reports/reports_screen.dart';
 import '../support/customer_support_screen.dart';
 import '../../shared/navigation/hydro_page_route.dart';
+import '../../shared/ui/hydro_ui.dart';
 import '../../shared/widgets/hydro_entrance.dart';
 import '../../shared/widgets/hydro_glass.dart';
 import '../../shared/widgets/liquid_nav.dart';
 import '../../shared/widgets/water_atmosphere.dart';
 import 'capture_stage.dart';
 import 'point_link.dart';
+import 'point_history_sheet.dart';
+import 'point_system_screen.dart';
 import 'point_meta.dart';
 import 'widgets/portfolio_network.dart';
 
@@ -270,7 +274,10 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
                               );
                             },
                             child: KeyedSubtree(
-                              key: ValueKey(_selectedTab),
+                              key: ValueKey((
+                                _selectedTab,
+                                _loading && _selectedTab < 2,
+                              )),
                               child: page,
                             ),
                           ),
@@ -302,7 +309,7 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
     switch (_selectedTab) {
       case 0:
         return _loading
-            ? const _LoadingState()
+            ? const _LoadingState(rows: 4, kpis: 3)
             : _DashboardTab(
                 stats: _stats,
                 points: _points,
@@ -313,7 +320,7 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
               );
       case 1:
         return _loading
-            ? const _LoadingState()
+            ? const _LoadingState(rows: 7, kpis: 0)
             : _PointsTab(
                 points: _points,
                 onSelectPoint: _openPoint,
@@ -377,11 +384,7 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
   void _openAnalysis() {
     Navigator.of(context).push<void>(
       hydroPageRoute(
-        SmartAnalysisScreen(
-          api: _api,
-          token: widget.session.token,
-          points: _points,
-        ),
+        AnalysisScreen(api: _api, token: widget.session.token, points: _points),
       ),
     );
   }
@@ -935,13 +938,14 @@ class _NotificationsTab extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            if (loading) const HydroLinearBar(),
             _IncidentBoard(summary: summary),
             const SizedBox(height: 22),
             const _SectionTitle(title: 'Soporte y tickets'),
             if (ticketError != null)
               _InlineError(message: ticketError!, onRetry: onRefresh)
-            else if (notifications.isEmpty && !loading)
+            else if (notifications.isEmpty && loading)
+              const _BoneRows(count: 2)
+            else if (notifications.isEmpty)
               const _EmptyState(
                 icon: Icons.mark_email_read_outlined,
                 title: 'No tienes notificaciones de tickets',
@@ -960,7 +964,9 @@ class _NotificationsTab extends StatelessWidget {
             const _SectionTitle(title: 'Eventos de sistema'),
             if (eventsError != null)
               _InlineError(message: eventsError!, onRetry: onRefresh)
-            else if (events.isEmpty && !loading)
+            else if (events.isEmpty && loading)
+              const _BoneRows(count: 4)
+            else if (events.isEmpty)
               const _EmptyState(
                 icon: Icons.sensors_outlined,
                 title: 'No hay eventos recientes',
@@ -1023,8 +1029,8 @@ class _MoreTab extends StatelessWidget {
           const SizedBox(height: 10),
           _ActionCard(
             icon: Icons.query_stats_rounded,
-            title: 'Smart Análisis',
-            subtitle: 'Consumo diario y mensual por punto',
+            title: 'Análisis',
+            subtitle: 'Rendimiento y errores de cada punto',
             color: IkoluColors.cyan,
             onTap: onOpenAnalysis,
           ),
@@ -1091,20 +1097,17 @@ class PointDetailScreen extends StatefulWidget {
 
 class _PointDetailScreenState extends State<PointDetailScreen> {
   Map<String, dynamic>? _detail;
-  List<Map<String, dynamic>> _history = const [];
   List<Map<String, dynamic>> _replayRecords = const [];
   String? _error;
-  String? _historyError;
   String? _replayError;
   bool _loading = true;
-  bool _historyLoading = true;
   bool _replayLoading = true;
-  int _historyDays = 7;
   int _selectedReplayIndex = 0;
   DateTimeRange _replayRange = DateTimeRange(
     start: DateTime.now().subtract(const Duration(days: 1)),
     end: DateTime.now(),
   );
+  bool _replayCustom = false;
   Timer? _replayTimer;
   CaptureProfile _profile = const CaptureProfile();
   PointVariables _variables = PointVariables.unknownCatalog;
@@ -1160,7 +1163,6 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
         _detail = detail;
         _loading = false;
       });
-      await _loadHistory();
     } on SmartHydroApiException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -1228,8 +1230,20 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
       );
       return;
     }
-    setState(() => _replayRange = selected);
+    setState(() {
+      _replayRange = selected;
+      _replayCustom = true;
+    });
     _loadReplay();
+  }
+
+  /// Período que muestra la barra del replay.
+  String get _replayLabel {
+    if (!_replayCustom) return 'Últimas 24 h';
+    final start = _replayRange.start;
+    final end = _replayRange.end;
+    if (DateUtils.isSameDay(start, end)) return historyShortDate(start);
+    return '${start.day} – ${historyShortDate(end)}';
   }
 
   void _replayRestart() {
@@ -1280,37 +1294,6 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
   void dispose() {
     _replayTimer?.cancel();
     super.dispose();
-  }
-
-  /// Callback para redibujar el panel de historial mientras está abierto.
-  VoidCallback? _refreshSheet;
-
-  Future<void> _loadHistory() async {
-    setState(() {
-      _historyLoading = true;
-      _historyError = null;
-    });
-    _refreshSheet?.call();
-    try {
-      final history = await widget.api.pointCalendar(
-        widget.token,
-        _int(widget.point['id']),
-        days: _historyDays,
-      );
-      if (!mounted) return;
-      setState(() {
-        _history = history;
-        _historyLoading = false;
-      });
-      _refreshSheet?.call();
-    } on SmartHydroApiException catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _historyError = error.message;
-        _historyLoading = false;
-      });
-      _refreshSheet?.call();
-    }
   }
 
   @override
@@ -1414,11 +1397,7 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
                     padding: const EdgeInsets.fromLTRB(20, 20, 0, 0),
                     child: Align(
                       alignment: Alignment.topLeft,
-                      child: _FloatingIconButton(
-                        tooltip: 'Volver',
-                        onPressed: () => Navigator.of(context).maybePop(),
-                        icon: Icons.arrow_back_rounded,
-                      ),
+                      child: const HydroBackButton(backdrop: true),
                     ),
                   ),
                 ),
@@ -1452,22 +1431,36 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
                         onRetry: _loadReplay,
                       ),
                     ),
-                  _PointGlassDock(
-                    title: title,
-                    subtitle: data['project_name'] as String? ?? '',
-                    link: pointLinkOf(data),
-                    dgaActive: loggerInfo.dga != null,
-                    playing: _replayTimer != null,
-                    canReplay: _replayRecords.length > 1,
-                    atStart: _selectedReplayIndex <= 0,
-                    onToggleReplay: _toggleReplay,
-                    onRestart: _replayRestart,
-                    onPickRange: _chooseReplayRange,
-                    onHistory: _openHistory,
-                    onAnalysis: _openAnalysisForPoint,
-                    onCompliance: _openComplianceForPoint,
-                    onReports: _openReportsForPoint,
-                    onSupport: _createTicketForPoint,
+                  TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0, end: 1),
+                    duration: const Duration(milliseconds: 700),
+                    curve: const Interval(0.35, 1, curve: Curves.easeOutCubic),
+                    builder: (context, t, child) => Opacity(
+                      opacity: t,
+                      child: Transform.translate(
+                        offset: Offset(0, (1 - t) * 18),
+                        child: child,
+                      ),
+                    ),
+                    child: _PointGlassDock(
+                      title: title,
+                      subtitle: data['project_name'] as String? ?? '',
+                      link: pointLinkOf(data),
+                      dgaActive: loggerInfo.dga != null,
+                      playing: _replayTimer != null,
+                      replayLabel: _replayLabel,
+                      canReplay: _replayRecords.length > 1,
+                      atStart: _selectedReplayIndex <= 0,
+                      onToggleReplay: _toggleReplay,
+                      onRestart: _replayRestart,
+                      onPickRange: _chooseReplayRange,
+                      onHistory: _openHistory,
+                      onAnalysis: _openAnalysisForPoint,
+                      onCompliance: _openComplianceForPoint,
+                      onReports: _openReportsForPoint,
+                      onSystem: _openSystemForPoint,
+                      onSupport: _createTicketForPoint,
+                    ),
                   ),
                   if (_replayTimer != null && _replayRecords.length > 1) ...[
                     const SizedBox(height: 8),
@@ -1499,7 +1492,7 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
   void _openAnalysisForPoint() {
     Navigator.of(context).push<void>(
       hydroPageRoute(
-        SmartAnalysisScreen(
+        AnalysisScreen(
           api: widget.api,
           token: widget.token,
           points: [widget.point],
@@ -1510,7 +1503,28 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
 
   void _openComplianceForPoint() {
     Navigator.of(context).push<void>(
-      hydroPageRoute(ComplianceScreen(api: widget.api, token: widget.token)),
+      hydroPageRoute(
+        PointComplianceScreen(
+          api: widget.api,
+          token: widget.token,
+          pointId: _int(widget.point['id']),
+          pointTitle: widget.point['title']?.toString(),
+        ),
+      ),
+    );
+  }
+
+  void _openSystemForPoint() {
+    Navigator.of(context).push<void>(
+      hydroPageRoute(
+        PointSystemScreen(
+          api: widget.api,
+          token: widget.token,
+          pointId: _int(widget.point['id']),
+          pointTitle: widget.point['title']?.toString() ?? 'Punto',
+          points: [widget.point],
+        ),
+      ),
     );
   }
 
@@ -1544,138 +1558,31 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
   }
 
   void _openHistory() {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      backgroundColor: const Color(0xFF102328),
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setSheet) {
-            _refreshSheet = () => setSheet(() {});
-            return SafeArea(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.sizeOf(context).height * 0.75,
-                ),
-                child: ListView(
-                  shrinkWrap: true,
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-                  children: [
-                    const Text(
-                      'Historial diario',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    SegmentedButton<int>(
-                      showSelectedIcon: false,
-                      segments: const [
-                        ButtonSegment(value: 7, label: Text('7 días')),
-                        ButtonSegment(value: 30, label: Text('30 días')),
-                      ],
-                      selected: {_historyDays},
-                      onSelectionChanged: (selection) {
-                        setState(() => _historyDays = selection.first);
-                        _loadHistory();
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    if (_historyLoading)
-                      const HydroLinearBar()
-                    else if (_historyError != null)
-                      _InlineError(
-                        message: _historyError!,
-                        onRetry: _loadHistory,
-                      )
-                    else if (_history.isEmpty)
-                      _EmptyState(
-                        icon: Icons.query_stats_rounded,
-                        title: 'Sin historial para este período',
-                        message: _historyDays == 7
-                            ? 'No hay registros en los últimos 7 días. Prueba con 30 días.'
-                            : 'No hay registros diarios disponibles en el rango seleccionado.',
-                      )
-                    else
-                      for (final day in _history) ...[
-                        _HistoryDayCard(day: day),
-                        const SizedBox(height: 8),
-                      ],
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    ).whenComplete(() => _refreshSheet = null);
-  }
-}
-
-/// Botón de icono flotante para la barra superior de la vista del punto.
-class _FloatingIconButton extends StatefulWidget {
-  const _FloatingIconButton({
-    required this.icon,
-    required this.tooltip,
-    required this.onPressed,
-  });
-
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback? onPressed;
-
-  @override
-  State<_FloatingIconButton> createState() => _FloatingIconButtonState();
-}
-
-class _FloatingIconButtonState extends State<_FloatingIconButton> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = widget.onPressed != null;
-    const accent = IkoluColors.cyan;
-    return MouseRegion(
-      onEnter: enabled ? (_) => setState(() => _hovered = true) : null,
-      onExit: enabled ? (_) => setState(() => _hovered = false) : null,
-      child: Tooltip(
-        message: widget.tooltip,
-        child: Material(
-          color: const Color(0xFF12252A).withValues(alpha: 0.92),
-          borderRadius: BorderRadius.circular(12),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: widget.onPressed,
-            child: AnimatedScale(
-              scale: _hovered && enabled ? 1.06 : 1,
-              duration: const Duration(milliseconds: 140),
-              curve: Curves.easeOut,
-              child: Container(
-                padding: const EdgeInsets.all(9),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: _hovered && enabled
-                        ? accent.withValues(alpha: 0.5)
-                        : accent.withValues(alpha: 0.18),
-                    width: 1,
-                  ),
-                ),
-                child: Icon(
-                  widget.icon,
-                  size: 20,
-                  color: enabled
-                      ? (_hovered ? accent : const Color(0xFFB4C7C8))
-                      : const Color(0xFF5A6B6D),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
+    showPointHistorySheet(
+      context,
+      api: widget.api,
+      token: widget.token,
+      pointId: _int(widget.point['id']),
+      pointTitle: _str((_detail ?? widget.point)['title']),
+      hasFlow: _variables.hasFlow,
+      hasLevel: _variables.hasLevel,
+      hasTotal: _variables.hasTotal,
+      onReplayDay: _replayDay,
     );
+  }
+
+  /// Carga un día completo en el visor y lo reproduce desde el inicio.
+  Future<void> _replayDay(DateTime day) async {
+    _replayTimer?.cancel();
+    setState(() {
+      _replayTimer = null;
+      _replayRange = DateTimeRange(start: day, end: day);
+      _replayCustom = true;
+    });
+    await _loadReplay();
+    if (!mounted || _replayRecords.length < 2) return;
+    setState(() => _selectedReplayIndex = 0);
+    _toggleReplay();
   }
 }
 
@@ -1687,6 +1594,7 @@ class _PointGlassDock extends StatelessWidget {
     required this.link,
     required this.dgaActive,
     required this.playing,
+    required this.replayLabel,
     required this.canReplay,
     required this.atStart,
     required this.onToggleReplay,
@@ -1696,6 +1604,7 @@ class _PointGlassDock extends StatelessWidget {
     required this.onAnalysis,
     required this.onCompliance,
     required this.onReports,
+    required this.onSystem,
     required this.onSupport,
   });
 
@@ -1704,6 +1613,7 @@ class _PointGlassDock extends StatelessWidget {
   final PointLink link;
   final bool dgaActive;
   final bool playing;
+  final String replayLabel;
   final bool canReplay;
   final bool atStart;
   final VoidCallback onToggleReplay;
@@ -1713,6 +1623,7 @@ class _PointGlassDock extends StatelessWidget {
   final VoidCallback onAnalysis;
   final VoidCallback onCompliance;
   final VoidCallback onReports;
+  final VoidCallback onSystem;
   final VoidCallback onSupport;
 
   @override
@@ -1726,7 +1637,6 @@ class _PointGlassDock extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFF0F2227).withValues(alpha: 0.82),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
         boxShadow: const [
           BoxShadow(
             color: Color(0x66000000),
@@ -1810,57 +1720,78 @@ class _PointGlassDock extends StatelessWidget {
                 ],
               ],
             ),
-            const SizedBox(height: 8),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  _DockAction(
-                    icon: playing
-                        ? Icons.pause_rounded
-                        : Icons.play_arrow_rounded,
-                    label: playing ? 'Pausa' : 'Replay',
+            const SizedBox(height: 10),
+            // Fila 1: el replay del punto, con su acción principal destacada.
+            Row(
+              children: [
+                Expanded(
+                  child: _ReplayPill(
+                    playing: playing,
+                    label: replayLabel,
                     onTap: canReplay ? onToggleReplay : null,
-                    accent: IkoluColors.cyan,
                   ),
-                  _DockAction(
-                    icon: Icons.skip_previous_rounded,
-                    label: 'Inicio',
-                    onTap: !atStart && canReplay ? onRestart : null,
-                  ),
-                  _DockAction(
-                    icon: Icons.date_range_rounded,
-                    label: 'Rango',
-                    onTap: onPickRange,
-                  ),
-                  _DockAction(
+                ),
+                const SizedBox(width: 8),
+                _RoundAction(
+                  icon: Icons.skip_previous_rounded,
+                  tooltip: 'Volver al inicio',
+                  onTap: !atStart && canReplay ? onRestart : null,
+                ),
+                const SizedBox(width: 6),
+                _RoundAction(
+                  icon: Icons.date_range_rounded,
+                  tooltip: 'Elegir rango',
+                  onTap: onPickRange,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            // Fila 2: herramientas del punto, repartidas a lo ancho.
+            Row(
+              children: [
+                Expanded(
+                  child: _DockTile(
                     icon: Icons.history_rounded,
                     label: 'Historial',
                     onTap: onHistory,
                   ),
-                  _DockAction(
+                ),
+                Expanded(
+                  child: _DockTile(
                     icon: Icons.query_stats_rounded,
                     label: 'Análisis',
                     onTap: onAnalysis,
                   ),
-                  _DockAction(
-                    icon: Icons.balance_rounded,
+                ),
+                Expanded(
+                  child: _DockTile(
+                    icon: Icons.verified_outlined,
                     label: 'Cumplim.',
                     onTap: onCompliance,
                   ),
-                  _DockAction(
+                ),
+                Expanded(
+                  child: _DockTile(
                     icon: Icons.table_view_outlined,
                     label: 'Registros',
                     onTap: onReports,
                   ),
-                  _DockAction(
+                ),
+                Expanded(
+                  child: _DockTile(
+                    icon: Icons.sensors_outlined,
+                    label: 'Sistema',
+                    onTap: onSystem,
+                  ),
+                ),
+                Expanded(
+                  child: _DockTile(
                     icon: Icons.support_agent_rounded,
                     label: 'Soporte',
                     onTap: onSupport,
-                    accent: const Color(0xFFFFC46B),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ],
         ),
@@ -1869,52 +1800,163 @@ class _PointGlassDock extends StatelessWidget {
   }
 }
 
-class _DockAction extends StatelessWidget {
-  const _DockAction({
+/// Acción principal del replay: cápsula con relleno suave y su estado.
+class _ReplayPill extends StatelessWidget {
+  const _ReplayPill({
+    required this.playing,
+    required this.label,
+    required this.onTap,
+  });
+
+  final bool playing;
+
+  /// Período cargado en el visor (`Últimas 24 h`, `Vie 9 oct`…).
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    const accent = IkoluColors.cyan;
+    return Material(
+      color: accent.withValues(alpha: enabled ? (playing ? 0.26 : 0.16) : 0.06),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: SizedBox(
+          height: 40,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                child: Icon(
+                  playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                  key: ValueKey(playing),
+                  size: 20,
+                  color: accent.withValues(alpha: enabled ? 1 : 0.4),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(text: playing ? 'Pausar' : 'Reproducir'),
+                      TextSpan(
+                        text: '  ·  $label',
+                        style: TextStyle(
+                          color: const Color(
+                            0xFFE8F2F1,
+                          ).withValues(alpha: enabled ? 0.8 : 0.35),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: accent.withValues(alpha: enabled ? 1 : 0.4),
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.1,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RoundAction extends StatelessWidget {
+  const _RoundAction({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.white.withValues(alpha: enabled ? 0.07 : 0.03),
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: SizedBox.square(
+            dimension: 40,
+            child: Icon(
+              icon,
+              size: 19,
+              color: const Color(
+                0xFFE8F2F1,
+              ).withValues(alpha: enabled ? 0.9 : 0.3),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Herramienta del punto: icono y rótulo, sin color propio.
+class _DockTile extends StatelessWidget {
+  const _DockTile({
     required this.icon,
     required this.label,
     required this.onTap,
-    this.accent,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback? onTap;
-  final Color? accent;
 
   @override
   Widget build(BuildContext context) {
     final enabled = onTap != null;
-    final color = (accent ?? const Color(0xFFE8F2F1)).withValues(
-      alpha: enabled ? 0.95 : 0.35,
-    );
-    return Padding(
-      padding: const EdgeInsets.only(right: 4),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: SizedBox(
-          width: 52,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, size: 20, color: color),
-                const SizedBox(height: 3),
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: color.withValues(alpha: enabled ? 0.8 : 0.35),
-                    fontSize: 9.5,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 20,
+              color: const Color(
+                0xFFE8F2F1,
+              ).withValues(alpha: enabled ? 0.9 : 0.35),
             ),
-          ),
+            const SizedBox(height: 4),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                maxLines: 1,
+                style: TextStyle(
+                  color: const Color(
+                    0xFFE8F2F1,
+                  ).withValues(alpha: enabled ? 0.78 : 0.35),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -2008,49 +2050,6 @@ class _ReplayScrubber extends StatelessWidget {
 /// Acciones rápidas desde el detalle del punto: navegación a análisis,
 /// cumplimiento, reportes y soporte, ya acotados al punto en pantalla.
 /// Diseño minimal: una fila de iconos con etiqueta debajo, sin tarjetas.
-class _HistoryDayCard extends StatelessWidget {
-  const _HistoryDayCard({required this.day});
-
-  final Map<String, dynamic> day;
-
-  @override
-  Widget build(BuildContext context) => _SectionCard(
-    child: Row(
-      children: [
-        const Icon(
-          Icons.calendar_today_outlined,
-          color: Color(0xFF69B9FF),
-          size: 18,
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                day['date']?.toString() ?? 'Día',
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Caudal prom. ${_display(day['avg_flow_lps'], 'L/s')} · nivel ${_display(day['avg_nivel_m'], 'm')}',
-                style: const TextStyle(color: Color(0xFF9AB0B1), fontSize: 11),
-              ),
-            ],
-          ),
-        ),
-        Text(
-          _display(day['consumption_m3'], 'm³'),
-          style: const TextStyle(
-            color: IkoluColors.cyan,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
 /// Saludo compacto del dashboard con un resumen del estado de la cartera.
 class _GreetingBanner extends StatelessWidget {
   const _GreetingBanner({
@@ -2755,11 +2754,35 @@ class _InlineError extends StatelessWidget {
   );
 }
 
-class _LoadingState extends StatelessWidget {
-  const _LoadingState();
+class _BoneRows extends StatelessWidget {
+  const _BoneRows({required this.count});
+
+  final int count;
 
   @override
-  Widget build(BuildContext context) => const HydroLoading();
+  Widget build(BuildContext context) => HydroShimmer(
+    child: Column(
+      children: [for (var i = 0; i < count; i++) HydroBoneRow(seed: i)],
+    ),
+  );
+}
+
+class _LoadingState extends StatelessWidget {
+  const _LoadingState({required this.rows, required this.kpis});
+
+  final int rows;
+  final int kpis;
+
+  @override
+  Widget build(BuildContext context) => HydroFrame(
+    child: HydroSkeleton(
+      hero: false,
+      chart: false,
+      kpis: kpis,
+      rows: rows,
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+    ),
+  );
 }
 
 class _ErrorState extends StatelessWidget {

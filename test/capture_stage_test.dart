@@ -103,7 +103,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Representación de tu instalación'), findsOneWidget);
 
-    expect(await _tapUntil(tester, 'total 12345.6 m³'), isTrue);
+    expect(await _tapUntil(tester, 'total 12.345,6 m³'), isTrue);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -171,9 +171,47 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  test('formatea volúmenes como la lectura Total', () {
-    expect(formatCubicMeters(12345.6), '12345.6 m³');
-    expect(formatCubicMeters(812.44), '812.4 m³');
+  test('el corte se centra y no se estira en una vista alta', () {
+    const yaw = 0.66;
+    const pitch = 0.46;
+    ({double half, double depth, Offset origin, Size footprint}) fit(
+      Size size,
+      double depthFactor,
+    ) => captureSceneLayout(
+      size: size,
+      yaw: yaw,
+      pitch: pitch,
+      topInset: 56,
+      depthFactor: depthFactor,
+      headroom: 36,
+    );
+
+    final tall = fit(const Size(1100, 1400), 2.4);
+    final short = fit(const Size(900, 480), 2.4);
+    final tallAspect = tall.footprint.height / tall.footprint.width;
+    final shortAspect = short.footprint.height / short.footprint.width;
+    expect(tallAspect, inInclusiveRange(0.95, 1.5));
+    expect((tallAspect - shortAspect).abs(), lessThan(0.12));
+    expect(tall.footprint.height, lessThanOrEqualTo((1400 - 56 - 76) * 0.95));
+    expect(short.footprint.height, lessThanOrEqualTo((480 - 56 - 76) * 0.95));
+    expect(tall.origin.dx, closeTo(1100 / 2, 12));
+
+    final deep = fit(const Size(1100, 900), 2.85);
+    final shallow = fit(const Size(1100, 900), 2.15);
+    expect(
+      deep.footprint.height / deep.footprint.width,
+      greaterThan(shallow.footprint.height / shallow.footprint.width),
+    );
+    expect(deep.footprint.height / deep.footprint.width, lessThan(1.55));
+  });
+
+  test('formatea el flujómetro con miles chilenos', () {
+    expect(formatCubicMeters(12345.6), '12.345,6 m³');
+    expect(formatCubicMeters(1000000), '1.000.000,0 m³');
+    expect(formatCubicMeters(812.44), '812,4 m³');
+    expect(formatLitersPerSecond(1234.567), '1.234,57 L/s');
+    expect(formatLitersPerSecond(8.2), '8,20 L/s');
+    expect(formatCl(-1234.5, 1), '-1.234,5');
     expect(flowNormOf(5, 10), 0.5);
     expect(flowNormOf(30, 10), 1);
   });

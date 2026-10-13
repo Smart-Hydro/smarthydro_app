@@ -6,6 +6,7 @@ import 'core/brand.dart';
 import 'core/session/session_provider.dart';
 import 'features/auth/login_screen.dart';
 import 'features/dashboard/live_dashboard_screen.dart';
+import 'shared/ui/hydro_ui.dart';
 
 class SmartHydroApp extends ConsumerWidget {
   const SmartHydroApp({super.key});
@@ -34,6 +35,18 @@ class SmartHydroApp extends ConsumerWidget {
         colorScheme: scheme,
         scaffoldBackgroundColor: _ocean,
         cardColor: _surface,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          titleSpacing: 4,
+          titleTextStyle: HydroText.title,
+          iconTheme: IconThemeData(color: Color(0xFFC9D8D8)),
+        ),
+        actionIconTheme: ActionIconThemeData(
+          backButtonIconBuilder: (_) => const Icon(Icons.arrow_back_rounded),
+        ),
         dividerColor: Colors.white.withValues(alpha: 0.08),
         textTheme: ThemeData.dark().textTheme.apply(
           bodyColor: const Color(0xFFE8F2F1),
