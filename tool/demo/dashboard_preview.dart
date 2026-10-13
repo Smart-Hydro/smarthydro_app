@@ -54,8 +54,9 @@ class _PreviewHome extends StatelessWidget {
       'type_dga': 'SUBTERRANEO',
       'project_name': 'Sector B',
       'latest_telemetry': {
-        'date_time_medition':
-            DateTime.now().subtract(const Duration(days: 3)).toIso8601String(),
+        'date_time_medition': DateTime.now()
+            .subtract(const Duration(days: 3))
+            .toIso8601String(),
         'days_not_connection': 3,
         'flow': 2.1,
       },
@@ -93,11 +94,7 @@ class _PreviewHome extends StatelessWidget {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
               children: [
-                PortfolioNetwork(
-                  points: points,
-                  userName: 'Camila',
-                  onPointSelected: (_) {},
-                ),
+                PortfolioNetwork(points: points, onPointSelected: (_) {}),
                 const SizedBox(height: 14),
                 Wrap(
                   spacing: 10,
@@ -148,7 +145,11 @@ class _PreviewHome extends StatelessWidget {
                     scrollDirection: Axis.horizontal,
                     children: [
                       for (final action in [
-                        (Icons.notifications_active_outlined, 'Avisos', 'Tickets'),
+                        (
+                          Icons.notifications_active_outlined,
+                          'Avisos',
+                          'Tickets',
+                        ),
                         (Icons.map_outlined, 'GEO Smart', 'Mapa GPS'),
                         (Icons.query_stats_rounded, 'Análisis', '7/30 días'),
                       ])
@@ -163,7 +164,10 @@ class _PreviewHome extends StatelessWidget {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Icon(action.$1, color: const Color(0xFF66E0C2)),
+                                  Icon(
+                                    action.$1,
+                                    color: const Color(0xFF66E0C2),
+                                  ),
                                   const Spacer(),
                                   Text(
                                     action.$2,

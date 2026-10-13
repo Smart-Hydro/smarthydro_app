@@ -252,7 +252,10 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
                             switchInCurve: Curves.easeOutCubic,
                             switchOutCurve: Curves.easeInCubic,
                             transitionBuilder: (child, animation) {
-                              return FadeTransition(opacity: animation, child: child);
+                              return FadeTransition(
+                                opacity: animation,
+                                child: child,
+                              );
                             },
                             child: KeyedSubtree(
                               key: ValueKey(_selectedTab),
@@ -291,7 +294,6 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
             : _DashboardTab(
                 stats: _stats,
                 points: _points,
-                userName: widget.session.displayName,
                 onRefresh: _loadDashboard,
                 onOpenPoints: () => _selectTab(1),
                 onOpenNotifications: () => _selectTab(2),
@@ -332,16 +334,16 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
       default:
         return HydroFrame(
           child: ProfileScreen(
-          api: _api,
-          session: widget.session,
-          pointCount: _points.length,
-          notifyEmail: _notifyEmail,
-          savingEmailPreference: _savingEmailPreference,
-          onNotifyEmailChanged: _toggleEmailNotifications,
-          onUserUpdated: (user) =>
-              ref.read(sessionProvider.notifier).updateUser(user),
-          onSignOut: _signOut,
-        ),
+            api: _api,
+            session: widget.session,
+            pointCount: _points.length,
+            notifyEmail: _notifyEmail,
+            savingEmailPreference: _savingEmailPreference,
+            onNotifyEmailChanged: _toggleEmailNotifications,
+            onUserUpdated: (user) =>
+                ref.read(sessionProvider.notifier).updateUser(user),
+            onSignOut: _signOut,
+          ),
         );
     }
   }
@@ -361,10 +363,7 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
   void _openGeo() {
     Navigator.of(context).push<void>(
       hydroPageRoute(
-        GeoSmartScreen(
-          points: _points,
-          onSelectPoint: _openPoint,
-        ),
+        GeoSmartScreen(points: _points, onSelectPoint: _openPoint),
       ),
     );
   }
@@ -468,7 +467,10 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
                 const SizedBox(height: 8),
                 Text(
                   '$label · $pointName · $when',
-                  style: const TextStyle(color: Color(0xFF9AB0B1), fontSize: 12),
+                  style: const TextStyle(
+                    color: Color(0xFF9AB0B1),
+                    fontSize: 12,
+                  ),
                 ),
                 if (message.isNotEmpty) ...[
                   const SizedBox(height: 12),
@@ -476,7 +478,9 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
                 ],
                 const SizedBox(height: 18),
                 FilledButton(
-                  onPressed: hasPoint ? () => Navigator.pop(context, 'point') : null,
+                  onPressed: hasPoint
+                      ? () => Navigator.pop(context, 'point')
+                      : null,
                   child: const Text('Ver punto'),
                 ),
                 const SizedBox(height: 8),
@@ -595,7 +599,6 @@ class _DashboardTab extends StatelessWidget {
   const _DashboardTab({
     required this.stats,
     required this.points,
-    required this.userName,
     required this.onRefresh,
     required this.onOpenPoints,
     required this.onOpenNotifications,
@@ -606,7 +609,6 @@ class _DashboardTab extends StatelessWidget {
 
   final Map<String, dynamic> stats;
   final List<Map<String, dynamic>> points;
-  final String userName;
   final Future<void> Function() onRefresh;
   final VoidCallback onOpenPoints;
   final VoidCallback onOpenNotifications;
@@ -633,12 +635,11 @@ class _DashboardTab extends StatelessWidget {
       onRefresh: onRefresh,
       child: HydroFrame(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+          padding: const EdgeInsets.fromLTRB(8, 12, 8, 32),
           children: [
             HydroEntrance(
               child: PortfolioNetwork(
                 points: points,
-                userName: userName,
                 onPointSelected: onSelectPoint,
               ),
             ),
@@ -769,18 +770,8 @@ class _QuickActionsRow extends StatelessWidget {
         'Tickets y eventos',
         onOpenNotifications,
       ),
-      (
-        Icons.map_outlined,
-        'GEO Smart',
-        'Mapa y GPS',
-        onOpenGeo,
-      ),
-      (
-        Icons.query_stats_rounded,
-        'Análisis',
-        'Consumo 7/30 d',
-        onOpenAnalysis,
-      ),
+      (Icons.map_outlined, 'GEO Smart', 'Mapa y GPS', onOpenGeo),
+      (Icons.query_stats_rounded, 'Análisis', 'Consumo 7/30 d', onOpenAnalysis),
     ];
     return SizedBox(
       height: 92,
@@ -877,101 +868,104 @@ class _PointsTabState extends State<_PointsTab> {
 
     return HydroFrame(
       child: ListView(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-      children: [
-        TextField(
-          controller: _searchController,
-          onChanged: (value) =>
-              setState(() => _search = value.trim().toLowerCase()),
-          decoration: InputDecoration(
-            prefixIcon: const Icon(Icons.search_rounded),
-            hintText: 'Buscar punto, proyecto o cliente',
-            suffixIcon: _search.isEmpty
-                ? null
-                : IconButton(
-                    tooltip: 'Limpiar búsqueda',
-                    onPressed: () {
-                      _searchController.clear();
-                      setState(() => _search = '');
-                    },
-                    icon: const Icon(Icons.close_rounded),
-                  ),
-            filled: true,
-            fillColor: const Color(0xFF112328),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide.none,
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+        children: [
+          TextField(
+            controller: _searchController,
+            onChanged: (value) =>
+                setState(() => _search = value.trim().toLowerCase()),
+            decoration: InputDecoration(
+              prefixIcon: const Icon(Icons.search_rounded),
+              hintText: 'Buscar punto, proyecto o cliente',
+              suffixIcon: _search.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: 'Limpiar búsqueda',
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() => _search = '');
+                      },
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+              filled: true,
+              fillColor: const Color(0xFF112328),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none,
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 16),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            for (final filter in const [
-              'Todos',
-              'Conectados',
-              'Advertencias',
-              'Incidencias',
-            ])
-              ChoiceChip(
-                label: Text(filter),
-                selected: _filter == filter,
-                visualDensity: VisualDensity.comfortable,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 6,
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (final filter in const [
+                'Todos',
+                'Conectados',
+                'Advertencias',
+                'Incidencias',
+              ])
+                ChoiceChip(
+                  label: Text(filter),
+                  selected: _filter == filter,
+                  visualDensity: VisualDensity.comfortable,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 6,
+                  ),
+                  onSelected: (_) => setState(() => _filter = filter),
                 ),
-                onSelected: (_) => setState(() => _filter = filter),
-              ),
-          ],
-        ),
-        const SizedBox(height: 18),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(46),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(46),
+                  ),
+                  onPressed: widget.onOpenGeo,
+                  icon: const Icon(Icons.map_outlined),
+                  label: const Text('Mapa'),
                 ),
-                onPressed: widget.onOpenGeo,
-                icon: const Icon(Icons.map_outlined),
-                label: const Text('Mapa'),
               ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(46),
+              const SizedBox(width: 14),
+              Expanded(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(46),
+                  ),
+                  onPressed: widget.onOpenAnalysis,
+                  icon: const Icon(Icons.query_stats_rounded),
+                  label: const Text('Análisis'),
                 ),
-                onPressed: widget.onOpenAnalysis,
-                icon: const Icon(Icons.query_stats_rounded),
-                label: const Text('Análisis'),
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 24),
-        if (widget.points.isEmpty)
-          const _EmptyState(
-            icon: Icons.location_off_outlined,
-            title: 'Sin puntos asignados',
-            message: 'No hay puntos disponibles para esta cuenta.',
-          )
-        else if (filtered.isEmpty)
-          const _EmptyState(
-            icon: Icons.search_off_rounded,
-            title: 'Sin resultados',
-            message: 'Cambia el texto o filtro para encontrar un punto.',
-          )
-        else
-          for (final point in filtered) ...[
-            _PointCard(point: point, onTap: () => widget.onSelectPoint(point)),
-            const SizedBox(height: 10),
-          ],
-      ],
+            ],
+          ),
+          const SizedBox(height: 24),
+          if (widget.points.isEmpty)
+            const _EmptyState(
+              icon: Icons.location_off_outlined,
+              title: 'Sin puntos asignados',
+              message: 'No hay puntos disponibles para esta cuenta.',
+            )
+          else if (filtered.isEmpty)
+            const _EmptyState(
+              icon: Icons.search_off_rounded,
+              title: 'Sin resultados',
+              message: 'Cambia el texto o filtro para encontrar un punto.',
+            )
+          else
+            for (final point in filtered) ...[
+              _PointCard(
+                point: point,
+                onTap: () => widget.onSelectPoint(point),
+              ),
+              const SizedBox(height: 10),
+            ],
+        ],
       ),
     );
   }
@@ -1026,82 +1020,79 @@ class _NotificationsTab extends StatelessWidget {
       onRefresh: () async => onRefresh(),
       child: HydroFrame(
         child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: Text(
-                    '${_int(summary['total_events'])} incidencias en ${_int(summary['period_days'], 7)} días · ${_int(tickets['unread_count'])} avisos de soporte sin leer',
-                    style: const TextStyle(color: Color(0xFF9AB0B1)),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(
+                      '${_int(summary['total_events'])} incidencias en ${_int(summary['period_days'], 7)} días · ${_int(tickets['unread_count'])} avisos de soporte sin leer',
+                      style: const TextStyle(color: Color(0xFF9AB0B1)),
+                    ),
                   ),
                 ),
-              ),
-              IconButton(
-                onPressed: onRefresh,
-                tooltip: 'Actualizar avisos',
-                icon: const Icon(Icons.refresh_rounded),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          if (loading) const LinearProgressIndicator(),
-          _IncidentBoard(summary: summary),
-          const SizedBox(height: 22),
-          const _SectionTitle(title: 'Soporte y tickets'),
-          if (ticketError != null)
-            _InlineError(message: ticketError!, onRetry: onRefresh)
-          else if (notifications.isEmpty && !loading)
-            const _EmptyState(
-              icon: Icons.mark_email_read_outlined,
-              title: 'No tienes notificaciones de tickets',
-              message:
-                  'Los comentarios y cambios en tus solicitudes aparecerán aquí.',
-            )
-          else
-            for (final notification in notifications) ...[
-              _TicketNotificationCard(
-                notification: notification,
-                onMarkRead: () => onMarkRead(notification),
-              ),
-              const SizedBox(height: 9),
-            ],
-          const SizedBox(height: 24),
-          const _SectionTitle(title: 'Eventos de sistema'),
-          if (eventsError != null)
-            _InlineError(message: eventsError!, onRetry: onRefresh)
-          else if (events.isEmpty && !loading)
-            const _EmptyState(
-              icon: Icons.sensors_outlined,
-              title: 'No hay eventos recientes',
-              message:
-                  'Las desconexiones y eventos de tus puntos aparecerán aquí.',
-            )
-          else
-            for (final entry in grouped.entries) ...[
-              Padding(
-                padding: const EdgeInsets.only(top: 8, bottom: 8),
-                child: Text(
-                  entry.key,
-                  style: const TextStyle(
-                    color: Color(0xFF9AB0B1),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
+                IconButton(
+                  onPressed: onRefresh,
+                  tooltip: 'Actualizar avisos',
+                  icon: const Icon(Icons.refresh_rounded),
                 ),
-              ),
-              for (final event in entry.value) ...[
-                _SystemEventCard(
-                  event: event,
-                  onTap: () => onEvent(event),
-                ),
-                const SizedBox(height: 12),
               ],
-            ],
-        ],
+            ),
+            const SizedBox(height: 8),
+            if (loading) const LinearProgressIndicator(),
+            _IncidentBoard(summary: summary),
+            const SizedBox(height: 22),
+            const _SectionTitle(title: 'Soporte y tickets'),
+            if (ticketError != null)
+              _InlineError(message: ticketError!, onRetry: onRefresh)
+            else if (notifications.isEmpty && !loading)
+              const _EmptyState(
+                icon: Icons.mark_email_read_outlined,
+                title: 'No tienes notificaciones de tickets',
+                message:
+                    'Los comentarios y cambios en tus solicitudes aparecerán aquí.',
+              )
+            else
+              for (final notification in notifications) ...[
+                _TicketNotificationCard(
+                  notification: notification,
+                  onMarkRead: () => onMarkRead(notification),
+                ),
+                const SizedBox(height: 9),
+              ],
+            const SizedBox(height: 24),
+            const _SectionTitle(title: 'Eventos de sistema'),
+            if (eventsError != null)
+              _InlineError(message: eventsError!, onRetry: onRefresh)
+            else if (events.isEmpty && !loading)
+              const _EmptyState(
+                icon: Icons.sensors_outlined,
+                title: 'No hay eventos recientes',
+                message:
+                    'Las desconexiones y eventos de tus puntos aparecerán aquí.',
+              )
+            else
+              for (final entry in grouped.entries) ...[
+                Padding(
+                  padding: const EdgeInsets.only(top: 8, bottom: 8),
+                  child: Text(
+                    entry.key,
+                    style: const TextStyle(
+                      color: Color(0xFF9AB0B1),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                for (final event in entry.value) ...[
+                  _SystemEventCard(event: event, onTap: () => onEvent(event)),
+                  const SizedBox(height: 12),
+                ],
+              ],
+          ],
         ),
       ),
     );
@@ -1127,63 +1118,63 @@ class _MoreTab extends StatelessWidget {
   Widget build(BuildContext context) {
     return HydroFrame(
       child: ListView(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-      children: [
-        _ActionCard(
-          icon: Icons.map_outlined,
-          title: 'GEO Smart',
-          subtitle: 'Ubicación y estado de tus puntos con GPS',
-          color: const Color(0xFF66E0C2),
-          onTap: onOpenGeo,
-        ),
-        const SizedBox(height: 10),
-        _ActionCard(
-          icon: Icons.query_stats_rounded,
-          title: 'Smart Análisis',
-          subtitle: 'Consumo diario y mensual por punto',
-          color: const Color(0xFF66E0C2),
-          onTap: onOpenAnalysis,
-        ),
-        const SizedBox(height: 10),
-        _ActionCard(
-          icon: Icons.balance_rounded,
-          title: 'DGA / SMA',
-          subtitle: 'Cumplimiento, límites autorizados y mediciones',
-          color: const Color(0xFF66E0C2),
-          onTap: onOpenCompliance,
-        ),
-        const SizedBox(height: 10),
-        _ActionCard(
-          icon: Icons.support_agent_rounded,
-          title: 'Soporte',
-          subtitle: 'Crear y seguir solicitudes para tus puntos',
-          color: const Color(0xFF66E0C2),
-          onTap: onOpenSupport,
-        ),
-        const SizedBox(height: 10),
-        _ActionCard(
-          icon: Icons.table_view_outlined,
-          title: 'Descarga de registros',
-          subtitle: 'Consulta y comparte datos de telemetría en CSV',
-          color: const Color(0xFF66E0C2),
-          onTap: onOpenReports,
-        ),
-        const SizedBox(height: 18),
-        const _SectionCard(
-          child: Row(
-            children: [
-              Icon(Icons.auto_awesome_rounded, color: Color(0xFFB19AFF)),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'El agente de atención Yggdra será el siguiente módulo conversacional.',
-                  style: TextStyle(color: Color(0xFFB5C7C5), height: 1.4),
-                ),
-              ),
-            ],
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+        children: [
+          _ActionCard(
+            icon: Icons.map_outlined,
+            title: 'GEO Smart',
+            subtitle: 'Ubicación y estado de tus puntos con GPS',
+            color: const Color(0xFF66E0C2),
+            onTap: onOpenGeo,
           ),
-        ),
-      ],
+          const SizedBox(height: 10),
+          _ActionCard(
+            icon: Icons.query_stats_rounded,
+            title: 'Smart Análisis',
+            subtitle: 'Consumo diario y mensual por punto',
+            color: const Color(0xFF66E0C2),
+            onTap: onOpenAnalysis,
+          ),
+          const SizedBox(height: 10),
+          _ActionCard(
+            icon: Icons.balance_rounded,
+            title: 'DGA / SMA',
+            subtitle: 'Cumplimiento, límites autorizados y mediciones',
+            color: const Color(0xFF66E0C2),
+            onTap: onOpenCompliance,
+          ),
+          const SizedBox(height: 10),
+          _ActionCard(
+            icon: Icons.support_agent_rounded,
+            title: 'Soporte',
+            subtitle: 'Crear y seguir solicitudes para tus puntos',
+            color: const Color(0xFF66E0C2),
+            onTap: onOpenSupport,
+          ),
+          const SizedBox(height: 10),
+          _ActionCard(
+            icon: Icons.table_view_outlined,
+            title: 'Descarga de registros',
+            subtitle: 'Consulta y comparte datos de telemetría en CSV',
+            color: const Color(0xFF66E0C2),
+            onTap: onOpenReports,
+          ),
+          const SizedBox(height: 18),
+          const _SectionCard(
+            child: Row(
+              children: [
+                Icon(Icons.auto_awesome_rounded, color: Color(0xFFB19AFF)),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'El agente de atención Yggdra será el siguiente módulo conversacional.',
+                    style: TextStyle(color: Color(0xFFB5C7C5), height: 1.4),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1505,7 +1496,10 @@ class _PointDetailScreenState extends State<_PointDetailScreen> {
                     if (_error != null)
                       _InlineError(message: _error!, onRetry: _load),
                     if (_replayError != null)
-                      _InlineError(message: _replayError!, onRetry: _loadReplay),
+                      _InlineError(
+                        message: _replayError!,
+                        onRetry: _loadReplay,
+                      ),
                     _LoggerPlate(
                       title: title,
                       project: data['project_name'] as String? ?? '',
@@ -1951,7 +1945,6 @@ class _HistoryDayCard extends StatelessWidget {
   );
 }
 
-
 class _MetricData {
   const _MetricData(this.title, this.value, this.icon, this.color);
 
@@ -2106,7 +2099,10 @@ class _PointCard extends StatelessWidget {
               ],
             ),
           ),
-          Icon(Icons.chevron_right_rounded, color: color.withValues(alpha: 0.7)),
+          Icon(
+            Icons.chevron_right_rounded,
+            color: color.withValues(alpha: 0.7),
+          ),
         ],
       ),
     );
@@ -2246,7 +2242,6 @@ class _SystemEventCard extends StatelessWidget {
   }
 }
 
-
 class _IncidentBoard extends StatelessWidget {
   const _IncidentBoard({required this.summary});
 
@@ -2281,7 +2276,11 @@ class _IncidentBoard extends StatelessWidget {
           const SizedBox(height: 4),
           const Text(
             'Desconexiones, errores de medición y saltos. No incluye reglas solo configuradas.',
-            style: TextStyle(color: Color(0xFF9AB0B1), fontSize: 11, height: 1.35),
+            style: TextStyle(
+              color: Color(0xFF9AB0B1),
+              fontSize: 11,
+              height: 1.35,
+            ),
           ),
           const SizedBox(height: 14),
           Row(
@@ -2323,8 +2322,8 @@ class _IncidentBoard extends StatelessWidget {
                               child: Align(
                                 alignment: Alignment.bottomCenter,
                                 child: FractionallySizedBox(
-                                  heightFactor:
-                                      (_int(day['count']) / peak).clamp(0.08, 1),
+                                  heightFactor: (_int(day['count']) / peak)
+                                      .clamp(0.08, 1),
                                   widthFactor: 1,
                                   child: const DecoratedBox(
                                     decoration: BoxDecoration(
@@ -2608,7 +2607,10 @@ class _BrandCompact extends StatelessWidget {
     children: [
       Icon(Icons.water_drop_rounded, color: Color(0xFF66E0C2)),
       SizedBox(width: 8),
-      Text('SmartHydro', style: TextStyle(fontWeight: FontWeight.w800)),
+      Text(
+        'Ikolu',
+        style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: -0.2),
+      ),
     ],
   );
 }

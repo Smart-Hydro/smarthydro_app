@@ -4,7 +4,7 @@ import 'package:smarthydro_app/features/dashboard/point_link.dart';
 import 'package:smarthydro_app/features/dashboard/widgets/portfolio_network.dart';
 
 void main() {
-  testWidgets('muestra saludo y mapa isométrico de cartera', (tester) async {
+  testWidgets('muestra el visor isométrico de captaciones', (tester) async {
     Map<String, dynamic>? selected;
     final points = [
       {
@@ -27,7 +27,6 @@ void main() {
         home: Scaffold(
           body: PortfolioNetwork(
             points: points,
-            userName: 'Camila',
             onPointSelected: (point) => selected = point,
           ),
         ),
@@ -35,8 +34,11 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('Hola, Camila'), findsOneWidget);
-    expect(find.textContaining('mapa isométrico'), findsOneWidget);
+    expect(find.text('Hola, Camila'), findsNothing);
+    expect(
+      find.text('Representación Isométrica de Captaciones'),
+      findsOneWidget,
+    );
     expect(find.textContaining('en línea'), findsOneWidget);
     expect(find.textContaining('Tensión'), findsOneWidget);
 

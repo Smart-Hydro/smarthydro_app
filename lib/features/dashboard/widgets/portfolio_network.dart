@@ -1,26 +1,39 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../../shared/widgets/hydro_glass.dart';
 import '../point_link.dart';
 
-/// Mini mapa isométrico de la cartera: pozos y superficies vistos desde lejos.
+/// Visor isométrico de la cartera: todos los puntos, con giro y zoom.
 class PortfolioNetwork extends StatefulWidget {
   const PortfolioNetwork({
     required this.points,
     required this.onPointSelected,
-    this.userName,
     super.key,
   });
 
   final List<Map<String, dynamic>> points;
   final ValueChanged<Map<String, dynamic>> onPointSelected;
-  final String? userName;
 
   @override
   State<PortfolioNetwork> createState() => _PortfolioNetworkState();
+}
+
+class _IsoCamera {
+  const _IsoCamera({
+    this.zoom = 1,
+    this.yaw = 0,
+    this.pitch = 0,
+    this.pan = Offset.zero,
+  });
+
+  final double zoom;
+  final double yaw;
+  final double pitch;
+  final Offset pan;
 }
 
 class _PortfolioNetworkState extends State<PortfolioNetwork>
@@ -30,6 +43,17 @@ class _PortfolioNetworkState extends State<PortfolioNetwork>
     duration: const Duration(seconds: 14),
   );
   int? _hovered;
+  double _zoom = 1;
+  double _yaw = 0;
+  double _pitch = 0;
+  Offset _pan = Offset.zero;
+  double _zoomStart = 1;
+  Offset _panStart = Offset.zero;
+  Offset _drag = Offset.zero;
+  Offset? _pointer;
+
+  _IsoCamera get _camera =>
+      _IsoCamera(zoom: _zoom, yaw: _yaw, pitch: _pitch, pan: _pan);
 
   @override
   void didChangeDependencies() {
@@ -48,20 +72,22 @@ class _PortfolioNetworkState extends State<PortfolioNetwork>
     super.dispose();
   }
 
+  void _setZoom(double next) {
+    setState(() => _zoom = next.clamp(0.55, 2.8));
+  }
+
   @override
   Widget build(BuildContext context) {
-    final nodes = widget.points.take(8).toList(growable: false);
-    final extraCount = widget.points.length - nodes.length;
-    final connected = widget.points
+    final nodes = widget.points;
+    final connected = nodes
         .where((point) => pointLinkOf(point) == PointLink.connected)
         .length;
-    final gaps = widget.points
+    final gaps = nodes
         .where((point) => pointLinkOf(point) == PointLink.gap)
         .length;
-    final incidents = widget.points
+    final incidents = nodes
         .where((point) => pointLinkOf(point) == PointLink.incident)
         .length;
-    final greeting = (widget.userName ?? '').trim();
 
     return HydroGlass(
       padding: EdgeInsets.zero,
@@ -71,36 +97,22 @@ class _PortfolioNetworkState extends State<PortfolioNetwork>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+            padding: const EdgeInsets.fromLTRB(16, 12, 12, 0),
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (greeting.isNotEmpty)
-                        Text(
-                          'Hola, $greeting',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: -0.3,
-                            color: Color(0xFFF4FBF8),
-                          ),
-                        ),
-                      const SizedBox(height: 4),
-                      Text(
-                        nodes.isEmpty
-                            ? 'Sin captaciones en cartera'
-                            : 'Vista lejana · mapa isométrico de captaciones',
-                        style: const TextStyle(
-                          color: Color(0xFF91A8AA),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
+                  child: Text(
+                    nodes.isEmpty
+                        ? 'Sin captaciones en cartera'
+                        : 'Representación Isométrica de Captaciones',
+                    maxLines: 2,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      height: 1.15,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.3,
+                      color: Color(0xFFF4FBF8),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -112,95 +124,221 @@ class _PortfolioNetworkState extends State<PortfolioNetwork>
             ),
           ),
           const SizedBox(height: 8),
-          SizedBox(
-            height: 320,
-            width: double.infinity,
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final size = Size(constraints.maxWidth, constraints.maxHeight);
-                return MouseRegion(
-                  onHover: (event) {
-                    final index = _IsoPortfolioPainter.nearestIntake(
-                      size,
-                      nodes,
-                      event.localPosition,
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final height = (constraints.maxWidth * 0.46).clamp(360.0, 480.0);
+              return SizedBox(
+                height: height,
+                width: double.infinity,
+                child: LayoutBuilder(
+                  builder: (context, canvasConstraints) {
+                    final size = Size(
+                      canvasConstraints.maxWidth,
+                      canvasConstraints.maxHeight,
                     );
-                    if (index != _hovered) setState(() => _hovered = index);
-                  },
-                  onExit: (_) {
-                    if (_hovered != null) setState(() => _hovered = null);
-                  },
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTapUp: (details) {
-                      final index = _IsoPortfolioPainter.nearestIntake(
-                        size,
-                        nodes,
-                        details.localPosition,
-                      );
-                      if (index != null) {
-                        widget.onPointSelected(nodes[index]);
-                      }
-                    },
-                    child: AnimatedBuilder(
-                      animation: _animation,
-                      builder: (context, _) => CustomPaint(
-                        painter: _IsoPortfolioPainter(
-                          points: nodes,
-                          phase: _animation.value,
-                          highlight: _hovered,
+                    return Stack(
+                      children: [
+                        Positioned.fill(
+                          child: MouseRegion(
+                            cursor: _hovered == null
+                                ? SystemMouseCursors.grab
+                                : SystemMouseCursors.click,
+                            onHover: (event) {
+                              final index = _IsoPortfolioPainter.nearestIntake(
+                                size,
+                                nodes,
+                                event.localPosition,
+                                _camera,
+                              );
+                              if (index != _hovered) {
+                                setState(() => _hovered = index);
+                              }
+                            },
+                            onExit: (_) {
+                              if (_hovered != null) {
+                                setState(() => _hovered = null);
+                              }
+                            },
+                            child: Listener(
+                              onPointerSignal: (event) {
+                                if (event is! PointerScrollEvent) return;
+                                GestureBinding.instance.pointerSignalResolver
+                                    .register(event, (signal) {
+                                      if (signal is! PointerScrollEvent) return;
+                                      final delta = signal.scrollDelta.dy;
+                                      if (delta == 0) return;
+                                      _setZoom(_zoom * (delta > 0 ? 0.9 : 1.1));
+                                    });
+                              },
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onScaleStart: (details) {
+                                  _zoomStart = _zoom;
+                                  _panStart = _pan;
+                                  _drag = Offset.zero;
+                                  _pointer = details.localFocalPoint;
+                                },
+                                onScaleUpdate: (details) {
+                                  setState(() {
+                                    _drag += details.focalPointDelta;
+                                    _pointer = details.localFocalPoint;
+                                    if (details.pointerCount >= 2) {
+                                      _zoom = (_zoomStart * details.scale)
+                                          .clamp(0.55, 2.8);
+                                      _pan = Offset(
+                                        (_panStart.dx + _drag.dx).clamp(
+                                          -160.0,
+                                          160.0,
+                                        ),
+                                        (_panStart.dy + _drag.dy).clamp(
+                                          -110.0,
+                                          110.0,
+                                        ),
+                                      );
+                                    } else {
+                                      _yaw +=
+                                          details.focalPointDelta.dx * 0.007;
+                                      _pitch =
+                                          (_pitch -
+                                                  details.focalPointDelta.dy *
+                                                      0.0018)
+                                              .clamp(-0.35, 0.55);
+                                    }
+                                  });
+                                },
+                                onScaleEnd: (_) {
+                                  final pointer = _pointer;
+                                  if (pointer == null || _drag.distance > 12) {
+                                    return;
+                                  }
+                                  final index =
+                                      _IsoPortfolioPainter.nearestIntake(
+                                        size,
+                                        nodes,
+                                        pointer,
+                                        _camera,
+                                      );
+                                  if (index != null) {
+                                    widget.onPointSelected(nodes[index]);
+                                  }
+                                },
+                                child: AnimatedBuilder(
+                                  animation: _animation,
+                                  builder: (context, _) => CustomPaint(
+                                    painter: _IsoPortfolioPainter(
+                                      points: nodes,
+                                      phase: _animation.value,
+                                      camera: _camera,
+                                      highlight: _hovered,
+                                    ),
+                                    child: const SizedBox.expand(),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
-                        child: const SizedBox.expand(),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
+                        Positioned(
+                          top: 8,
+                          right: 8,
+                          child: Column(
+                            children: [
+                              _ViewButton(
+                                icon: Icons.add_rounded,
+                                tooltip: 'Acercar',
+                                onTap: () => _setZoom(_zoom * 1.15),
+                              ),
+                              const SizedBox(height: 6),
+                              _ViewButton(
+                                icon: Icons.remove_rounded,
+                                tooltip: 'Alejar',
+                                onTap: () => _setZoom(_zoom / 1.15),
+                              ),
+                              const SizedBox(height: 6),
+                              _ViewButton(
+                                icon: Icons.filter_center_focus_rounded,
+                                tooltip: 'Recentrar',
+                                onTap: () => setState(() {
+                                  _zoom = 1;
+                                  _yaw = 0;
+                                  _pitch = 0;
+                                  _pan = Offset.zero;
+                                }),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              );
+            },
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 6,
               children: [
-                if (extraCount > 0)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text(
-                      '+$extraCount puntos más en el listado',
-                      style: const TextStyle(
-                        color: Color(0xFF91A8AA),
-                        fontSize: 10,
-                      ),
-                    ),
-                  ),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 6,
-                  children: [
-                    const _NetworkLegend(
-                      color: Color(0xFF66E0C2),
-                      label: 'Conectado',
-                    ),
-                    _NetworkLegend(
-                      color: const Color(0xFFFFC46B),
-                      label: 'Advertencia${gaps == 0 ? '' : ' · $gaps'}',
-                    ),
-                    _NetworkLegend(
-                      color: const Color(0xFFFF847A),
-                      label: 'Tensión${incidents == 0 ? '' : ' · $incidents'}',
-                    ),
-                    const _NetworkLegend(
-                      color: Color(0xFF7EB8C4),
-                      label: 'Pozo / superficial',
-                      diamond: true,
-                    ),
-                  ],
+                const _NetworkLegend(
+                  color: Color(0xFF66E0C2),
+                  label: 'Conectado',
+                ),
+                _NetworkLegend(
+                  color: const Color(0xFFFFC46B),
+                  label: 'Advertencia${gaps == 0 ? '' : ' · $gaps'}',
+                ),
+                _NetworkLegend(
+                  color: const Color(0xFFFF847A),
+                  label: 'Tensión${incidents == 0 ? '' : ' · $incidents'}',
+                ),
+                const _NetworkLegend(
+                  color: Color(0xFF7EB8C4),
+                  label: 'Pozo / superficial',
+                  diamond: true,
                 ),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ViewButton extends StatelessWidget {
+  const _ViewButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: const Color(0xFF081619).withValues(alpha: 0.72),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(
+            color: const Color(0xFF66E0C2).withValues(alpha: 0.35),
+          ),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: SizedBox(
+            width: 32,
+            height: 32,
+            child: Icon(icon, size: 18, color: const Color(0xFFBFF7EA)),
+          ),
+        ),
       ),
     );
   }
@@ -368,11 +506,7 @@ class _MiniIsoWellPainter extends CustomPainter {
       Rect.fromCenter(center: top, width: rx * 1.15, height: ry * 1.15),
       Paint()..color = accent.withValues(alpha: 0.85),
     );
-    canvas.drawCircle(
-      top.translate(0, -ry - 4),
-      2.2,
-      Paint()..color = accent,
-    );
+    canvas.drawCircle(top.translate(0, -ry - 4), 2.2, Paint()..color = accent);
   }
 
   void _drawSurface(Canvas canvas, Offset origin, double rx, Color accent) {
@@ -407,42 +541,86 @@ class _IsoPortfolioPainter extends CustomPainter {
   const _IsoPortfolioPainter({
     required this.points,
     required this.phase,
+    required this.camera,
     this.highlight,
   });
 
   final List<Map<String, dynamic>> points;
   final double phase;
+  final _IsoCamera camera;
   final int? highlight;
 
   static const _mint = Color(0xFF66E0C2);
   static const _amber = Color(0xFFFFC46B);
   static const _coral = Color(0xFFFF847A);
+  static const _slotGap = 1.4;
 
-  static const _slots = <Offset>[
-    Offset(0, 0),
-    Offset(1.15, -0.35),
-    Offset(-0.95, 0.55),
-    Offset(0.35, 1.1),
-    Offset(-1.25, -0.7),
-    Offset(1.45, 0.75),
-    Offset(-0.2, -1.15),
-    Offset(0.85, -1.05),
-  ];
+  static int _columns(int count) {
+    if (count <= 1) return 1;
+    return math.max(2, math.sqrt(count).ceil());
+  }
 
-  static Offset _project(Offset grid, Offset origin, double tw, double th) {
+  static Offset _slot(int index, int count) {
+    if (count <= 1) return Offset.zero;
+    final cols = _columns(count);
+    final rows = (count + cols - 1) ~/ cols;
+    final col = index % cols;
+    final row = index ~/ cols;
     return Offset(
-      origin.dx + (grid.dx - grid.dy) * tw * 0.5,
-      origin.dy + (grid.dx + grid.dy) * th * 0.5,
+      (col - (cols - 1) / 2) * _slotGap,
+      (row - (rows - 1) / 2) * _slotGap,
     );
   }
 
-  static List<Offset> _anchors(Size size, int count) {
-    final origin = Offset(size.width * 0.5, size.height * 0.46);
-    final tw = size.width * 0.22;
-    final th = size.height * 0.13;
+  static double _halfExtent(int count) {
+    if (count <= 1) return 1.8;
+    final cols = _columns(count);
+    final rows = (count + cols - 1) ~/ cols;
+    final hx = (cols - 1) / 2 * _slotGap;
+    final hy = (rows - 1) / 2 * _slotGap;
+    return math.max(hx, hy) + 1.25;
+  }
+
+  static const _slab = 64.0;
+
+  static ({double tw, double th, Offset origin, double mark}) _metrics(
+    Size size,
+    int count,
+    _IsoCamera camera,
+  ) {
+    final half = math.max(_halfExtent(count), 0.001);
+    final slab = _slab * camera.zoom.clamp(0.75, 1.45);
+    final maxW = size.width * 0.96 * camera.zoom;
+    final maxH =
+        (size.height - slab - 24) *
+        0.92 *
+        camera.zoom *
+        (1 + camera.pitch * 0.55);
+    final diaW = maxW;
+    final diaH = math.min(math.max(maxH, 1), diaW * 0.48);
+    final tw = diaW / half;
+    final th = diaH / half;
+    final origin =
+        Offset(size.width * 0.5, (size.height - slab) * 0.46) + camera.pan;
+    final cell = _slotGap * tw * 0.5;
+    final mark = (cell / 72).clamp(1.05, 2.6);
+    return (tw: tw, th: th, origin: origin, mark: mark);
+  }
+
+  static Offset _project(Offset grid, Size size, int count, _IsoCamera camera) {
+    final frame = _metrics(size, count, camera);
+    final yaw = camera.yaw;
+    final x = grid.dx * math.cos(yaw) - grid.dy * math.sin(yaw);
+    final y = grid.dx * math.sin(yaw) + grid.dy * math.cos(yaw);
+    return Offset(
+      frame.origin.dx + (x - y) * frame.tw * 0.5,
+      frame.origin.dy + (x + y) * frame.th * 0.5,
+    );
+  }
+
+  static List<Offset> _anchors(Size size, int count, _IsoCamera camera) {
     return List<Offset>.generate(count, (index) {
-      final slot = _slots[index % _slots.length];
-      return _project(slot, origin, tw, th);
+      return _project(_slot(index, count), size, count, camera);
     }, growable: false);
   }
 
@@ -450,13 +628,15 @@ class _IsoPortfolioPainter extends CustomPainter {
     Size size,
     List<Map<String, dynamic>> points,
     Offset position,
+    _IsoCamera camera,
   ) {
-    final anchors = _anchors(size, points.length);
+    final anchors = _anchors(size, points.length, camera);
+    final scale = camera.zoom.clamp(0.75, 1.7);
     for (var index = 0; index < anchors.length; index++) {
       final hit = Rect.fromCenter(
-        center: anchors[index].translate(0, -18),
-        width: 54,
-        height: 70,
+        center: anchors[index].translate(0, -18 * scale),
+        width: 54 * scale,
+        height: 78 * scale,
       );
       if (hit.contains(position)) return index;
     }
@@ -465,19 +645,16 @@ class _IsoPortfolioPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final clip = RRect.fromRectAndRadius(
-      Rect.fromLTWH(0, 0, size.width, size.height),
-      const Radius.circular(4),
-    );
     canvas.save();
-    canvas.clipRRect(clip);
+    canvas.clipRect(Offset.zero & size);
 
     _paintSky(canvas, size);
-    _paintTerrain(canvas, size);
+    _paintPlatform(canvas, size);
     _paintGrid(canvas, size);
     _paintAtmosphere(canvas, size);
 
-    final anchors = _anchors(size, points.length);
+    final anchors = _anchors(size, points.length, camera);
+    _paintNetwork(canvas, anchors);
     final order = List<int>.generate(points.length, (i) => i)
       ..sort((a, b) => anchors[a].dy.compareTo(anchors[b].dy));
 
@@ -512,83 +689,195 @@ class _IsoPortfolioPainter extends CustomPainter {
       Offset(size.width * 0.72, size.height * 0.18),
       size.width * 0.28,
       Paint()
-        ..shader = RadialGradient(
-          colors: [
-            const Color(0xFF66E0C2).withValues(alpha: 0.08),
-            Colors.transparent,
-          ],
-        ).createShader(
-          Rect.fromCircle(
-            center: Offset(size.width * 0.72, size.height * 0.18),
-            radius: size.width * 0.28,
-          ),
-        ),
+        ..shader =
+            RadialGradient(
+              colors: [
+                const Color(0xFF66E0C2).withValues(alpha: 0.08),
+                Colors.transparent,
+              ],
+            ).createShader(
+              Rect.fromCircle(
+                center: Offset(size.width * 0.72, size.height * 0.18),
+                radius: size.width * 0.28,
+              ),
+            ),
     );
   }
 
-  void _paintTerrain(Canvas canvas, Size size) {
-    final origin = Offset(size.width * 0.5, size.height * 0.46);
-    final tw = size.width * 0.78;
-    final th = size.height * 0.42;
-    final plate = Path()
-      ..moveTo(origin.dx, origin.dy - th * 0.55)
-      ..lineTo(origin.dx + tw * 0.55, origin.dy)
-      ..lineTo(origin.dx, origin.dy + th * 0.62)
-      ..lineTo(origin.dx - tw * 0.55, origin.dy)
-      ..close();
+  List<Offset> _plateVerts(Size size) {
+    final half = _halfExtent(points.length);
+    final count = points.length;
+    return [
+      _project(Offset(0, -half), size, count, camera),
+      _project(Offset(half, 0), size, count, camera),
+      _project(Offset(0, half), size, count, camera),
+      _project(Offset(-half, 0), size, count, camera),
+    ];
+  }
 
+  void _paintPlatform(Canvas canvas, Size size) {
+    final top = _plateVerts(size);
+    final depth = _slab * camera.zoom.clamp(0.75, 1.45);
+    final center = top.fold(Offset.zero, (sum, point) => sum + point) / 4;
+    final front = List<int>.generate(4, (index) => index)
+      ..sort((a, b) {
+        final ma = (top[a] + top[(a + 1) % 4]) / 2;
+        final mb = (top[b] + top[(b + 1) % 4]) / 2;
+        return mb.dy.compareTo(ma.dy);
+      });
+
+    final footprint = Path()..addPolygon(top, true);
     canvas.drawPath(
-      plate,
+      footprint.shift(Offset(0, depth + 10)),
+      Paint()
+        ..color = const Color(0xFF04161C).withValues(alpha: 0.4)
+        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 18),
+    );
+
+    for (final index in front.take(2).toList().reversed) {
+      _paintWaterFace(canvas, top[index], top[(index + 1) % 4], depth, center);
+    }
+
+    final bounds = footprint.getBounds();
+    canvas.drawPath(
+      footprint,
       Paint()
         ..shader = LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            const Color(0xFF2A4A48).withValues(alpha: 0.95),
+            const Color(0xFF2A4A48).withValues(alpha: 0.96),
             const Color(0xFF16322F),
-            const Color(0xFF0C1E1C),
+            const Color(0xFF12343A),
           ],
-        ).createShader(Rect.fromLTWH(0, 0, size.width, size.height)),
+        ).createShader(bounds.inflate(4)),
     );
-
-    // Cara inferior (volumen del terreno).
-    final depth = size.height * 0.07;
-    final skirt = Path()
-      ..moveTo(origin.dx - tw * 0.55, origin.dy)
-      ..lineTo(origin.dx, origin.dy + th * 0.62)
-      ..lineTo(origin.dx + tw * 0.55, origin.dy)
-      ..lineTo(origin.dx + tw * 0.55, origin.dy + depth)
-      ..lineTo(origin.dx, origin.dy + th * 0.62 + depth)
-      ..lineTo(origin.dx - tw * 0.55, origin.dy + depth)
-      ..close();
-    canvas.drawPath(skirt, Paint()..color = const Color(0xFF081416));
-
-    // Borde brillante del plato.
     canvas.drawPath(
-      plate,
+      footprint,
       Paint()
-        ..color = const Color(0xFF66E0C2).withValues(alpha: 0.18)
+        ..color = const Color(0xFF66E0C2).withValues(alpha: 0.38)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2,
+        ..strokeWidth = 1.6,
     );
   }
 
-  void _paintGrid(Canvas canvas, Size size) {
-    final origin = Offset(size.width * 0.5, size.height * 0.46);
-    final tw = size.width * 0.16;
-    final th = size.height * 0.095;
-    final paint = Paint()
-      ..color = const Color(0xFF66E0C2).withValues(alpha: 0.07)
-      ..strokeWidth = 1;
+  void _paintWaterFace(
+    Canvas canvas,
+    Offset a,
+    Offset b,
+    double depth,
+    Offset center,
+  ) {
+    final down = Offset(0, depth);
+    final face = Path()
+      ..moveTo(a.dx, a.dy)
+      ..lineTo(b.dx, b.dy)
+      ..lineTo(b.dx + down.dx, b.dy + down.dy)
+      ..lineTo(a.dx + down.dx, a.dy + down.dy)
+      ..close();
+    final bounds = face.getBounds();
+    final shade = ((a + b) / 2 - center).dx;
+    final cool = shade > 0 ? 0.0 : 0.08;
+    canvas.save();
+    canvas.clipPath(face);
+    canvas.drawPath(
+      face,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color.lerp(const Color(0xFF3AD4C8), const Color(0xFF67E0C2), cool)!,
+            const Color(0xFF0C4A58),
+            const Color(0xFF062028),
+          ],
+          stops: const [0, 0.42, 1],
+        ).createShader(bounds),
+    );
 
-    for (var i = -4; i <= 4; i++) {
-      final a = _project(Offset(i.toDouble(), -3.2), origin, tw, th);
-      final b = _project(Offset(i.toDouble(), 3.2), origin, tw, th);
-      canvas.drawLine(a, b, paint);
-      final c = _project(Offset(-3.2, i.toDouble()), origin, tw, th);
-      final d = _project(Offset(3.2, i.toDouble()), origin, tw, th);
-      canvas.drawLine(c, d, paint);
+    final span = (b - a).distance;
+    final steps = math.max(6, (span / 18).round());
+    final scan = Paint()
+      ..color = const Color(0xFFBFF7EA).withValues(alpha: 0.16)
+      ..strokeWidth = 1;
+    for (var row = 1; row <= 4; row++) {
+      final travel = (phase + row * 0.17) % 1;
+      final yLift =
+          depth * (0.18 + row * 0.16) + math.sin(travel * math.pi * 2) * 1.4;
+      final wave = Path();
+      for (var step = 0; step <= steps; step++) {
+        final t = step / steps;
+        final along = Offset.lerp(a, b, t)!;
+        final ripple =
+            math.sin(t * math.pi * 4 + phase * math.pi * 2 + row) * 1.6;
+        final point = along + Offset(0, yLift + ripple);
+        step == 0
+            ? wave.moveTo(point.dx, point.dy)
+            : wave.lineTo(point.dx, point.dy);
+      }
+      canvas.drawPath(wave, scan);
     }
+    canvas.restore();
+
+    canvas.drawLine(
+      a,
+      b,
+      Paint()
+        ..color = const Color(0xFFEFFFFA).withValues(alpha: 0.72)
+        ..strokeWidth = 1.5
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  void _paintNetwork(Canvas canvas, List<Offset> anchors) {
+    if (anchors.length < 2) return;
+    final pulse = 0.34 + 0.08 * math.sin(phase * math.pi * 2);
+    for (var i = 0; i < anchors.length; i++) {
+      for (var j = i + 1; j < anchors.length; j++) {
+        final lit = highlight == i || highlight == j;
+        canvas.drawLine(
+          anchors[i],
+          anchors[j],
+          Paint()
+            ..color = _mint.withValues(alpha: lit ? 0.85 : pulse)
+            ..strokeWidth = lit ? 2.2 : 1.35
+            ..strokeCap = StrokeCap.round,
+        );
+      }
+    }
+  }
+
+  void _paintGrid(Canvas canvas, Size size) {
+    final half = _halfExtent(points.length);
+    final plate = Path()
+      ..addPolygon([
+        _project(Offset(0, -half), size, points.length, camera),
+        _project(Offset(half, 0), size, points.length, camera),
+        _project(Offset(0, half), size, points.length, camera),
+        _project(Offset(-half, 0), size, points.length, camera),
+      ], true);
+    canvas.save();
+    canvas.clipPath(plate);
+    final steps = (half * 2).round().clamp(4, 12);
+    final paint = Paint()
+      ..color = const Color(0xFF66E0C2).withValues(alpha: 0.08)
+      ..strokeWidth = 1;
+    final span = half * 0.92;
+
+    for (var i = 0; i <= steps; i++) {
+      final t = -span + span * 2 * i / steps;
+      canvas.drawLine(
+        _project(Offset(t, -span), size, points.length, camera),
+        _project(Offset(t, span), size, points.length, camera),
+        paint,
+      );
+      canvas.drawLine(
+        _project(Offset(-span, t), size, points.length, camera),
+        _project(Offset(span, t), size, points.length, camera),
+        paint,
+      );
+    }
+    canvas.restore();
   }
 
   void _paintAtmosphere(Canvas canvas, Size size) {
@@ -604,7 +893,9 @@ class _IsoPortfolioPainter extends CustomPainter {
           height: 8 + t * 4,
         ),
         Paint()
-          ..color = Colors.white.withValues(alpha: 0.03 + 0.02 * math.sin(t * math.pi)),
+          ..color = Colors.white.withValues(
+            alpha: 0.03 + 0.02 * math.sin(t * math.pi),
+          ),
       );
     }
   }
@@ -625,17 +916,34 @@ class _IsoPortfolioPainter extends CustomPainter {
     };
     final surface = _isSurface(point);
     final bob = math.sin(phase * math.pi * 2 + index * 0.9) * 1.2;
-    final base = anchor.translate(0, bob);
+    final lift = lit ? 18.0 : 0.0;
+    final base = anchor.translate(0, bob - lift);
 
-    // Sombra en el terreno.
     canvas.drawOval(
       Rect.fromCenter(
-        center: base.translate(0, 6),
-        width: surface ? 46 : 34,
-        height: surface ? 16 : 12,
+        center: anchor.translate(0, 8),
+        width: (surface ? 46 : 34) * (lit ? 0.7 : 1),
+        height: (surface ? 16 : 12) * (lit ? 0.65 : 1),
       ),
-      Paint()..color = Colors.black.withValues(alpha: lit ? 0.35 : 0.22),
+      Paint()..color = Colors.black.withValues(alpha: lit ? 0.32 : 0.22),
     );
+
+    final mark =
+        _metrics(size, points.length, camera).mark * (lit ? 1.12 : 1.0);
+
+    canvas.save();
+    if (lit) {
+      canvas.drawCircle(
+        base.translate(0, surface ? -8 : -24),
+        30 * mark,
+        Paint()
+          ..color = color.withValues(alpha: 0.18)
+          ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 14),
+      );
+    }
+    canvas.translate(base.dx, base.dy);
+    canvas.scale(mark);
+    canvas.translate(-base.dx, -base.dy);
 
     if (surface) {
       _drawIsoSurface(canvas, base, color, link, index);
@@ -657,7 +965,8 @@ class _IsoPortfolioPainter extends CustomPainter {
       );
     }
 
-    _drawLabel(canvas, base, point, color, lit);
+    canvas.restore();
+    _drawLabel(canvas, base, point, color, lit, mark);
   }
 
   void _drawIsoWell(
@@ -719,24 +1028,21 @@ class _IsoPortfolioPainter extends CustomPainter {
       Paint()..color = const Color(0xFF071114),
     );
     canvas.drawOval(
-      Rect.fromCenter(
-        center: waterCenter,
-        width: rx * 1.25,
-        height: ry * 1.15,
-      ),
+      Rect.fromCenter(center: waterCenter, width: rx * 1.25, height: ry * 1.15),
       Paint()
-        ..shader = RadialGradient(
-          colors: [
-            accent.withValues(alpha: link == PointLink.gap ? 0.55 : 0.95),
-            const Color(0xFF0C3140),
-          ],
-        ).createShader(
-          Rect.fromCenter(
-            center: waterCenter,
-            width: rx * 1.25,
-            height: ry * 1.15,
-          ),
-        ),
+        ..shader =
+            RadialGradient(
+              colors: [
+                accent.withValues(alpha: link == PointLink.gap ? 0.55 : 0.95),
+                const Color(0xFF0C3140),
+              ],
+            ).createShader(
+              Rect.fromCenter(
+                center: waterCenter,
+                width: rx * 1.25,
+                height: ry * 1.15,
+              ),
+            ),
     );
 
     // Borde del brocal.
@@ -877,6 +1183,7 @@ class _IsoPortfolioPainter extends CustomPainter {
     Map<String, dynamic> point,
     Color color,
     bool lit,
+    double mark,
   ) {
     final title = point['title']?.toString() ?? 'Punto';
     final short = title.length > 11 ? '${title.substring(0, 10)}…' : title;
@@ -893,7 +1200,7 @@ class _IsoPortfolioPainter extends CustomPainter {
       maxLines: 1,
     )..layout(maxWidth: 78);
 
-    final badgeCenter = base.translate(0, -48);
+    final badgeCenter = base.translate(0, -30 * mark - 16);
     final badge = RRect.fromRectAndRadius(
       Rect.fromCenter(
         center: badgeCenter,
@@ -906,7 +1213,8 @@ class _IsoPortfolioPainter extends CustomPainter {
     // Glass badge.
     canvas.drawRRect(
       badge,
-      Paint()..color = const Color(0xFF081619).withValues(alpha: lit ? 0.92 : 0.78),
+      Paint()
+        ..color = const Color(0xFF081619).withValues(alpha: lit ? 0.92 : 0.78),
     );
     canvas.drawRRect(
       badge,
@@ -947,5 +1255,9 @@ class _IsoPortfolioPainter extends CustomPainter {
   bool shouldRepaint(covariant _IsoPortfolioPainter oldDelegate) =>
       oldDelegate.phase != phase ||
       oldDelegate.points != points ||
-      oldDelegate.highlight != highlight;
+      oldDelegate.highlight != highlight ||
+      oldDelegate.camera.zoom != camera.zoom ||
+      oldDelegate.camera.yaw != camera.yaw ||
+      oldDelegate.camera.pitch != camera.pitch ||
+      oldDelegate.camera.pan != camera.pan;
 }
