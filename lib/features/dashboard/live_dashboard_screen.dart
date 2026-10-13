@@ -5,8 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/smarthydro_api.dart';
 import '../../core/brand.dart';
+import '../../core/n1/n1_providers.dart';
 import '../../core/session/session_provider.dart';
 import '../analysis/analysis_screen.dart';
+import '../assistant/assistant_screen.dart';
 import '../profile/profile_screen.dart';
 import '../compliance/compliance_screen.dart';
 import '../compliance/point_compliance_screen.dart';
@@ -344,6 +346,7 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
         return _MoreTab(
           onOpenCompliance: _openCompliance,
           onOpenSupport: _openSupport,
+          onOpenAssistant: _openAssistant,
           onOpenGeo: _openGeo,
           onOpenAnalysis: _openAnalysis,
           onOpenReports: _openReports,
@@ -369,6 +372,18 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
     Navigator.of(context).push<void>(
       hydroPageRoute(
         PointDetailScreen(api: _api, token: widget.session.token, point: point),
+      ),
+    );
+  }
+
+  void _openAssistant() {
+    Navigator.of(context).push<void>(
+      hydroPageRoute(
+        AssistantScreen(
+          n1Api: ref.read(n1ApiProvider),
+          session: widget.session,
+          points: _points,
+        ),
       ),
     );
   }
@@ -1002,6 +1017,7 @@ class _MoreTab extends StatelessWidget {
   const _MoreTab({
     required this.onOpenCompliance,
     required this.onOpenSupport,
+    required this.onOpenAssistant,
     required this.onOpenGeo,
     required this.onOpenAnalysis,
     required this.onOpenReports,
@@ -1009,6 +1025,7 @@ class _MoreTab extends StatelessWidget {
 
   final VoidCallback onOpenCompliance;
   final VoidCallback onOpenSupport;
+  final VoidCallback onOpenAssistant;
   final VoidCallback onOpenGeo;
   final VoidCallback onOpenAnalysis;
   final VoidCallback onOpenReports;
@@ -1044,6 +1061,14 @@ class _MoreTab extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           _ActionCard(
+            icon: Icons.smart_toy_outlined,
+            title: 'Asistente',
+            subtitle: 'Consulta a SmartHydro N1: estado, reportes y tickets',
+            color: IkoluColors.cyan,
+            onTap: onOpenAssistant,
+          ),
+          const SizedBox(height: 10),
+          _ActionCard(
             icon: Icons.support_agent_rounded,
             title: 'Soporte',
             subtitle: 'Crear y seguir solicitudes para tus puntos',
@@ -1057,21 +1082,6 @@ class _MoreTab extends StatelessWidget {
             subtitle: 'Consulta y comparte datos de telemetría en CSV',
             color: IkoluColors.cyan,
             onTap: onOpenReports,
-          ),
-          const SizedBox(height: 18),
-          const _SectionCard(
-            child: Row(
-              children: [
-                Icon(Icons.auto_awesome_rounded, color: Color(0xFFB19AFF)),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'El agente de atención Yggdra será el siguiente módulo conversacional.',
-                    style: TextStyle(color: Color(0xFFB5C7C5), height: 1.4),
-                  ),
-                ),
-              ],
-            ),
           ),
         ],
       ),
