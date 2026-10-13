@@ -104,7 +104,7 @@ class _PortfolioNetworkState extends State<PortfolioNetwork>
                   child: Text(
                     nodes.isEmpty
                         ? 'Sin captaciones en cartera'
-                        : 'Representación Isométrica de Captaciones',
+                        : 'Captaciones sobre acuífero vivo',
                     maxLines: 2,
                     style: const TextStyle(
                       fontSize: 16,
@@ -116,6 +116,11 @@ class _PortfolioNetworkState extends State<PortfolioNetwork>
                   ),
                 ),
                 const SizedBox(width: 10),
+                const _StatusPill(
+                  label: 'Acuífero',
+                  color: Color(0xFF3AD4C8),
+                ),
+                const SizedBox(width: 8),
                 _StatusPill(
                   label: '$connected en línea',
                   color: const Color(0xFF66E0C2),
@@ -126,7 +131,7 @@ class _PortfolioNetworkState extends State<PortfolioNetwork>
           const SizedBox(height: 8),
           LayoutBuilder(
             builder: (context, constraints) {
-              final height = (constraints.maxWidth * 0.46).clamp(360.0, 480.0);
+              final height = (constraints.maxWidth * 0.52).clamp(400.0, 540.0);
               return SizedBox(
                 height: height,
                 width: double.infinity,
@@ -297,6 +302,10 @@ class _PortfolioNetworkState extends State<PortfolioNetwork>
                   color: Color(0xFF7EB8C4),
                   label: 'Pozo / superficial',
                   diamond: true,
+                ),
+                const _NetworkLegend(
+                  color: Color(0xFF3AD4C8),
+                  label: 'Acuífero',
                 ),
               ],
             ),
@@ -581,7 +590,7 @@ class _IsoPortfolioPainter extends CustomPainter {
     return math.max(hx, hy) + 1.25;
   }
 
-  static const _slab = 64.0;
+  static const _slab = 128.0;
 
   static ({double tw, double th, Offset origin, double mark}) _metrics(
     Size size,
@@ -727,37 +736,71 @@ class _IsoPortfolioPainter extends CustomPainter {
       });
 
     final footprint = Path()..addPolygon(top, true);
+    // Sombra de volumen bajo el acuífero.
     canvas.drawPath(
-      footprint.shift(Offset(0, depth + 10)),
+      footprint.shift(Offset(0, depth + 14)),
       Paint()
-        ..color = const Color(0xFF04161C).withValues(alpha: 0.4)
-        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 18),
+        ..color = const Color(0xFF021014).withValues(alpha: 0.55)
+        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 22),
     );
 
-    for (final index in front.take(2).toList().reversed) {
+    // Tres caras visibles del bloque de agua (ordenadas de atrás a adelante).
+    for (final index in front.take(3).toList().reversed) {
       _paintWaterFace(canvas, top[index], top[(index + 1) % 4], depth, center);
     }
 
+    // Etiqueta grande en la cara frontal: imposible de no ver.
+    final frontEdge = front.first;
+    _paintAquiferLabel(
+      canvas,
+      top[frontEdge],
+      top[(frontEdge + 1) % 4],
+      depth,
+    );
+
     final bounds = footprint.getBounds();
+    // Superficie del terreno: húmeda, con tinte de acuífero debajo.
     canvas.drawPath(
       footprint,
       Paint()
         ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
           colors: [
-            const Color(0xFF2A4A48).withValues(alpha: 0.96),
-            const Color(0xFF16322F),
-            const Color(0xFF12343A),
+            const Color(0xFF2F5550).withValues(alpha: 0.98),
+            const Color(0xFF183832),
+            const Color(0xFF0F2C32),
           ],
         ).createShader(bounds.inflate(4)),
     );
     canvas.drawPath(
       footprint,
       Paint()
-        ..color = const Color(0xFF66E0C2).withValues(alpha: 0.38)
+        ..shader = RadialGradient(
+          center: const Alignment(0.1, -0.2),
+          radius: 1.05,
+          colors: [
+            const Color(0xFF66E0C2).withValues(alpha: 0.16),
+            const Color(0xFF1A4A52).withValues(alpha: 0.08),
+            Colors.transparent,
+          ],
+          stops: const [0, 0.45, 1],
+        ).createShader(bounds.inflate(8)),
+    );
+    // Brillo de waterline en el borde superior.
+    canvas.drawPath(
+      footprint,
+      Paint()
+        ..color = const Color(0xFFE8FFF8).withValues(alpha: 0.55)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.6,
+        ..strokeWidth = 2.1,
+    );
+    canvas.drawPath(
+      footprint,
+      Paint()
+        ..color = const Color(0xFF66E0C2).withValues(alpha: 0.42)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2,
     );
   }
 
@@ -776,40 +819,80 @@ class _IsoPortfolioPainter extends CustomPainter {
       ..lineTo(a.dx + down.dx, a.dy + down.dy)
       ..close();
     final bounds = face.getBounds();
-    final shade = ((a + b) / 2 - center).dx;
-    final cool = shade > 0 ? 0.0 : 0.08;
+    final mid = (a + b) / 2;
+    final shade = (mid - center).dx;
+    final lit = shade <= 0;
+    final surface = Color.lerp(
+      const Color(0xFF7CFFE8),
+      const Color(0xFF2FE0C8),
+      lit ? 0.05 : 0.4,
+    )!;
+    final body = Color.lerp(
+      const Color(0xFF1498A8),
+      const Color(0xFF0A6A78),
+      lit ? 0.1 : 0.55,
+    )!;
+    final deep = Color.lerp(
+      const Color(0xFF053038),
+      const Color(0xFF02181E),
+      lit ? 0.15 : 0.6,
+    )!;
+
     canvas.save();
     canvas.clipPath(face);
+
+    // Cuerpo del acuífero: superficie → cuerpo → sedimento.
     canvas.drawPath(
       face,
       Paint()
         ..shader = LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [
-            Color.lerp(const Color(0xFF3AD4C8), const Color(0xFF67E0C2), cool)!,
-            const Color(0xFF0C4A58),
-            const Color(0xFF062028),
-          ],
-          stops: const [0, 0.42, 1],
+          colors: [surface, body, deep],
+          stops: const [0, 0.38, 1],
         ).createShader(bounds),
     );
 
+    // Halo interno cerca de la waterline.
+    canvas.drawRect(
+      Rect.fromLTWH(bounds.left, bounds.top, bounds.width, depth * 0.22),
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFFD7FFF4).withValues(alpha: lit ? 0.34 : 0.18),
+            Colors.transparent,
+          ],
+        ).createShader(
+          Rect.fromLTWH(bounds.left, bounds.top, bounds.width, depth * 0.22),
+        ),
+    );
+
+    // Bandas caústicas animadas.
     final span = (b - a).distance;
-    final steps = math.max(6, (span / 18).round());
-    final scan = Paint()
-      ..color = const Color(0xFFBFF7EA).withValues(alpha: 0.16)
-      ..strokeWidth = 1;
-    for (var row = 1; row <= 4; row++) {
-      final travel = (phase + row * 0.17) % 1;
+    final steps = math.max(8, (span / 14).round());
+    for (var row = 1; row <= 6; row++) {
+      final travel = (phase * (0.7 + row * 0.08) + row * 0.13) % 1;
       final yLift =
-          depth * (0.18 + row * 0.16) + math.sin(travel * math.pi * 2) * 1.4;
+          depth * (0.12 + row * 0.12) +
+          math.sin(travel * math.pi * 2) * (1.8 + row * 0.15);
+      final alpha = (lit ? 0.22 : 0.12) * (1 - row / 8);
+      final scan = Paint()
+        ..color = Color.lerp(
+          const Color(0xFFEFFFFA),
+          const Color(0xFF7BE8D4),
+          row / 6,
+        )!.withValues(alpha: alpha)
+        ..strokeWidth = row == 1 ? 1.6 : 1.05
+        ..style = PaintingStyle.stroke;
       final wave = Path();
       for (var step = 0; step <= steps; step++) {
         final t = step / steps;
         final along = Offset.lerp(a, b, t)!;
         final ripple =
-            math.sin(t * math.pi * 4 + phase * math.pi * 2 + row) * 1.6;
+            math.sin(t * math.pi * (3.2 + row * 0.35) + phase * math.pi * 2 + row) *
+            (2.2 - row * 0.18);
         final point = along + Offset(0, yLift + ripple);
         step == 0
             ? wave.moveTo(point.dx, point.dy)
@@ -817,16 +900,112 @@ class _IsoPortfolioPainter extends CustomPainter {
       }
       canvas.drawPath(wave, scan);
     }
+
+    // Partículas de turbidez / burbujas suaves.
+    for (var i = 0; i < 5; i++) {
+      final t = ((phase * 0.55 + i * 0.19) % 1);
+      final along = Offset.lerp(a, b, (i + 0.35) / 5.5)!;
+      final bubble = along + Offset(
+        math.sin(phase * math.pi * 2 + i) * 3,
+        depth * (0.25 + t * 0.55),
+      );
+      canvas.drawCircle(
+        bubble,
+        1.2 + (i % 3) * 0.5,
+        Paint()..color = const Color(0xFFBFF7EA).withValues(alpha: 0.12 + t * 0.08),
+      );
+    }
+
+    // Base sedimentaria más oscura.
+    canvas.drawRect(
+      Rect.fromLTWH(
+        bounds.left,
+        bounds.bottom - depth * 0.18,
+        bounds.width,
+        depth * 0.18,
+      ),
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.transparent,
+            const Color(0xFF021014).withValues(alpha: 0.55),
+          ],
+        ).createShader(
+          Rect.fromLTWH(
+            bounds.left,
+            bounds.bottom - depth * 0.18,
+            bounds.width,
+            depth * 0.18,
+          ),
+        ),
+    );
     canvas.restore();
 
+    // Contorno del bloque de agua.
+    canvas.drawPath(
+      face,
+      Paint()
+        ..color = const Color(0xFF66E0C2).withValues(alpha: lit ? 0.28 : 0.16)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1,
+    );
     canvas.drawLine(
       a,
       b,
       Paint()
-        ..color = const Color(0xFFEFFFFA).withValues(alpha: 0.72)
-        ..strokeWidth = 1.5
+        ..color = const Color(0xFFF4FFFB).withValues(alpha: 0.82)
+        ..strokeWidth = 2
         ..strokeCap = StrokeCap.round,
     );
+    canvas.drawLine(
+      a + down,
+      b + down,
+      Paint()
+        ..color = const Color(0xFF04161C).withValues(alpha: 0.65)
+        ..strokeWidth = 1.4
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  void _paintAquiferLabel(Canvas canvas, Offset a, Offset b, double depth) {
+    final mid = Offset.lerp(a, b, 0.5)! + Offset(0, depth * 0.42);
+    final builder = ui.ParagraphBuilder(
+      ui.ParagraphStyle(
+        textAlign: TextAlign.center,
+        fontSize: 13,
+        fontWeight: FontWeight.w900,
+      ),
+    )
+      ..pushStyle(
+        ui.TextStyle(
+          color: const Color(0xFFE8FFFB).withValues(alpha: 0.95),
+          fontSize: 13,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 1.8,
+        ),
+      )
+      ..addText('ACUÍFERO');
+    final paragraph = builder.build()
+      ..layout(const ui.ParagraphConstraints(width: 140));
+    final origin = Offset(mid.dx - 70, mid.dy - paragraph.height / 2);
+    final chip = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: mid, width: 118, height: 26),
+      const Radius.circular(8),
+    );
+    canvas.drawRRect(
+      chip,
+      Paint()..color = const Color(0xFF042028).withValues(alpha: 0.72),
+    );
+    canvas.drawRRect(
+      chip,
+      Paint()
+        ..color = const Color(0xFF66E0C2).withValues(alpha: 0.7)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2,
+    );
+    canvas.drawParagraph(paragraph, origin);
   }
 
   void _paintNetwork(Canvas canvas, List<Offset> anchors) {

@@ -35,12 +35,10 @@ void main() {
     await tester.pump();
 
     expect(find.text('Hola, Camila'), findsNothing);
-    expect(
-      find.text('Representación Isométrica de Captaciones'),
-      findsOneWidget,
-    );
+    expect(find.text('Captaciones sobre acuífero vivo'), findsOneWidget);
     expect(find.textContaining('en línea'), findsOneWidget);
     expect(find.textContaining('Tensión'), findsOneWidget);
+    expect(find.text('Acuífero'), findsWidgets);
 
     await tester.tapAt(const Offset(200, 220));
     await tester.pump();
