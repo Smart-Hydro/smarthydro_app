@@ -4,7 +4,6 @@ import 'dart:ui' as ui;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
-import '../../../shared/widgets/hydro_glass.dart';
 import '../point_link.dart';
 
 /// Visor isométrico de la cartera: todos los puntos, con giro y zoom.
@@ -73,7 +72,7 @@ class _PortfolioNetworkState extends State<PortfolioNetwork>
   }
 
   void _setZoom(double next) {
-    setState(() => _zoom = next.clamp(0.55, 2.8));
+    setState(() => _zoom = next.clamp(0.45, 3.4));
   }
 
   @override
@@ -89,220 +88,220 @@ class _PortfolioNetworkState extends State<PortfolioNetwork>
         .where((point) => pointLinkOf(point) == PointLink.incident)
         .length;
 
-    return HydroGlass(
-      padding: EdgeInsets.zero,
-      radius: 24,
-      intensity: HydroGlassIntensity.strong,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 12, 0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    nodes.isEmpty
-                        ? 'Sin captaciones en cartera'
-                        : 'Representación Isométrica de Captaciones',
-                    maxLines: 2,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      height: 1.15,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.3,
-                      color: Color(0xFFF4FBF8),
-                    ),
+    // Escenario a sangre: sin card/glass envolvente.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 12, 0),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  nodes.isEmpty
+                      ? 'Sin captaciones en cartera'
+                      : 'Ciudad de telemetría',
+                  maxLines: 2,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    height: 1.15,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.3,
+                    color: Color(0xFFF4FBF8),
                   ),
                 ),
-                const SizedBox(width: 10),
-                _StatusPill(
-                  label: '$connected en línea',
-                  color: const Color(0xFF66E0C2),
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 10),
+              _StatusPill(
+                label: '$connected en línea',
+                color: const Color(0xFF66E0C2),
+              ),
+            ],
           ),
-          const SizedBox(height: 8),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final height = (constraints.maxWidth * 0.46).clamp(360.0, 480.0);
-              return SizedBox(
-                height: height,
-                width: double.infinity,
-                child: LayoutBuilder(
-                  builder: (context, canvasConstraints) {
-                    final size = Size(
-                      canvasConstraints.maxWidth,
-                      canvasConstraints.maxHeight,
-                    );
-                    return Stack(
-                      children: [
-                        Positioned.fill(
-                          child: MouseRegion(
-                            cursor: _hovered == null
-                                ? SystemMouseCursors.grab
-                                : SystemMouseCursors.click,
-                            onHover: (event) {
-                              final index = _IsoPortfolioPainter.nearestIntake(
-                                size,
-                                nodes,
-                                event.localPosition,
-                                _camera,
-                              );
-                              if (index != _hovered) {
-                                setState(() => _hovered = index);
-                              }
-                            },
-                            onExit: (_) {
-                              if (_hovered != null) {
-                                setState(() => _hovered = null);
-                              }
-                            },
-                            child: Listener(
-                              onPointerSignal: (event) {
-                                if (event is! PointerScrollEvent) return;
-                                GestureBinding.instance.pointerSignalResolver
-                                    .register(event, (signal) {
-                                      if (signal is! PointerScrollEvent) return;
-                                      final delta = signal.scrollDelta.dy;
-                                      if (delta == 0) return;
-                                      _setZoom(_zoom * (delta > 0 ? 0.9 : 1.1));
-                                    });
-                              },
-                              child: GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onScaleStart: (details) {
-                                  _zoomStart = _zoom;
-                                  _panStart = _pan;
-                                  _drag = Offset.zero;
-                                  _pointer = details.localFocalPoint;
-                                },
-                                onScaleUpdate: (details) {
-                                  setState(() {
-                                    _drag += details.focalPointDelta;
-                                    _pointer = details.localFocalPoint;
-                                    if (details.pointerCount >= 2) {
-                                      _zoom = (_zoomStart * details.scale)
-                                          .clamp(0.55, 2.8);
-                                      _pan = Offset(
-                                        (_panStart.dx + _drag.dx).clamp(
-                                          -160.0,
-                                          160.0,
-                                        ),
-                                        (_panStart.dy + _drag.dy).clamp(
-                                          -110.0,
-                                          110.0,
-                                        ),
-                                      );
-                                    } else {
-                                      _yaw +=
-                                          details.focalPointDelta.dx * 0.007;
-                                      _pitch =
-                                          (_pitch -
-                                                  details.focalPointDelta.dy *
-                                                      0.0018)
-                                              .clamp(-0.35, 0.55);
-                                    }
+        ),
+        const SizedBox(height: 6),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final height = (MediaQuery.sizeOf(context).height * 0.48).clamp(
+              380.0,
+              560.0,
+            );
+            return SizedBox(
+              height: height,
+              width: double.infinity,
+              child: LayoutBuilder(
+                builder: (context, canvasConstraints) {
+                  final size = Size(
+                    canvasConstraints.maxWidth,
+                    canvasConstraints.maxHeight,
+                  );
+                  return Stack(
+                    children: [
+                      Positioned.fill(
+                        child: MouseRegion(
+                          cursor: _hovered == null
+                              ? SystemMouseCursors.grab
+                              : SystemMouseCursors.click,
+                          onHover: (event) {
+                            final index = _IsoPortfolioPainter.nearestIntake(
+                              size,
+                              nodes,
+                              event.localPosition,
+                              _camera,
+                            );
+                            if (index != _hovered) {
+                              setState(() => _hovered = index);
+                            }
+                          },
+                          onExit: (_) {
+                            if (_hovered != null) {
+                              setState(() => _hovered = null);
+                            }
+                          },
+                          child: Listener(
+                            onPointerSignal: (event) {
+                              if (event is! PointerScrollEvent) return;
+                              GestureBinding.instance.pointerSignalResolver
+                                  .register(event, (signal) {
+                                    if (signal is! PointerScrollEvent) return;
+                                    final delta = signal.scrollDelta.dy;
+                                    if (delta == 0) return;
+                                    _setZoom(_zoom * (delta > 0 ? 0.9 : 1.1));
                                   });
-                                },
-                                onScaleEnd: (_) {
-                                  final pointer = _pointer;
-                                  if (pointer == null || _drag.distance > 12) {
-                                    return;
+                            },
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onScaleStart: (details) {
+                                _zoomStart = _zoom;
+                                _panStart = _pan;
+                                _drag = Offset.zero;
+                                _pointer = details.localFocalPoint;
+                              },
+                              onScaleUpdate: (details) {
+                                setState(() {
+                                  _drag += details.focalPointDelta;
+                                  _pointer = details.localFocalPoint;
+                                  if (details.pointerCount >= 2) {
+                                    _zoom = (_zoomStart * details.scale).clamp(
+                                      0.45,
+                                      3.4,
+                                    );
+                                    _pan = Offset(
+                                      (_panStart.dx + _drag.dx).clamp(
+                                        -260.0,
+                                        260.0,
+                                      ),
+                                      (_panStart.dy + _drag.dy).clamp(
+                                        -180.0,
+                                        180.0,
+                                      ),
+                                    );
+                                  } else {
+                                    _yaw += details.focalPointDelta.dx * 0.007;
+                                    _pitch =
+                                        (_pitch -
+                                                details.focalPointDelta.dy *
+                                                    0.0018)
+                                            .clamp(-0.35, 0.55);
                                   }
-                                  final index =
-                                      _IsoPortfolioPainter.nearestIntake(
-                                        size,
-                                        nodes,
-                                        pointer,
-                                        _camera,
-                                      );
-                                  if (index != null) {
-                                    widget.onPointSelected(nodes[index]);
-                                  }
-                                },
-                                child: AnimatedBuilder(
-                                  animation: _animation,
-                                  builder: (context, _) => CustomPaint(
-                                    painter: _IsoPortfolioPainter(
-                                      points: nodes,
-                                      phase: _animation.value,
-                                      camera: _camera,
-                                      highlight: _hovered,
-                                    ),
-                                    child: const SizedBox.expand(),
+                                });
+                              },
+                              onScaleEnd: (_) {
+                                final pointer = _pointer;
+                                if (pointer == null || _drag.distance > 12) {
+                                  return;
+                                }
+                                final index =
+                                    _IsoPortfolioPainter.nearestIntake(
+                                      size,
+                                      nodes,
+                                      pointer,
+                                      _camera,
+                                    );
+                                if (index != null) {
+                                  widget.onPointSelected(nodes[index]);
+                                }
+                              },
+                              child: AnimatedBuilder(
+                                animation: _animation,
+                                builder: (context, _) => CustomPaint(
+                                  painter: _IsoPortfolioPainter(
+                                    points: nodes,
+                                    phase: _animation.value,
+                                    camera: _camera,
+                                    highlight: _hovered,
                                   ),
+                                  child: const SizedBox.expand(),
                                 ),
                               ),
                             ),
                           ),
                         ),
-                        Positioned(
-                          top: 8,
-                          right: 8,
-                          child: Column(
-                            children: [
-                              _ViewButton(
-                                icon: Icons.add_rounded,
-                                tooltip: 'Acercar',
-                                onTap: () => _setZoom(_zoom * 1.15),
-                              ),
-                              const SizedBox(height: 6),
-                              _ViewButton(
-                                icon: Icons.remove_rounded,
-                                tooltip: 'Alejar',
-                                onTap: () => _setZoom(_zoom / 1.15),
-                              ),
-                              const SizedBox(height: 6),
-                              _ViewButton(
-                                icon: Icons.filter_center_focus_rounded,
-                                tooltip: 'Recentrar',
-                                onTap: () => setState(() {
-                                  _zoom = 1;
-                                  _yaw = 0;
-                                  _pitch = 0;
-                                  _pan = Offset.zero;
-                                }),
-                              ),
-                            ],
-                          ),
+                      ),
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: Column(
+                          children: [
+                            _ViewButton(
+                              icon: Icons.add_rounded,
+                              tooltip: 'Acercar',
+                              onTap: () => _setZoom(_zoom * 1.15),
+                            ),
+                            const SizedBox(height: 6),
+                            _ViewButton(
+                              icon: Icons.remove_rounded,
+                              tooltip: 'Alejar',
+                              onTap: () => _setZoom(_zoom / 1.15),
+                            ),
+                            const SizedBox(height: 6),
+                            _ViewButton(
+                              icon: Icons.filter_center_focus_rounded,
+                              tooltip: 'Recentrar',
+                              onTap: () => setState(() {
+                                _zoom = 1;
+                                _yaw = 0;
+                                _pitch = 0;
+                                _pan = Offset.zero;
+                              }),
+                            ),
+                          ],
                         ),
-                      ],
-                    );
-                  },
-                ),
-              );
-            },
+                      ),
+                    ],
+                  );
+                },
+              ),
+            );
+          },
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
+          child: Wrap(
+            spacing: 10,
+            runSpacing: 6,
+            children: [
+              const _NetworkLegend(
+                color: Color(0xFF66E0C2),
+                label: 'Conectado',
+              ),
+              _NetworkLegend(
+                color: const Color(0xFFFFC46B),
+                label: 'Advertencia${gaps == 0 ? '' : ' · $gaps'}',
+              ),
+              _NetworkLegend(
+                color: const Color(0xFFFF847A),
+                label: 'Tensión${incidents == 0 ? '' : ' · $incidents'}',
+              ),
+              const _NetworkLegend(
+                color: Color(0xFF7EB8C4),
+                label: 'Pozo / superficial',
+                diamond: true,
+              ),
+            ],
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
-            child: Wrap(
-              spacing: 10,
-              runSpacing: 6,
-              children: [
-                const _NetworkLegend(
-                  color: Color(0xFF66E0C2),
-                  label: 'Conectado',
-                ),
-                _NetworkLegend(
-                  color: const Color(0xFFFFC46B),
-                  label: 'Advertencia${gaps == 0 ? '' : ' · $gaps'}',
-                ),
-                _NetworkLegend(
-                  color: const Color(0xFFFF847A),
-                  label: 'Tensión${incidents == 0 ? '' : ' · $incidents'}',
-                ),
-                const _NetworkLegend(
-                  color: Color(0xFF7EB8C4),
-                  label: 'Pozo / superficial',
-                  diamond: true,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -553,21 +552,26 @@ class _IsoPortfolioPainter extends CustomPainter {
   static const _mint = Color(0xFF66E0C2);
   static const _amber = Color(0xFFFFC46B);
   static const _coral = Color(0xFFFF847A);
-  static const _slotGap = 1.4;
+  static const _slotGap = 1.55;
 
   static int _columns(int count) {
     if (count <= 1) return 1;
-    return math.max(2, math.sqrt(count).ceil());
+    if (count <= 4) return 2;
+    if (count <= 9) return 3;
+    return 4;
   }
 
+  /// Rejilla centrada: última fila incompleta también al medio.
   static Offset _slot(int index, int count) {
     if (count <= 1) return Offset.zero;
     final cols = _columns(count);
     final rows = (count + cols - 1) ~/ cols;
     final col = index % cols;
     final row = index ~/ cols;
+    final itemsInRow = row == rows - 1 ? count - (rows - 1) * cols : cols;
+    final rowOffset = (cols - itemsInRow) / 2;
     return Offset(
-      (col - (cols - 1) / 2) * _slotGap,
+      (col + rowOffset - (cols - 1) / 2) * _slotGap,
       (row - (rows - 1) / 2) * _slotGap,
     );
   }
@@ -831,16 +835,31 @@ class _IsoPortfolioPainter extends CustomPainter {
 
   void _paintNetwork(Canvas canvas, List<Offset> anchors) {
     if (anchors.length < 2) return;
-    final pulse = 0.34 + 0.08 * math.sin(phase * math.pi * 2);
+    final cols = _columns(anchors.length);
+    final pulse = 0.42 + 0.1 * math.sin(phase * math.pi * 2);
+    // Solo calles de la rejilla (vecinos), no una telaraña.
     for (var i = 0; i < anchors.length; i++) {
-      for (var j = i + 1; j < anchors.length; j++) {
-        final lit = highlight == i || highlight == j;
+      final right = i + 1;
+      if (right < anchors.length && i ~/ cols == right ~/ cols) {
+        final lit = highlight == i || highlight == right;
         canvas.drawLine(
           anchors[i],
-          anchors[j],
+          anchors[right],
           Paint()
-            ..color = _mint.withValues(alpha: lit ? 0.85 : pulse)
-            ..strokeWidth = lit ? 2.2 : 1.35
+            ..color = _mint.withValues(alpha: lit ? 0.9 : pulse)
+            ..strokeWidth = lit ? 2.3 : 1.5
+            ..strokeCap = StrokeCap.round,
+        );
+      }
+      final below = i + cols;
+      if (below < anchors.length) {
+        final lit = highlight == i || highlight == below;
+        canvas.drawLine(
+          anchors[i],
+          anchors[below],
+          Paint()
+            ..color = _mint.withValues(alpha: lit ? 0.9 : pulse * 0.85)
+            ..strokeWidth = lit ? 2.3 : 1.5
             ..strokeCap = StrokeCap.round,
         );
       }
@@ -881,21 +900,20 @@ class _IsoPortfolioPainter extends CustomPainter {
   }
 
   void _paintAtmosphere(Canvas canvas, Size size) {
+    // Destellos lineales suaves (sin óvalos flotantes).
     final travel = phase * math.pi * 2;
-    for (var i = 0; i < 5; i++) {
-      final t = (phase + i * 0.18) % 1;
-      final x = size.width * (0.15 + 0.7 * ((i * 0.37) % 1));
-      final y = size.height * (0.22 + 0.18 * math.sin(travel + i));
-      canvas.drawOval(
-        Rect.fromCenter(
-          center: Offset(x, y),
-          width: 40 + t * 30,
-          height: 8 + t * 4,
-        ),
+    for (var i = 0; i < 4; i++) {
+      final t = (phase + i * 0.21) % 1;
+      final fade = math.sin(t * math.pi);
+      final x = size.width * (0.12 + 0.76 * t);
+      final y = size.height * (0.16 + 0.1 * math.sin(travel + i));
+      canvas.drawLine(
+        Offset(x - 18, y),
+        Offset(x + 18, y),
         Paint()
-          ..color = Colors.white.withValues(
-            alpha: 0.03 + 0.02 * math.sin(t * math.pi),
-          ),
+          ..color = Colors.white.withValues(alpha: 0.04 * fade)
+          ..strokeWidth = 1.1
+          ..strokeCap = StrokeCap.round,
       );
     }
   }
@@ -1013,8 +1031,8 @@ class _IsoPortfolioPainter extends CustomPainter {
     canvas.drawPath(leftFace, Paint()..color = const Color(0xFF8FA39A));
     canvas.drawPath(rightFace, Paint()..color = const Color(0xFF5F726A));
 
-    // Agua en el interior (nivel).
-    final fill = 0.35 + 0.2 * math.sin(phase * math.pi * 2 + index);
+    // Agua en el interior (nivel real de telemetría).
+    final fill = _levelFill(points[index]);
     final waterCenter = Offset(
       top.dx,
       top.dy + (1 - fill) * shaft * 0.35 + ry * 0.2,
@@ -1185,60 +1203,116 @@ class _IsoPortfolioPainter extends CustomPainter {
     bool lit,
     double mark,
   ) {
+    final telemetry = _telemetry(point);
+    final flow = _number(telemetry['flow']);
+    final level = _number(telemetry['water_table'] ?? telemetry['nivel']);
+    final total = _number(
+      telemetry['total'] ?? telemetry['total_raw'] ?? telemetry['consumption'],
+    );
     final title = point['title']?.toString() ?? 'Punto';
-    final short = title.length > 11 ? '${title.substring(0, 10)}…' : title;
-    final text = TextPainter(
+    final short = title.length > 10 ? '${title.substring(0, 9)}…' : title;
+    final q = flow == null ? '—' : _compact(flow);
+    final n = level == null ? '—' : _compact(level);
+    final s = total == null ? '—' : _compact(total);
+
+    final titlePainter = TextPainter(
       text: TextSpan(
         text: short,
         style: TextStyle(
           color: lit ? const Color(0xFFF4FBF8) : const Color(0xFFE2F3EE),
-          fontSize: lit ? 10.5 : 9.5,
+          fontSize: lit ? 10 : 9,
           fontWeight: FontWeight.w800,
         ),
       ),
       textDirection: TextDirection.ltr,
       maxLines: 1,
-    )..layout(maxWidth: 78);
-
-    final badgeCenter = base.translate(0, -30 * mark - 16);
-    final badge = RRect.fromRectAndRadius(
-      Rect.fromCenter(
-        center: badgeCenter,
-        width: text.width + 14,
-        height: text.height + 8,
+    )..layout(maxWidth: 86);
+    final metricsPainter = TextPainter(
+      text: TextSpan(
+        text: 'Q $q  N $n  Σ $s',
+        style: TextStyle(
+          color: color.withValues(alpha: lit ? 0.95 : 0.8),
+          fontSize: lit ? 8.5 : 8,
+          fontWeight: FontWeight.w700,
+        ),
       ),
-      const Radius.circular(9),
-    );
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout(maxWidth: 110);
 
-    // Glass badge.
-    canvas.drawRRect(
-      badge,
-      Paint()
-        ..color = const Color(0xFF081619).withValues(alpha: lit ? 0.92 : 0.78),
+    final w = math.max(titlePainter.width, metricsPainter.width) + 12;
+    final h = titlePainter.height + metricsPainter.height + 8;
+    final center = base.translate(0, -30 * mark - 18);
+    final left = center.dx - w / 2;
+    final top = center.dy - h / 2;
+    // Placa rectangular (sin óvalo flotante).
+    final plate = RRect.fromRectAndRadius(
+      Rect.fromLTWH(left, top, w, h),
+      const Radius.circular(5),
     );
     canvas.drawRRect(
-      badge,
+      plate,
       Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Colors.white.withValues(alpha: lit ? 0.14 : 0.06),
-            Colors.transparent,
-          ],
-        ).createShader(badge.outerRect),
+        ..color = const Color(0xFF071114).withValues(alpha: lit ? 0.9 : 0.78),
     );
     canvas.drawRRect(
-      badge,
+      plate,
       Paint()
-        ..color = color.withValues(alpha: lit ? 0.65 : 0.35)
+        ..color = color.withValues(alpha: lit ? 0.7 : 0.4)
         ..style = PaintingStyle.stroke
         ..strokeWidth = lit ? 1.2 : 1,
     );
-    text.paint(
+    titlePainter.paint(
       canvas,
-      Offset(badgeCenter.dx - text.width / 2, badgeCenter.dy - text.height / 2),
+      Offset(left + (w - titlePainter.width) / 2, top + 3),
     );
+    metricsPainter.paint(
+      canvas,
+      Offset(
+        left + (w - metricsPainter.width) / 2,
+        top + 3 + titlePainter.height + 1,
+      ),
+    );
+  }
+
+  static Map<String, dynamic> _telemetry(Map<String, dynamic> point) {
+    final value = point['latest_telemetry'];
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) {
+      return value.map((key, item) => MapEntry('$key', item));
+    }
+    return const {};
+  }
+
+  static double? _number(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    return double.tryParse('$value');
+  }
+
+  static String _compact(double value) {
+    if (value.abs() >= 1000) return value.toStringAsFixed(0);
+    if (value.abs() >= 100) return value.toStringAsFixed(1);
+    return value.toStringAsFixed(2);
+  }
+
+  double _levelFill(Map<String, dynamic> point) {
+    final level = _number(
+      _telemetry(point)['water_table'] ?? _telemetry(point)['nivel'],
+    );
+    if (level == null) return 0.42;
+    final levels = points
+        .map((p) {
+          final t = _telemetry(p);
+          return _number(t['water_table'] ?? t['nivel']);
+        })
+        .whereType<double>()
+        .toList();
+    if (levels.length < 2) return 0.5;
+    final min = levels.reduce(math.min);
+    final max = levels.reduce(math.max);
+    if ((max - min).abs() < 0.0001) return 0.5;
+    return 0.28 + ((level - min) / (max - min)).clamp(0, 1) * 0.55;
   }
 
   static bool _isSurface(Map<String, dynamic> point) {

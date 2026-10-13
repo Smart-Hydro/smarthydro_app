@@ -35,10 +35,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('Hola, Camila'), findsNothing);
-    expect(
-      find.text('Representación Isométrica de Captaciones'),
-      findsOneWidget,
-    );
+    expect(find.text('Ciudad de telemetría'), findsOneWidget);
     expect(find.textContaining('en línea'), findsOneWidget);
     expect(find.textContaining('Tensión'), findsOneWidget);
 

@@ -35,7 +35,6 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
   int _selectedTab = 0;
   bool _loading = true;
   String? _loadError;
-  Map<String, dynamic> _stats = const {};
   List<Map<String, dynamic>> _points = const [];
   Map<String, dynamic> _ticketNotifications = const {};
   Map<String, dynamic> _eventsSummary = const {};
@@ -92,14 +91,10 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
       _loadError = null;
     });
     try {
-      final results = await Future.wait<dynamic>([
-        _api.dashboardStats(widget.session.token),
-        _api.pointsSummary(widget.session.token),
-      ]);
+      final points = await _api.pointsSummary(widget.session.token);
       if (!mounted) return;
       setState(() {
-        _stats = results[0] as Map<String, dynamic>;
-        _points = results[1] as List<Map<String, dynamic>>;
+        _points = points;
         _loading = false;
       });
       if (_selectedTab == 2) _loadNotifications();
@@ -292,7 +287,6 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
         return _loading
             ? const _LoadingState()
             : _DashboardTab(
-                stats: _stats,
                 points: _points,
                 onRefresh: _loadDashboard,
                 onOpenPoints: () => _selectTab(1),
@@ -597,7 +591,6 @@ class _AppHeader extends StatelessWidget {
 
 class _DashboardTab extends StatelessWidget {
   const _DashboardTab({
-    required this.stats,
     required this.points,
     required this.onRefresh,
     required this.onOpenPoints,
@@ -607,7 +600,6 @@ class _DashboardTab extends StatelessWidget {
     required this.onSelectPoint,
   });
 
-  final Map<String, dynamic> stats;
   final List<Map<String, dynamic>> points;
   final Future<void> Function() onRefresh;
   final VoidCallback onOpenPoints;
@@ -618,133 +610,71 @@ class _DashboardTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final total = points.isNotEmpty
-        ? points.length
-        : _int(_map(stats['points'])['total'], _int(stats['total_points']));
-    final connected = points
-        .where((point) => pointLinkOf(point) == PointLink.connected)
-        .length;
-    final gaps = points
-        .where((point) => pointLinkOf(point) == PointLink.gap)
-        .length;
-    final incidents = points
-        .where((point) => pointLinkOf(point) == PointLink.incident)
-        .length;
-
     return RefreshIndicator(
       onRefresh: onRefresh,
-      child: HydroFrame(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(8, 12, 8, 32),
-          children: [
-            HydroEntrance(
-              child: PortfolioNetwork(
-                points: points,
-                onPointSelected: onSelectPoint,
-              ),
-            ),
-            const SizedBox(height: 14),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final columns = constraints.maxWidth >= 900
-                    ? 4
-                    : constraints.maxWidth >= 560
-                    ? 4
-                    : 2;
-                const gap = 10.0;
-                final cardWidth =
-                    (constraints.maxWidth - gap * (columns - 1)) / columns;
-                final items = [
-                  _MetricData(
-                    'Puntos',
-                    '$total',
-                    Icons.location_on_outlined,
-                    const Color(0xFF66E0C2),
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          // Ciudad isométrica a sangre completa (sin card ni métricas encima).
+          PortfolioNetwork(points: points, onPointSelected: onSelectPoint),
+          const SizedBox(height: 12),
+          HydroFrame(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 32),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  HydroEntrance(
+                    delay: const Duration(milliseconds: 120),
+                    child: _QuickActionsRow(
+                      onOpenNotifications: onOpenNotifications,
+                      onOpenGeo: onOpenGeo,
+                      onOpenAnalysis: onOpenAnalysis,
+                    ),
                   ),
-                  _MetricData(
-                    'En línea',
-                    '$connected',
-                    Icons.sensors_rounded,
-                    const Color(0xFF66E0C2),
-                  ),
-                  _MetricData(
-                    'Avisos',
-                    '$gaps',
-                    Icons.water_damage_outlined,
-                    const Color(0xFFFFC46B),
-                  ),
-                  _MetricData(
-                    'Tensión',
-                    '$incidents',
-                    Icons.report_outlined,
-                    const Color(0xFFFF847A),
-                  ),
-                ];
-                return Wrap(
-                  spacing: gap,
-                  runSpacing: gap,
-                  children: [
-                    for (var i = 0; i < items.length; i++)
-                      SizedBox(
-                        width: cardWidth,
-                        child: HydroEntrance(
-                          delay: Duration(milliseconds: 60 * i),
-                          child: _MetricCard(data: items[i]),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      const Text(
+                        'Captaciones',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                          letterSpacing: -0.2,
                         ),
                       ),
-                  ],
-                );
-              },
-            ),
-            const SizedBox(height: 18),
-            HydroEntrance(
-              delay: const Duration(milliseconds: 160),
-              child: _QuickActionsRow(
-                onOpenNotifications: onOpenNotifications,
-                onOpenGeo: onOpenGeo,
-                onOpenAnalysis: onOpenAnalysis,
+                      const Spacer(),
+                      TextButton.icon(
+                        onPressed: onOpenPoints,
+                        icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                        label: const Text('Ver todos'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  if (points.isEmpty)
+                    const _EmptyState(
+                      icon: Icons.water_drop_outlined,
+                      title: 'Aún no tienes puntos asignados',
+                      message:
+                          'Cuando tu cuenta tenga puntos asociados, aparecerán aquí.',
+                    )
+                  else
+                    for (var i = 0; i < points.take(5).length; i++) ...[
+                      HydroEntrance(
+                        delay: Duration(milliseconds: 220 + i * 55),
+                        child: _PointCard(
+                          point: points[i],
+                          onTap: () => onSelectPoint(points[i]),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                ],
               ),
             ),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                const Text(
-                  'Captaciones',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
-                    letterSpacing: -0.2,
-                  ),
-                ),
-                const Spacer(),
-                TextButton.icon(
-                  onPressed: onOpenPoints,
-                  icon: const Icon(Icons.arrow_forward_rounded, size: 16),
-                  label: const Text('Ver todos'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            if (points.isEmpty)
-              const _EmptyState(
-                icon: Icons.water_drop_outlined,
-                title: 'Aún no tienes puntos asignados',
-                message:
-                    'Cuando tu cuenta tenga puntos asociados, aparecerán aquí.',
-              )
-            else
-              for (var i = 0; i < points.take(5).length; i++) ...[
-                HydroEntrance(
-                  delay: Duration(milliseconds: 220 + i * 55),
-                  child: _PointCard(
-                    point: points[i],
-                    onTap: () => onSelectPoint(points[i]),
-                  ),
-                ),
-                const SizedBox(height: 10),
-              ],
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1938,85 +1868,6 @@ class _HistoryDayCard extends StatelessWidget {
           style: const TextStyle(
             color: Color(0xFF66E0C2),
             fontWeight: FontWeight.w700,
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-class _MetricData {
-  const _MetricData(this.title, this.value, this.icon, this.color);
-
-  final String title;
-  final String value;
-  final IconData icon;
-  final Color color;
-}
-
-class _MetricCard extends StatelessWidget {
-  const _MetricCard({required this.data});
-
-  final _MetricData data;
-
-  @override
-  Widget build(BuildContext context) => HydroGlass(
-    padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-    radius: 18,
-    intensity: HydroGlassIntensity.soft,
-    accent: data.color,
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(7),
-              decoration: BoxDecoration(
-                color: data.color.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(11),
-                border: Border.all(
-                  color: data.color.withValues(alpha: 0.28),
-                  width: 1,
-                ),
-              ),
-              child: Icon(data.icon, color: data.color, size: 18),
-            ),
-            Container(
-              width: 6,
-              height: 6,
-              decoration: BoxDecoration(
-                color: data.color,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: data.color.withValues(alpha: 0.55),
-                    blurRadius: 6,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Text(
-          data.title,
-          style: const TextStyle(
-            color: Color(0xFFA9BFC0),
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.2,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          data.value,
-          style: TextStyle(
-            fontWeight: FontWeight.w900,
-            fontSize: 24,
-            color: data.color.withValues(alpha: 0.95),
-            letterSpacing: -0.5,
           ),
         ),
       ],
