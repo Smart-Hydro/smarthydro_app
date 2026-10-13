@@ -4,7 +4,8 @@ import 'package:flutter/material.dart';
 
 import 'point_link.dart';
 
-/// Vista única del punto: el nivel ocupa el pozo y el caudal mueve el flujo.
+/// Vista del punto: nivel en el pozo/canal y caudal como flujo lineal.
+/// Sin óvalos flotantes; pensada para explorar con zoom.
 class CaptureStage extends StatefulWidget {
   const CaptureStage({
     required this.levelMeters,
@@ -39,6 +40,7 @@ class _CaptureStageState extends State<CaptureStage>
     vsync: this,
     duration: const Duration(milliseconds: 1400),
   );
+  final TransformationController _transform = TransformationController();
   double? _previousFlow;
 
   @override
@@ -74,6 +76,7 @@ class _CaptureStageState extends State<CaptureStage>
   void dispose() {
     _flow.dispose();
     _surge.dispose();
+    _transform.dispose();
     super.dispose();
   }
 
@@ -91,26 +94,50 @@ class _CaptureStageState extends State<CaptureStage>
       container: true,
       label: '$kind: $level, $flow, ${pointLinkLabel(widget.link)}',
       child: ExcludeSemantics(
-        child: AnimatedBuilder(
-          animation: Listenable.merge([_flow, _surge]),
-          builder: (context, _) {
-            final surge = _surge.isDismissed ? 0.0 : (1 - _surge.value);
-            return CustomPaint(
-              painter: _CaptureStagePainter(
-                phase: _flow.value,
-                surge: surge,
-                levelMeters: widget.levelMeters,
-                levelFill: widget.levelFill,
-                levelMin: widget.levelMin,
-                levelMax: widget.levelMax,
-                textScaler: textScaler,
-                flow: widget.flowLitersPerSecond,
-                isSurface: widget.isSurface,
-                link: widget.link,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            InteractiveViewer(
+              transformationController: _transform,
+              minScale: 0.75,
+              maxScale: 3.2,
+              boundaryMargin: const EdgeInsets.all(80),
+              child: AnimatedBuilder(
+                animation: Listenable.merge([_flow, _surge]),
+                builder: (context, _) {
+                  final surge = _surge.isDismissed ? 0.0 : (1 - _surge.value);
+                  return CustomPaint(
+                    painter: _CaptureStagePainter(
+                      phase: _flow.value,
+                      surge: surge,
+                      levelMeters: widget.levelMeters,
+                      levelFill: widget.levelFill,
+                      levelMin: widget.levelMin,
+                      levelMax: widget.levelMax,
+                      textScaler: textScaler,
+                      flow: widget.flowLitersPerSecond,
+                      isSurface: widget.isSurface,
+                      link: widget.link,
+                    ),
+                    child: const SizedBox.expand(),
+                  );
+                },
               ),
-              child: const SizedBox.expand(),
-            );
-          },
+            ),
+            Positioned(
+              right: 12,
+              bottom: 12,
+              child: Material(
+                color: const Color(0xFF0C1C21).withValues(alpha: 0.85),
+                borderRadius: BorderRadius.circular(10),
+                child: IconButton(
+                  tooltip: 'Restablecer vista',
+                  onPressed: () => _transform.value = Matrix4.identity(),
+                  icon: const Icon(Icons.center_focus_strong_rounded, size: 18),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -175,8 +202,9 @@ class _CaptureStagePainter extends CustomPainter {
               Rect.fromLTWH(0, groundY, size.width, size.height - groundY),
             ),
     );
+    // Franja de terreno (rectilínea, sin óvalo).
     canvas.drawRect(
-      Rect.fromLTWH(0, groundY - 10, size.width, 16),
+      Rect.fromLTWH(0, groundY - 8, size.width, 12),
       Paint()..color = const Color(0xFF6D7C74),
     );
 
@@ -190,20 +218,24 @@ class _CaptureStagePainter extends CustomPainter {
       height: (size.height - groundY) * 0.86,
     );
     canvas.drawRRect(
-      RRect.fromRectAndRadius(bore, const Radius.circular(22)),
+      RRect.fromRectAndRadius(bore, const Radius.circular(16)),
       Paint()..color = const Color(0xFFD5E4DC),
     );
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: Offset(bore.center.dx, groundY + 2),
-        width: boreWidth + 28,
-        height: 18,
+    // Boca del pozo: placa rectangular, no óvalo flotante.
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: Offset(bore.center.dx, groundY + 2),
+          width: boreWidth + 18,
+          height: 14,
+        ),
+        const Radius.circular(4),
       ),
       Paint()..color = const Color(0xFFB7C6BE),
     );
     final shaft = bore.deflate(12);
     canvas.drawRRect(
-      RRect.fromRectAndRadius(shaft, const Radius.circular(14)),
+      RRect.fromRectAndRadius(shaft, const Radius.circular(12)),
       Paint()..color = const Color(0xFF071114),
     );
 
@@ -229,7 +261,6 @@ class _CaptureStagePainter extends CustomPainter {
       canvas.clipRRect(
         RRect.fromRectAndRadius(water, const Radius.circular(8)),
       );
-      // Ola trasera (más oscura) para dar volumen.
       final back = Path()..moveTo(water.left, water.bottom);
       for (var x = water.left; x <= water.right + 4; x += 4) {
         final y =
@@ -245,12 +276,12 @@ class _CaptureStagePainter extends CustomPainter {
         back,
         Paint()..color = const Color(0xFF0C3140).withValues(alpha: 0.55),
       );
-      // Reflejo vertical de luz.
+      // Reflejo de luz vertical (línea, no burbujas).
       canvas.drawRect(
         Rect.fromLTWH(
           water.left + water.width * 0.18,
           water.top,
-          6,
+          5,
           water.height,
         ),
         Paint()
@@ -258,32 +289,29 @@ class _CaptureStagePainter extends CustomPainter {
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Colors.white.withValues(alpha: 0.22),
+              Colors.white.withValues(alpha: 0.2),
               Colors.white.withValues(alpha: 0),
             ],
           ).createShader(water),
       );
-      // Burbujas ascendentes (ciclo entero => sin saltos).
-      for (var i = 0; i < 7; i++) {
+      // Filamentos de caudal ascendentes (trazos, no óvalos).
+      for (var i = 0; i < 5; i++) {
         final seed = (i * 0.6180339) % 1;
         final progress = (phase * (1 + i % 2) + seed) % 1;
-        final bx =
-            water.left +
-            water.width * (0.15 + 0.7 * ((seed * 5.3) % 1)) +
-            math.sin(progress * math.pi * 4 + i) * 3;
+        final bx = water.left + water.width * (0.2 + 0.6 * ((seed * 5.3) % 1));
         final by = water.bottom - water.height * progress;
         final fade = math.sin(progress * math.pi);
-        canvas.drawCircle(
-          Offset(bx, by),
-          1.4 + (i % 3) * 0.8,
+        canvas.drawLine(
+          Offset(bx, by + 6),
+          Offset(bx, by - 4),
           Paint()
-            ..color = const Color(0xFFDFFFF6).withValues(alpha: 0.35 * fade)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1,
+            ..color = const Color(0xFFDFFFF6).withValues(alpha: 0.28 * fade)
+            ..strokeWidth = 1.2
+            ..strokeCap = StrokeCap.round,
         );
       }
       canvas.restore();
-      // Ola frontal con brillo especular.
+
       final wave = Path()..moveTo(water.left, water.top + 3);
       for (var x = water.left; x <= water.right; x += 4) {
         final y =
@@ -300,7 +328,6 @@ class _CaptureStagePainter extends CustomPainter {
           ..strokeWidth = 1.6
           ..strokeCap = StrokeCap.round,
       );
-      // Menisco: halo suave sobre la superficie.
       canvas.drawRect(
         Rect.fromLTWH(water.left, water.top - 3, water.width, 8),
         Paint()
@@ -361,7 +388,6 @@ class _CaptureStagePainter extends CustomPainter {
               Rect.fromLTWH(0, bankY, size.width, size.height - bankY),
             ),
     );
-    // Línea de espuma/brillo sobre la superficie.
     final foam = Path();
     for (var x = 0.0; x <= size.width; x += 6) {
       final y =
@@ -378,7 +404,6 @@ class _CaptureStagePainter extends CustomPainter {
         ..strokeWidth = 1.6
         ..strokeCap = StrokeCap.round,
     );
-    // Destellos horizontales que derivan con la corriente.
     for (var i = 0; i < 9; i++) {
       final seed = (i * 0.6180339) % 1;
       final t = (phase + seed) % 1;
@@ -403,12 +428,25 @@ class _CaptureStagePainter extends CustomPainter {
         ..strokeWidth = 4
         ..strokeCap = StrokeCap.round,
     );
-    canvas.drawCircle(
-      Offset(intake.dx, bankY - 56),
-      6,
+    // Cabezal cuadrado del logger, no círculo.
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: Offset(intake.dx, bankY - 56),
+          width: 12,
+          height: 12,
+        ),
+        const Radius.circular(3),
+      ),
       Paint()..color = const Color(0xFF16343A),
     );
-    canvas.drawCircle(intake, 5, Paint()..color = const Color(0xFF66E0C2));
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(center: intake, width: 10, height: 10),
+        const Radius.circular(2),
+      ),
+      Paint()..color = const Color(0xFF66E0C2),
+    );
     _paintFlow(canvas, size, intake, false);
     final label = levelMeters == null
         ? 'Sin nivel'
@@ -434,18 +472,21 @@ class _CaptureStagePainter extends CustomPainter {
       final dx = origin.dx + length * travel;
       final dy =
           origin.dy + math.sin(travel * math.pi * 2 + index) * (2 + surge * 4);
-      canvas.drawOval(
-        Rect.fromCenter(center: Offset(dx, dy), width: 3, height: 6 + fade * 4),
+      // Trazo de corriente (línea), no óvalo flotante.
+      canvas.drawLine(
+        Offset(dx - 4, dy),
+        Offset(dx + 5, dy),
         Paint()
           ..color = const Color(
             0xFFBFF7EA,
-          ).withValues(alpha: 0.25 + fade * 0.6),
+          ).withValues(alpha: 0.25 + fade * 0.55)
+          ..strokeWidth = 1.8
+          ..strokeCap = StrokeCap.round,
       );
     }
   }
 
   void _paintRuler(Canvas canvas, Size size, Rect shaft, double waterTop) {
-    // Marcas de escala a la izquierda del pozo (referencia visual).
     final tick = Paint()
       ..color = const Color(0xFF0C1C21).withValues(alpha: 0.55)
       ..strokeWidth = 1;
@@ -458,7 +499,6 @@ class _CaptureStagePainter extends CustomPainter {
         tick,
       );
     }
-    // Línea de nivel actual cruzando el pozo.
     canvas.drawLine(
       Offset(shaft.left, waterTop),
       Offset(shaft.right + 10, waterTop),
@@ -496,7 +536,6 @@ class _CaptureStagePainter extends CustomPainter {
     }
   }
 
-  /// Etiqueta con fondo para asegurar contraste sobre cualquier zona del lienzo.
   void _pill(
     Canvas canvas,
     Size size,
@@ -528,7 +567,7 @@ class _CaptureStagePainter extends CustomPainter {
         .toDouble();
     final rect = RRect.fromRectAndRadius(
       Rect.fromLTWH(left, top, w, h),
-      const Radius.circular(10),
+      const Radius.circular(8),
     );
     canvas.drawRRect(
       rect,
@@ -546,7 +585,6 @@ class _CaptureStagePainter extends CustomPainter {
     painter.paint(canvas, Offset(left + 8, top + 4));
   }
 
-  /// [levelFill] es la posición relativa al período visible (0 vacío, 1 lleno).
   double _visibleFill(double? levelFill) {
     if (levelMeters == null || levelFill == null) return 0.06;
     return (0.2 + levelFill.clamp(0, 1) * 0.68);

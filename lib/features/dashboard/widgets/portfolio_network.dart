@@ -2,10 +2,10 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../../shared/widgets/hydro_glass.dart';
 import '../point_link.dart';
 
-/// Cuerpo de agua del inicio. Cada punto es una captación sobre la superficie.
+/// Ciudad de telemetría: loggers alineados al centro, con caudal / nivel /
+/// totalizado a la vista y zoom libre para recorrer la arquitectura.
 class PortfolioNetwork extends StatefulWidget {
   const PortfolioNetwork({
     required this.points,
@@ -24,8 +24,9 @@ class _PortfolioNetworkState extends State<PortfolioNetwork>
     with SingleTickerProviderStateMixin {
   late final AnimationController _animation = AnimationController(
     vsync: this,
-    duration: const Duration(seconds: 16),
+    duration: const Duration(seconds: 14),
   );
+  final TransformationController _transform = TransformationController();
 
   @override
   void didChangeDependencies() {
@@ -41,12 +42,17 @@ class _PortfolioNetworkState extends State<PortfolioNetwork>
   @override
   void dispose() {
     _animation.dispose();
+    _transform.dispose();
     super.dispose();
+  }
+
+  void _resetView() {
+    _transform.value = Matrix4.identity();
   }
 
   @override
   Widget build(BuildContext context) {
-    final nodes = widget.points.take(8).toList(growable: false);
+    final nodes = widget.points.take(12).toList(growable: false);
     final extraCount = widget.points.length - nodes.length;
     final connected = widget.points
         .where((point) => pointLinkOf(point) == PointLink.connected)
@@ -54,14 +60,25 @@ class _PortfolioNetworkState extends State<PortfolioNetwork>
     final gaps = widget.points
         .where((point) => pointLinkOf(point) == PointLink.gap)
         .length;
-    return HydroGlass(
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Align(
-            alignment: Alignment.centerRight,
-            child: Text(
+    final incidents = widget.points
+        .where((point) => pointLinkOf(point) == PointLink.incident)
+        .length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Text(
+              'Ciudad de telemetría',
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 15,
+                letterSpacing: -0.2,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
               '$connected en línea',
               style: const TextStyle(
                 color: Color(0xFF66E0C2),
@@ -69,64 +86,105 @@ class _PortfolioNetworkState extends State<PortfolioNetwork>
                 fontSize: 11,
               ),
             ),
-          ),
-          const SizedBox(height: 6),
-          SizedBox(
-            height: 300,
-            width: double.infinity,
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final size = Size(constraints.maxWidth, constraints.maxHeight);
-                return GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTapUp: (details) {
-                    final index = _WaterBodyPainter.nearestIntake(
-                      size,
-                      nodes.length,
-                      details.localPosition,
-                      _animation.value,
-                    );
-                    if (index != null) widget.onPointSelected(nodes[index]);
-                  },
-                  child: AnimatedBuilder(
-                    animation: _animation,
-                    builder: (context, _) => CustomPaint(
-                      painter: _WaterBodyPainter(
-                        points: nodes,
-                        phase: _animation.value,
+            const Spacer(),
+            IconButton(
+              tooltip: 'Restablecer vista',
+              visualDensity: VisualDensity.compact,
+              onPressed: _resetView,
+              icon: const Icon(Icons.center_focus_strong_rounded, size: 20),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          gaps + incidents == 0
+              ? 'Pellizca o arrastra para explorar · toca un logger'
+              : '$gaps advertencias · $incidents incidencias · pellizca para explorar',
+          style: const TextStyle(color: Color(0xFF91A8AA), fontSize: 11),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 380,
+          width: double.infinity,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: DecoratedBox(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color(0xFF122A30),
+                    Color(0xFF0B1A1E),
+                    Color(0xFF071114),
+                  ],
+                ),
+              ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final viewport = Size(
+                    constraints.maxWidth,
+                    constraints.maxHeight,
+                  );
+                  final city = _TelemetryCityLayout.plan(
+                    count: nodes.length,
+                    viewport: viewport,
+                  );
+                  return InteractiveViewer(
+                    transformationController: _transform,
+                    minScale: 0.65,
+                    maxScale: 2.8,
+                    boundaryMargin: const EdgeInsets.all(120),
+                    clipBehavior: Clip.hardEdge,
+                    child: SizedBox(
+                      width: city.canvas.width,
+                      height: city.canvas.height,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTapUp: (details) {
+                          final index = city.hitTest(details.localPosition);
+                          if (index != null) {
+                            widget.onPointSelected(nodes[index]);
+                          }
+                        },
+                        child: AnimatedBuilder(
+                          animation: _animation,
+                          builder: (context, _) => CustomPaint(
+                            painter: _TelemetryCityPainter(
+                              points: nodes,
+                              layout: city,
+                              phase: _animation.value,
+                            ),
+                            child: const SizedBox.expand(),
+                          ),
+                        ),
                       ),
-                      child: const SizedBox.expand(),
                     ),
-                  ),
-                );
-              },
-            ),
-          ),
-          if (extraCount > 0)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Text(
-                '+$extraCount puntos en el listado',
-                style: const TextStyle(color: Color(0xFF91A8AA), fontSize: 10),
+                  );
+                },
               ),
             ),
-          Wrap(
-            spacing: 14,
-            runSpacing: 6,
-            children: [
-              const _NetworkLegend(color: Color(0xFF66E0C2), label: 'Conectado'),
-              _NetworkLegend(
-                color: const Color(0xFFFFC46B),
-                label: 'Advertencia${gaps == 0 ? '' : ' · $gaps'}',
-              ),
-              const _NetworkLegend(
-                color: Color(0xFFFF847A),
-                label: 'Incidencia',
-              ),
-            ],
           ),
-        ],
-      ),
+        ),
+        if (extraCount > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              '+$extraCount puntos en el listado',
+              style: const TextStyle(color: Color(0xFF91A8AA), fontSize: 10),
+            ),
+          ),
+        const SizedBox(height: 10),
+        const Wrap(
+          spacing: 16,
+          runSpacing: 6,
+          children: [
+            _NetworkLegend(color: Color(0xFF66E0C2), label: 'Conectado'),
+            _NetworkLegend(color: Color(0xFFFFC46B), label: 'Advertencia'),
+            _NetworkLegend(color: Color(0xFFFF847A), label: 'Incidencia'),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -155,175 +213,258 @@ class _NetworkLegend extends StatelessWidget {
   );
 }
 
-class _WaterBodyPainter extends CustomPainter {
-  const _WaterBodyPainter({required this.points, required this.phase});
+/// Rejilla centrada: filas equilibradas y columnas alineadas al eje medio.
+class _TelemetryCityLayout {
+  const _TelemetryCityLayout({
+    required this.canvas,
+    required this.nodes,
+    required this.columns,
+    required this.rows,
+  });
+
+  final Size canvas;
+  final List<Offset> nodes;
+  final int columns;
+  final int rows;
+
+  static const double cellWidth = 118;
+  static const double cellHeight = 108;
+  static const double padX = 48;
+  static const double padY = 56;
+
+  static _TelemetryCityLayout plan({
+    required int count,
+    required Size viewport,
+  }) {
+    final n = math.max(count, 1);
+    final columns = n <= 1
+        ? 1
+        : n <= 4
+        ? 2
+        : n <= 9
+        ? 3
+        : 4;
+    final rows = (n / columns).ceil();
+    final contentW = columns * cellWidth;
+    final contentH = rows * cellHeight;
+    final canvas = Size(
+      math.max(viewport.width, contentW + padX * 2),
+      math.max(viewport.height, contentH + padY * 2),
+    );
+    final originX = (canvas.width - contentW) / 2;
+    final originY = (canvas.height - contentH) / 2 + 8;
+
+    final nodes = <Offset>[];
+    for (var index = 0; index < count; index++) {
+      final col = index % columns;
+      final row = index ~/ columns;
+      final itemsInRow = index ~/ columns == rows - 1
+          ? (count - (rows - 1) * columns)
+          : columns;
+      // Última fila incompleta: centrar el bloque restante.
+      final rowOffset = itemsInRow < columns
+          ? (columns - itemsInRow) * cellWidth / 2
+          : 0.0;
+      nodes.add(
+        Offset(
+          originX + rowOffset + col * cellWidth + cellWidth / 2,
+          originY + row * cellHeight + cellHeight / 2,
+        ),
+      );
+    }
+    return _TelemetryCityLayout(
+      canvas: canvas,
+      nodes: nodes,
+      columns: columns,
+      rows: rows,
+    );
+  }
+
+  int? hitTest(Offset position) {
+    for (var index = 0; index < nodes.length; index++) {
+      final center = nodes[index];
+      final hit = Rect.fromCenter(center: center, width: 104, height: 92);
+      if (hit.contains(position)) return index;
+    }
+    return null;
+  }
+}
+
+class _TelemetryCityPainter extends CustomPainter {
+  const _TelemetryCityPainter({
+    required this.points,
+    required this.layout,
+    required this.phase,
+  });
 
   final List<Map<String, dynamic>> points;
+  final _TelemetryCityLayout layout;
   final double phase;
 
   static const _mint = Color(0xFF66E0C2);
   static const _amber = Color(0xFFFFC46B);
   static const _coral = Color(0xFFFF847A);
-
-  static double _surfaceY(Size size, double x, double phase) {
-    final width = math.max(size.width, 1.0);
-    final along = x / width;
-    final travel = phase * math.pi * 2;
-    final base = size.height * 0.32;
-    // Harmónicos enteros: en phase 0 y 1 la ola coincide y el bucle no salta.
-    return base +
-        math.sin(along * math.pi * 2 + travel) * 12 +
-        math.sin(along * math.pi * 4 - travel * 2) * 4.2 +
-        math.sin(along * math.pi * 8 + travel * 3) * 1.4;
-  }
-
-  static double _intakeX(Size size, int index, int count) {
-    final slots = math.max(count, 1);
-    final span = size.width - 36;
-    return 18 + span * ((index + 0.5) / slots);
-  }
-
-  static int? nearestIntake(
-    Size size,
-    int count,
-    Offset position,
-    double phase,
-  ) {
-    for (var index = 0; index < count; index++) {
-      final x = _intakeX(size, index, count);
-      final surface = _surfaceY(size, x, phase);
-      final hit = Rect.fromCenter(
-        center: Offset(x, surface - 18),
-        width: 48,
-        height: 78,
-      );
-      if (hit.contains(position)) return index;
-    }
-    return null;
-  }
+  static const _fog = Color(0xFFE8F2F1);
 
   @override
   void paint(Canvas canvas, Size size) {
-    final sky = Rect.fromLTWH(0, 0, size.width, size.height);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(sky, const Radius.circular(16)),
+    _paintWaterFloor(canvas, size);
+    _paintGridLines(canvas);
+    for (var index = 0; index < points.length; index++) {
+      _paintLogger(canvas, layout.nodes[index], points[index], index);
+    }
+  }
+
+  void _paintWaterFloor(Canvas canvas, Size size) {
+    final bounds = Offset.zero & size;
+    canvas.drawRect(
+      bounds,
       Paint()
         ..shader = const LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [Color(0xFF16343A), Color(0xFF0E2429), Color(0xFF071316)],
-        ).createShader(sky),
+        ).createShader(bounds),
     );
 
-    canvas.save();
-    canvas.clipRRect(
-      RRect.fromRectAndRadius(sky, const Radius.circular(16)),
-    );
-    canvas.drawPath(
-      _bodyPath(size),
-      Paint()
-        ..shader = const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFF1C6E74), Color(0xFF123E49), Color(0xFF0A242C)],
-        ).createShader(sky),
-    );
-    canvas.drawPath(
-      _skinPath(size),
-      Paint()..color = const Color(0xFF3D9AA0).withValues(alpha: 0.28),
-    );
-    _drawCaustic(canvas, size);
-    canvas.drawPath(
-      _crestPath(size),
-      Paint()
-        ..color = const Color(0xFFD8FFF4).withValues(alpha: 0.62)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.6
-        ..strokeCap = StrokeCap.round,
-    );
-
-    for (var index = 0; index < points.length; index++) {
-      _drawIntake(canvas, size, index, points.length, points[index]);
+    // Lámina de agua baja, sin óvalos: crestas suaves y caústicas lineales.
+    final travel = phase * math.pi * 2;
+    final waterTop = size.height * 0.52;
+    final body = Path()..moveTo(0, waterTop);
+    for (var x = 0.0; x <= size.width; x += 6) {
+      final along = x / math.max(size.width, 1);
+      final y =
+          waterTop +
+          math.sin(along * math.pi * 2 + travel) * 6 +
+          math.sin(along * math.pi * 4 - travel * 1.5) * 2.4;
+      body.lineTo(x, y);
     }
-    canvas.restore();
-  }
-
-  Path _bodyPath(Size size) {
-    final path = Path()..moveTo(0, _surfaceY(size, 0, phase));
-    for (var x = 4.0; x < size.width; x += 4) {
-      path.lineTo(x, _surfaceY(size, x, phase));
-    }
-    path
-      ..lineTo(size.width, _surfaceY(size, size.width, phase))
+    body
       ..lineTo(size.width, size.height)
       ..lineTo(0, size.height)
       ..close();
-    return path;
-  }
+    canvas.drawPath(
+      body,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFF2A8F8F).withValues(alpha: 0.42),
+            const Color(0xFF1C6E74).withValues(alpha: 0.62),
+            const Color(0xFF0A242C).withValues(alpha: 0.92),
+          ],
+        ).createShader(Rect.fromLTWH(0, waterTop, size.width, size.height)),
+    );
 
-  /// Lámina clara bajo la cresta. Su grosor respira con una ola en contrafase.
-  Path _skinPath(Size size) {
-    final path = Path()..moveTo(0, _surfaceY(size, 0, phase));
-    for (var x = 5.0; x < size.width; x += 5) {
-      path.lineTo(x, _surfaceY(size, x, phase));
+    // Segunda lámina más clara bajo la cresta.
+    final skin = Path()..moveTo(0, waterTop);
+    for (var x = 0.0; x <= size.width; x += 6) {
+      final along = x / math.max(size.width, 1);
+      final y =
+          waterTop +
+          math.sin(along * math.pi * 2 + travel) * 6 +
+          math.sin(along * math.pi * 4 - travel * 1.5) * 2.4;
+      skin.lineTo(x, y);
     }
-    path.lineTo(size.width, _surfaceY(size, size.width, phase));
-    final width = math.max(size.width, 1.0);
-    for (var x = size.width; x >= 0; x -= 5.0) {
-      path.lineTo(x, _skinFloor(size, x, width));
+    for (var x = size.width; x >= 0; x -= 6) {
+      final along = x / math.max(size.width, 1);
+      final y =
+          waterTop +
+          22 +
+          math.sin(along * math.pi * 3 - travel * 2) * 3 +
+          math.sin(along * math.pi * 2 + travel) * 6;
+      skin.lineTo(x, y);
     }
-    path
-      ..lineTo(0, _skinFloor(size, 0, width))
-      ..close();
-    return path;
-  }
+    skin.close();
+    canvas.drawPath(
+      skin,
+      Paint()..color = const Color(0xFF66E0C2).withValues(alpha: 0.08),
+    );
 
-  double _skinFloor(Size size, double x, double width) {
-    final along = x / width;
-    final breath = math.sin(along * math.pi * 3 - phase * math.pi * 4) * 4;
-    return _surfaceY(size, x, phase) + 26 + breath;
-  }
-
-  Path _crestPath(Size size) {
-    final path = Path()..moveTo(0, _surfaceY(size, 0, phase));
-    for (var x = 4.0; x < size.width; x += 4) {
-      path.lineTo(x, _surfaceY(size, x, phase));
-    }
-    path.lineTo(size.width, _surfaceY(size, size.width, phase));
-    return path;
-  }
-
-  void _drawCaustic(Canvas canvas, Size size) {
-    final width = math.max(size.width, 1.0);
-    final travel = phase * math.pi * 2;
-    final path = Path();
+    final crest = Path();
     for (var x = 0.0; x <= size.width; x += 5) {
-      final along = x / width;
-      final y = _surfaceY(size, x, phase) +
-          16 +
-          math.sin(along * math.pi * 6 - travel * 2) * 5;
-      if (x == 0) {
-        path.moveTo(x, y);
-      } else {
-        path.lineTo(x, y);
-      }
+      final along = x / math.max(size.width, 1);
+      final y =
+          waterTop +
+          math.sin(along * math.pi * 2 + travel) * 6 +
+          math.sin(along * math.pi * 4 - travel * 1.5) * 2.4;
+      x == 0 ? crest.moveTo(x, y) : crest.lineTo(x, y);
     }
     canvas.drawPath(
-      path,
+      crest,
       Paint()
-        ..color = const Color(0xFFB8FFF0).withValues(alpha: 0.2)
+        ..color = const Color(0xFFD8FFF4).withValues(alpha: 0.62)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 3.5
+        ..strokeWidth = 1.8
         ..strokeCap = StrokeCap.round,
     );
+
+    // Destellos lineales bajo la superficie (sin óvalos).
+    for (var i = 0; i < 6; i++) {
+      final seed = (i * 0.6180339) % 1;
+      final t = (phase + seed) % 1;
+      final fade = math.sin(t * math.pi);
+      final y = waterTop + 18 + (size.height - waterTop - 28) * seed;
+      canvas.drawLine(
+        Offset(size.width * t - 20, y),
+        Offset(size.width * t + 18, y),
+        Paint()
+          ..color = Colors.white.withValues(alpha: 0.08 * fade)
+          ..strokeWidth = 1.1
+          ..strokeCap = StrokeCap.round,
+      );
+    }
   }
 
-  void _drawIntake(
+  void _paintGridLines(Canvas canvas) {
+    if (layout.nodes.length < 2) return;
+    final paint = Paint()
+      ..color = _mint.withValues(alpha: 0.32)
+      ..strokeWidth = 1.6
+      ..strokeCap = StrokeCap.round;
+
+    // Conectar filas (calles horizontales) y columnas (avenidas).
+    final byRow = <int, List<int>>{};
+    for (var i = 0; i < layout.nodes.length; i++) {
+      final row = i ~/ layout.columns;
+      byRow.putIfAbsent(row, () => []).add(i);
+    }
+    for (final row in byRow.values) {
+      for (var i = 0; i < row.length - 1; i++) {
+        canvas.drawLine(layout.nodes[row[i]], layout.nodes[row[i + 1]], paint);
+      }
+    }
+    for (var col = 0; col < layout.columns; col++) {
+      final vertical = <int>[];
+      for (var i = col; i < layout.nodes.length; i += layout.columns) {
+        vertical.add(i);
+      }
+      for (var i = 0; i < vertical.length - 1; i++) {
+        canvas.drawLine(
+          layout.nodes[vertical[i]],
+          layout.nodes[vertical[i + 1]],
+          paint,
+        );
+      }
+    }
+
+    // Pulso suave sobre las aristas principales.
+    final pulse = (math.sin(phase * math.pi * 2) + 1) / 2;
+    final glow = Paint()
+      ..color = _mint.withValues(alpha: 0.08 + pulse * 0.1)
+      ..strokeWidth = 2.4
+      ..strokeCap = StrokeCap.round;
+    if (layout.nodes.length >= 2) {
+      canvas.drawLine(layout.nodes.first, layout.nodes[1], glow);
+    }
+  }
+
+  void _paintLogger(
     Canvas canvas,
-    Size size,
-    int index,
-    int count,
+    Offset center,
     Map<String, dynamic> point,
+    int index,
   ) {
     final link = pointLinkOf(point);
     final color = switch (link) {
@@ -331,152 +472,183 @@ class _WaterBodyPainter extends CustomPainter {
       PointLink.gap => _amber,
       PointLink.incident => _coral,
     };
-    final x = _intakeX(size, index, count);
-    final surface = _surfaceY(size, x, phase);
-    final head = Offset(x, surface - 28);
+    final telemetry = _telemetry(point);
+    final flow = _number(telemetry['flow']);
+    final level = _number(telemetry['water_table'] ?? telemetry['nivel']);
+    final total = _number(
+      telemetry['total'] ?? telemetry['total_raw'] ?? telemetry['consumption'],
+    );
+    final title = point['title']?.toString() ?? 'Logger';
+    final short = title.length > 14 ? '${title.substring(0, 13)}…' : title;
 
-    final title = point['title']?.toString() ?? 'Punto';
-    final short = title.length > 10 ? '${title.substring(0, 9)}…' : title;
-    final text = TextPainter(
-      text: TextSpan(
-        text: short,
-        style: const TextStyle(
-          color: Color(0xFFF4FBF8),
-          fontSize: 10,
-          fontWeight: FontWeight.w800,
-        ),
+    // Placa del logger (bloque urbano, no óvalo).
+    final plate = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: center, width: 96, height: 78),
+      const Radius.circular(12),
+    );
+    canvas.drawRRect(
+      plate,
+      Paint()..color = const Color(0xFF0A171B).withValues(alpha: 0.92),
+    );
+    canvas.drawRRect(
+      plate,
+      Paint()
+        ..color = color.withValues(alpha: 0.55)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.3,
+    );
+
+    // Faro de estado (cuadrado suave, no óvalo flotante).
+    final lamp = RRect.fromRectAndRadius(
+      Rect.fromLTWH(center.dx - 42, center.dy - 33, 8, 8),
+      const Radius.circular(2.5),
+    );
+    canvas.drawRRect(lamp, Paint()..color = color);
+    if (link == PointLink.connected) {
+      final breath = (math.sin(phase * math.pi * 2 + index) + 1) / 2;
+      canvas.drawRRect(
+        lamp.inflate(2 + breath),
+        Paint()
+          ..color = color.withValues(alpha: 0.18 * (1 - breath))
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1,
+      );
+    }
+
+    _drawText(
+      canvas,
+      short,
+      Offset(center.dx - 30, center.dy - 34),
+      const TextStyle(color: _fog, fontSize: 10, fontWeight: FontWeight.w800),
+      maxWidth: 68,
+    );
+
+    // Tres lecturas rápidas: caudal · nivel · totalizado.
+    _drawMetricRow(
+      canvas,
+      Offset(center.dx - 40, center.dy - 12),
+      'Q',
+      flow == null ? '—' : _compact(flow),
+      'L/s',
+      _mint,
+    );
+    _drawMetricRow(
+      canvas,
+      Offset(center.dx - 40, center.dy + 6),
+      'N',
+      level == null ? '—' : _compact(level),
+      'm',
+      const Color(0xFFB39DDB),
+    );
+    _drawMetricRow(
+      canvas,
+      Offset(center.dx - 40, center.dy + 24),
+      'Σ',
+      total == null ? '—' : _compact(total),
+      'm³',
+      const Color(0xFF69B9FF),
+    );
+
+    // Flujo vivo: trazo descendente lineal (sin gotas óvalo).
+    if (link == PointLink.connected && flow != null && flow > 0.01) {
+      final travel = (phase + index * 0.13) % 1;
+      final fade = math.sin(travel * math.pi);
+      final y0 = center.dy + 42;
+      final y1 = y0 + 10 + travel * 16;
+      canvas.drawLine(
+        Offset(center.dx, y0),
+        Offset(center.dx, y1),
+        Paint()
+          ..color = _mint.withValues(alpha: 0.35 * fade)
+          ..strokeWidth = 1.6
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+  }
+
+  void _drawMetricRow(
+    Canvas canvas,
+    Offset origin,
+    String key,
+    String value,
+    String unit,
+    Color accent,
+  ) {
+    _drawText(
+      canvas,
+      key,
+      origin,
+      TextStyle(
+        color: accent.withValues(alpha: 0.9),
+        fontSize: 9,
+        fontWeight: FontWeight.w800,
       ),
+      maxWidth: 12,
+    );
+    _drawText(
+      canvas,
+      value,
+      origin.translate(14, -1),
+      const TextStyle(
+        color: Color(0xFFF4FBF8),
+        fontSize: 11,
+        fontWeight: FontWeight.w900,
+      ),
+      maxWidth: 42,
+    );
+    _drawText(
+      canvas,
+      unit,
+      origin.translate(56, 0),
+      TextStyle(
+        color: accent.withValues(alpha: 0.75),
+        fontSize: 8,
+        fontWeight: FontWeight.w700,
+      ),
+      maxWidth: 24,
+    );
+  }
+
+  void _drawText(
+    Canvas canvas,
+    String text,
+    Offset offset,
+    TextStyle style, {
+    required double maxWidth,
+  }) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
       textDirection: TextDirection.ltr,
       maxLines: 1,
-    )..layout(maxWidth: 72);
-
-    // Pill badge de fondo para el texto del punto
-    final badgeW = text.width + 12;
-    final badgeH = text.height + 6;
-    final badgeRect = RRect.fromRectAndRadius(
-      Rect.fromCenter(
-        center: Offset(x, head.dy - 18),
-        width: badgeW,
-        height: badgeH,
-      ),
-      const Radius.circular(8),
-    );
-    canvas.drawRRect(
-      badgeRect,
-      Paint()..color = const Color(0xFF081619).withValues(alpha: 0.88),
-    );
-    canvas.drawRRect(
-      badgeRect,
-      Paint()
-        ..color = color.withValues(alpha: 0.4)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1,
-    );
-    text.paint(canvas, Offset(x - text.width / 2, head.dy - 18 - text.height / 2));
-
-    // Pin de captación moderno con anillo de halo y centro brillante
-    canvas.drawCircle(
-      head,
-      10,
-      Paint()..color = color.withValues(alpha: 0.18),
-    );
-    canvas.drawCircle(head, 7, Paint()..color = const Color(0xFF0C1F24));
-    canvas.drawCircle(
-      head,
-      4.5,
-      Paint()..color = color.withValues(alpha: link == PointLink.gap ? 0.75 : 1),
-    );
-    // Destello blanco central
-    canvas.drawCircle(
-      head.translate(-1, -1),
-      1.5,
-      Paint()..color = Colors.white.withValues(alpha: 0.8),
-    );
-
-    // Mástil que conecta con el agua
-    canvas.drawLine(
-      head.translate(0, 7),
-      Offset(x, surface),
-      Paint()
-        ..color = color.withValues(
-          alpha: link == PointLink.gap ? 0.5 : 0.85,
-        )
-        ..strokeWidth = 2
-        ..strokeCap = StrokeCap.round,
-    );
-
-    if (link == PointLink.connected) {
-      _drawStream(canvas, size, x, surface, index);
-      _drawRipple(canvas, x, surface, index);
-    }
-
-    if (link == PointLink.incident) {
-      final pulse = (math.sin(phase * math.pi * 2) + 1) / 2;
-      canvas.drawCircle(
-        head,
-        12 + pulse * 8,
-        Paint()
-          ..color = _coral.withValues(alpha: 0.35 - pulse * 0.25)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.4,
-      );
-    }
+      ellipsis: '…',
+    )..layout(maxWidth: maxWidth);
+    painter.paint(canvas, offset);
   }
 
-  void _drawRipple(Canvas canvas, double x, double surface, int index) {
-    final travel = (phase + index * 0.17) % 1;
-    final fade = math.sin(travel * math.pi);
-    if (fade < 0.05) return;
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: Offset(x, surface + 3),
-        width: 8 + travel * 26,
-        height: 3.2 + travel * 5,
-      ),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2
-        ..color = _mint.withValues(alpha: fade * 0.55),
-    );
+  static Map<String, dynamic> _telemetry(Map<String, dynamic> point) {
+    final value = point['latest_telemetry'];
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) {
+      return value.map((key, item) => MapEntry('$key', item));
+    }
+    return const {};
   }
 
-  void _drawStream(
-    Canvas canvas,
-    Size size,
-    double x,
-    double surface,
-    int index,
-  ) {
-    const drops = 4;
-    final depth = math.max(size.height - surface - 20, 24);
-    for (var drop = 0; drop < drops; drop++) {
-      final travel = (phase * 1.5 + drop / drops + index * 0.17) % 1;
-      final fade = math.sin(travel * math.pi);
-      if (fade < 0.08) continue;
-      final y = surface + 8 + depth * travel;
-      final drift = math.sin((travel + index) * math.pi * 2) * 3;
-      // Estela suave difuminada
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromCenter(
-            center: Offset(x + drift, y),
-            width: 3.5,
-            height: 6 + fade * 8,
-          ),
-          const Radius.circular(3),
-        ),
-        Paint()..color = _mint.withValues(alpha: 0.15 * fade),
-      );
-      // Núcleo brillante pequeño
-      canvas.drawCircle(
-        Offset(x + drift, y),
-        1.2,
-        Paint()..color = const Color(0xFFEFFFFA).withValues(alpha: 0.45 * fade),
-      );
-    }
+  static double? _number(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    return double.tryParse('$value');
+  }
+
+  static String _compact(double value) {
+    if (value.abs() >= 1000) return value.toStringAsFixed(0);
+    if (value.abs() >= 100) return value.toStringAsFixed(1);
+    return value.toStringAsFixed(2);
   }
 
   @override
-  bool shouldRepaint(covariant _WaterBodyPainter oldDelegate) =>
-      oldDelegate.phase != phase || oldDelegate.points != points;
+  bool shouldRepaint(covariant _TelemetryCityPainter oldDelegate) =>
+      oldDelegate.phase != phase ||
+      oldDelegate.points != points ||
+      oldDelegate.layout != layout;
 }
