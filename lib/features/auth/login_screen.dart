@@ -44,7 +44,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             password: _passwordController.text,
           );
       if (!mounted) return;
-      ref.read(sessionProvider.notifier).signIn(session);
+      await ref.read(sessionProvider.notifier).signIn(session);
     } on SmartHydroApiException catch (error) {
       if (mounted) setState(() => _loginError = error.message);
     } finally {

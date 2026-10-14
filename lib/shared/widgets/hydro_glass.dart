@@ -11,6 +11,7 @@ class HydroGlass extends StatelessWidget {
     this.onTap,
     this.padding = const EdgeInsets.all(16),
     this.radius = 22,
+    this.frosted = false,
     super.key,
   });
 
@@ -18,6 +19,9 @@ class HydroGlass extends StatelessWidget {
   final VoidCallback? onTap;
   final EdgeInsets padding;
   final double radius;
+
+  /// Vidrio claro y sobrio. El fondo de la app se lee a través.
+  final bool frosted;
 
   @override
   Widget build(BuildContext context) {
@@ -30,14 +34,19 @@ class HydroGlass extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            const Color(0xFF132E35).withValues(alpha: 0.78),
-            const Color(0xFF09171B).withValues(alpha: 0.88),
-          ],
+          colors: frosted
+              ? [
+                  const Color(0xFFF7FBFA).withValues(alpha: 0.16),
+                  const Color(0xFF1A3C44).withValues(alpha: 0.42),
+                ]
+              : [
+                  const Color(0xFF132E35).withValues(alpha: 0.78),
+                  const Color(0xFF09171B).withValues(alpha: 0.88),
+                ],
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.28),
+            color: Colors.black.withValues(alpha: frosted ? 0.12 : 0.28),
             blurRadius: 18,
             offset: const Offset(0, 8),
           ),

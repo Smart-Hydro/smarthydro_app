@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'core/api/smarthydro_api.dart';
 import 'core/brand.dart';
 import 'core/session/session_provider.dart';
 import 'features/auth/login_screen.dart';
@@ -16,7 +15,8 @@ class SmartHydroApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final session = ref.watch(sessionProvider);
+    final auth = ref.watch(sessionProvider);
+    final session = auth.session;
     final scheme = ColorScheme.fromSeed(
       seedColor: IkoluColors.cyan,
       brightness: Brightness.dark,
@@ -53,11 +53,19 @@ class SmartHydroApp extends ConsumerWidget {
           displayColor: const Color(0xFFE8F2F1),
         ),
       ),
-      home: _buildHome(session),
+      home: _buildHome(auth),
     );
   }
 
-  Widget _buildHome(SmartHydroSession? session) {
+  Widget _buildHome(SessionSnapshot auth) {
+    if (!auth.ready) {
+      return const Scaffold(
+        key: ValueKey('restoring-session'),
+        backgroundColor: _ocean,
+        body: SizedBox.expand(),
+      );
+    }
+    final session = auth.session;
     return AnimatedSwitcher(
       duration:
           WidgetsBinding

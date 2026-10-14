@@ -198,11 +198,16 @@ class SmartHydroApi {
   Future<List<Map<String, dynamic>>> compliancePoints(
     String token, {
     bool activeOnly = false,
+    int pageSize = 100,
   }) async {
     final response = await _authorizedGet(
       '/api/ik/compliance/',
       token,
-      queryParameters: {'page': 1, 'page_size': 100, 'active_only': activeOnly},
+      queryParameters: {
+        'page': 1,
+        'page_size': pageSize,
+        'active_only': activeOnly,
+      },
     );
     final data = _map(response.data);
     final points = data['points'] ?? data['results'];
@@ -236,11 +241,21 @@ class SmartHydroApi {
     return _map(response.data);
   }
 
-  Future<List<Map<String, dynamic>>> supportTickets(String token) async {
+  Future<List<Map<String, dynamic>>> supportTickets(
+    String token, {
+    String? origin = 'CLIENTE',
+    String? status,
+    int pageSize = 50,
+  }) async {
     final response = await _authorizedGet(
       '/api/ik/tickets/',
       token,
-      queryParameters: {'page': 1, 'page_size': 50, 'origin': 'CLIENTE'},
+      queryParameters: {
+        'page': 1,
+        'page_size': pageSize,
+        'origin': ?origin,
+        'status': ?status,
+      },
     );
     final data = _map(response.data);
     final results = data['results'];

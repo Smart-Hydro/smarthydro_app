@@ -85,20 +85,32 @@ class _BackdropPainter extends CustomPainter {
       bounds,
       Paint()
         ..shader = const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF0B171B), Color(0xFF10272B), Color(0xFF081316)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0xFF071820),
+            Color(0xFF0E3A40),
+            Color(0xFF123840),
+            Color(0xFF08161C),
+          ],
+          stops: [0, 0.34, 0.68, 1],
         ).createShader(bounds),
     );
-    canvas.drawCircle(
-      Offset(size.width * 0.14, size.height * 0.2),
-      size.shortestSide * 0.42,
-      Paint()..color = const Color(0xFF1AA18C).withValues(alpha: 0.07),
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(size.width * 0.18, size.height * 0.16),
+        width: size.width * 0.9,
+        height: size.height * 0.42,
+      ),
+      Paint()..color = const Color(0xFF1AA18C).withValues(alpha: 0.09),
     );
-    canvas.drawCircle(
-      Offset(size.width * 0.92, size.height * 0.84),
-      size.shortestSide * 0.47,
-      Paint()..color = const Color(0xFF4C7CDD).withValues(alpha: 0.055),
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(size.width * 0.82, size.height * 0.78),
+        width: size.width * 1.05,
+        height: size.height * 0.5,
+      ),
+      Paint()..color = const Color(0xFF2E5EA8).withValues(alpha: 0.07),
     );
   }
 
@@ -122,8 +134,8 @@ class _AtmosphereShaders {
     return _sheets.putIfAbsent(key, () {
       const tops = [Color(0xFF3C9F9C), Color(0xFF348FA0), Color(0xFF287A84)];
       const bottoms = [Color(0xFF10272B), Color(0xFF0E2229), Color(0xFF081316)];
-      final topAlpha = [0.16, 0.13, 0.1][index] * opacity;
-      final bottomAlpha = [0.08, 0.07, 0.06][index] * opacity;
+      final topAlpha = [0.2, 0.16, 0.12][index] * opacity;
+      final bottomAlpha = [0.05, 0.04, 0.03][index] * opacity;
       return LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
@@ -153,25 +165,49 @@ class _WaterMotionPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty) return;
     final temporal = _tau * phase;
+    final drift = math.sin(temporal);
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment(-0.6 + drift * 0.22, -1),
+          end: Alignment(0.8, 1.1 - drift * 0.1),
+          colors: [
+            const Color(0xFF1A9A94).withValues(alpha: 0.14 * opacity),
+            const Color(0xFF0C3036).withValues(alpha: 0.02 * opacity),
+            const Color(0xFF245888).withValues(alpha: 0.12 * opacity),
+          ],
+        ).createShader(Offset.zero & size),
+    );
 
-    // Solo dos capas profundas, oscuras y suaves. Cero rayos de luz duros ni burbujas de fiesta.
+    // Tres olas anchas. El trazo de la cresta las hace leer como agua
+    // sin sumar geometría.
     _drawLiquidSheet(
       canvas,
       size,
-      baseline: 0.72,
-      amplitude: size.height * 0.02,
-      phaseOffset: 0.8,
+      baseline: 0.28,
+      amplitude: size.height * 0.045,
+      phaseOffset: 0.4,
       index: 0,
-      temporal: temporal * 0.7,
+      temporal: temporal,
     );
     _drawLiquidSheet(
       canvas,
       size,
-      baseline: 0.82,
-      amplitude: size.height * 0.015,
-      phaseOffset: 2.1,
+      baseline: 0.52,
+      amplitude: size.height * 0.05,
+      phaseOffset: 1.7,
       index: 1,
-      temporal: temporal * 1.2,
+      temporal: temporal * 2,
+    );
+    _drawLiquidSheet(
+      canvas,
+      size,
+      baseline: 0.74,
+      amplitude: size.height * 0.038,
+      phaseOffset: 3.1,
+      index: 2,
+      temporal: temporal,
     );
   }
 
@@ -216,13 +252,30 @@ class _WaterMotionPainter extends CustomPainter {
       Paint()
         ..shader = shaders.sheet(
           rect: sheetBounds,
-          opacity: opacity * 0.5,
+          opacity: opacity * 0.55,
           index: index,
         ),
     );
+    final crest = Path();
+    for (var step = 0; step <= steps; step++) {
+      final progress = step / steps;
+      final x = progress * size.width;
+      if (step == 0) {
+        crest.moveTo(x, waveY(progress));
+      } else {
+        crest.lineTo(x, waveY(progress));
+      }
+    }
+    canvas.drawPath(
+      crest,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4
+        ..color = const Color(0xFF8EE6D8).withValues(alpha: 0.22 * opacity),
+    );
   }
 
-  int _stepsFor(Size size) => (size.width / 8).clamp(80, 180).round();
+  int _stepsFor(Size size) => (size.width / 28).clamp(24, 48).round();
 
   @override
   bool shouldRepaint(covariant _WaterMotionPainter oldDelegate) =>

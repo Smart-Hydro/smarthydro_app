@@ -45,27 +45,15 @@ class LiquidNavBar extends StatelessWidget {
               height: 66,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(28),
-                // Gradiente acuático traslúcido: luz que viene de arriba difuminada
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    const Color(0xFF163E44).withValues(alpha: 0.65),
-                    const Color(0xFF08181D).withValues(alpha: 0.82),
-                  ],
-                ),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.08),
-                  width: 1,
-                ),
+                color: const Color(0xFFF4FBFA).withValues(alpha: 0.14),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF001217).withValues(alpha: 0.5),
-                    blurRadius: 24,
-                    offset: const Offset(0, 10),
+                    color: const Color(0xFF001217).withValues(alpha: 0.22),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
                   ),
                   BoxShadow(
-                    color: IkoluColors.cyan.withValues(alpha: 0.06),
+                    color: IkoluColors.cyan.withValues(alpha: 0.04),
                     blurRadius: 18,
                     spreadRadius: -2,
                     offset: const Offset(0, -2),
