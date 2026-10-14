@@ -28,6 +28,7 @@ import 'point_history_sheet.dart';
 import 'point_system.dart';
 import 'point_system_screen.dart';
 import 'point_meta.dart';
+import 'widgets/capture_network_map.dart';
 import 'widgets/hydraulic_board.dart';
 import 'widgets/portfolio_network.dart';
 
@@ -654,7 +655,9 @@ class _AppHeader extends StatelessWidget {
               radius: 18,
               backgroundColor: const Color(0xFF24454A),
               child: Text(
-                userName.isEmpty ? 'SH' : userName.substring(0, 1).toUpperCase(),
+                userName.isEmpty
+                    ? 'SH'
+                    : userName.substring(0, 1).toUpperCase(),
                 style: const TextStyle(fontWeight: FontWeight.w700),
               ),
             ),
@@ -706,10 +709,7 @@ class _DashboardTabState extends State<_DashboardTab> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Expanded(child: _mapView(null)),
-        const SizedBox(
-          width: 1,
-          child: ColoredBox(color: Color(0x1AFFFFFF)),
-        ),
+        const SizedBox(width: 1, child: ColoredBox(color: Color(0x1AFFFFFF))),
         SizedBox(width: 380, child: _summaryList()),
       ],
     );
@@ -727,11 +727,9 @@ class _DashboardTabState extends State<_DashboardTab> {
           children: [
             SizedBox(
               height: room - floor,
-              child: PortfolioNetwork(
+              child: CaptureNetworkMap(
                 points: widget.points,
                 onPointSelected: widget.onSelectPoint,
-                onPageDown: toSummary,
-                mapFill: true,
               ),
             ),
             if (toSummary != null) ...[
@@ -772,9 +770,7 @@ class _DashboardTabState extends State<_DashboardTab> {
     return RefreshIndicator(
       onRefresh: widget.onRefresh,
       child: ScrollConfiguration(
-        behavior: ScrollConfiguration.of(
-          context,
-        ).copyWith(scrollbars: false),
+        behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: EdgeInsets.only(bottom: 28 + widget.bottomInset),
@@ -4013,9 +4009,7 @@ class _HomeLoading extends StatelessWidget {
     return HydroShimmer(
       child: Column(
         children: const [
-          Expanded(
-            child: ColoredBox(color: Color(0x0FFFFFFF)),
-          ),
+          Expanded(child: ColoredBox(color: Color(0x0FFFFFFF))),
           SizedBox(height: 52),
         ],
       ),

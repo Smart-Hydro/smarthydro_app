@@ -3,10 +3,8 @@ import 'package:flutter/material.dart';
 
 import '../portfolio3d_view.dart';
 
-/// Pase de cartel entre el mapa y el resumen.
-///
-/// El iframe no se deja debajo del resumen: mientras el cartel entra,
-/// el visor se apaga para que el gesto llegue a la lista.
+/// El mapa queda vivo debajo del resumen. El cartel entra y sale
+/// en un solo deslizamiento, sin apagar la superficie ni cambiar de color.
 class HydraulicBoard extends StatefulWidget {
   const HydraulicBoard({required this.map, required this.summary, super.key});
 
@@ -21,21 +19,14 @@ class _HydraulicBoardState extends State<HydraulicBoard>
     with SingleTickerProviderStateMixin {
   late final AnimationController _board = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 620),
+    duration: const Duration(milliseconds: 520),
   );
-  var _covered = false;
   var _atTop = true;
 
   @override
   void initState() {
     super.initState();
     _board.addListener(_onTick);
-    _board.addStatusListener((status) {
-      final covered = status == AnimationStatus.completed;
-      if (covered == _covered || !mounted) return;
-      setState(() => _covered = covered);
-      if (covered) portfolio3dDim(0);
-    });
   }
 
   void _onTick() {
@@ -55,7 +46,6 @@ class _HydraulicBoardState extends State<HydraulicBoard>
     if (_board.value == 1 || _board.status == AnimationStatus.forward) return;
     if (MediaQuery.disableAnimationsOf(context)) {
       _board.value = 1;
-      setState(() => _covered = true);
       portfolio3dDim(0);
       return;
     }
@@ -66,20 +56,10 @@ class _HydraulicBoardState extends State<HydraulicBoard>
     if (_board.value == 0 || _board.status == AnimationStatus.reverse) return;
     if (MediaQuery.disableAnimationsOf(context)) {
       _board.value = 0;
-      setState(() => _covered = false);
       portfolio3dDim(1);
       return;
     }
-    portfolio3dDim(0);
-    setState(() => _covered = false);
     _board.reverse();
-  }
-
-  double _rise(double raw) {
-    const start = 0.12;
-    if (raw <= start) return 0;
-    final span = (raw - start) / (1 - start);
-    return Curves.easeOutCubic.transform(span);
   }
 
   @override
@@ -87,57 +67,51 @@ class _HydraulicBoardState extends State<HydraulicBoard>
     return LayoutBuilder(
       builder: (context, constraints) {
         final travel = constraints.maxHeight;
-        return Stack(
-          children: [
-            if (!_covered)
-              Positioned.fill(child: widget.map(context, _toSummary)),
-            Positioned.fill(
-              child: AnimatedBuilder(
-                animation: _board,
-                builder: (context, _) {
-                  final rise = _rise(_board.value);
-                  if (rise == 0 && _board.value == 0) {
-                    return const SizedBox.shrink();
-                  }
-                  return Transform.translate(
-                    offset: Offset(0, (1 - rise) * travel),
-                    child: NotificationListener<ScrollNotification>(
-                      onNotification: (notice) {
-                        if (notice.metrics.axis == Axis.vertical) {
-                          _atTop = notice.metrics.pixels <= 1;
-                        }
-                        return false;
+        final map = widget.map(context, _toSummary);
+        final summary = widget.summary(context, _toMap);
+        return AnimatedBuilder(
+          animation: _board,
+          builder: (context, _) {
+            final rise = Curves.easeInOutCubic.transform(_board.value);
+            return Stack(
+              fit: StackFit.expand,
+              clipBehavior: Clip.hardEdge,
+              children: [
+                RepaintBoundary(child: map),
+                Transform.translate(
+                  offset: Offset(0, (1 - rise) * travel),
+                  child: NotificationListener<ScrollNotification>(
+                    onNotification: (notice) {
+                      if (notice.metrics.axis == Axis.vertical) {
+                        _atTop = notice.metrics.pixels <= 1;
+                      }
+                      return false;
+                    },
+                    child: Listener(
+                      onPointerSignal: (event) {
+                        if (event is! PointerScrollEvent) return;
+                        if (_board.value < 1 || !_atTop) return;
+                        if (event.scrollDelta.dy < -24) _toMap();
                       },
-                      child: Listener(
-                        onPointerSignal: (event) {
-                          if (event is! PointerScrollEvent) return;
-                          if (_board.value < 1 || !_atTop) return;
-                          if (event.scrollDelta.dy < -24) _toMap();
-                        },
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: Color(
-                              0xFF102226,
-                            ).withValues(alpha: rise > 0.98 ? 0.16 : 0.94),
-                            boxShadow: rise > 0.98
-                                ? const []
-                                : const [
-                                    BoxShadow(
-                                      color: Color(0x66000000),
-                                      blurRadius: 28,
-                                      offset: Offset(0, -10),
-                                    ),
-                                  ],
-                          ),
-                          child: widget.summary(context, _toMap),
+                      child: DecoratedBox(
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF102226),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Color(0x66000000),
+                              blurRadius: 28,
+                              offset: Offset(0, -10),
+                            ),
+                          ],
                         ),
+                        child: summary,
                       ),
                     ),
-                  );
-                },
-              ),
-            ),
-          ],
+                  ),
+                ),
+              ],
+            );
+          },
         );
       },
     );

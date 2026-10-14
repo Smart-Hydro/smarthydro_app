@@ -32,24 +32,24 @@ void main() {
     );
 
     expect(find.text('MAPA'), findsOneWidget);
-    expect(find.text('RESUMEN'), findsNothing);
+    final height = tester.getSize(find.byType(HydraulicBoard)).height;
+    expect(tester.getTopLeft(find.text('RESUMEN')).dy, greaterThan(height - 8));
 
     await tester.fling(find.text('MAPA'), const Offset(0, 280), 900);
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 320));
+    await tester.pump(const Duration(milliseconds: 280));
 
     expect(find.text('RESUMEN'), findsOneWidget);
     final travel = tester
         .widgetList<Transform>(find.byType(Transform))
         .map((item) => item.transform.getTranslation().y)
         .reduce((a, b) => a > b ? a : b);
-    final height = tester.getSize(find.byType(HydraulicBoard)).height;
     expect(travel, greaterThan(12));
     expect(travel, lessThan(height - 12));
 
     await tester.pumpAndSettle();
-    expect(find.text('MAPA'), findsNothing);
-    expect(find.text('RESUMEN'), findsOneWidget);
+    expect(find.text('MAPA'), findsOneWidget);
+    expect(tester.getTopLeft(find.text('RESUMEN')).dy, lessThan(80));
 
     await tester.sendEventToBinding(
       PointerScrollEvent(
@@ -59,5 +59,6 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('MAPA'), findsOneWidget);
+    expect(tester.getTopLeft(find.text('RESUMEN')).dy, greaterThan(height - 8));
   });
 }
