@@ -17,6 +17,14 @@ void main() {
     expect(captureLatLng({'title': 'Pozo'}), isNull);
   });
 
+  test('la ficha habla de ubicación o avisa sin GPS', () {
+    expect(
+      captureLocationLabel({'lat': -33.45, 'lon': -70.66}),
+      '-33.45000, -70.66000',
+    );
+    expect(captureLocationLabel({'title': 'Pozo'}), 'Sin ubicación GPS');
+  });
+
   test('la red une los puntos de un proyecto y después los proyectos', () {
     final edges = captureNetworkEdges(
       projects: const ['Norte', 'Norte', 'Sur', 'Sur'],
@@ -68,6 +76,58 @@ void main() {
     expect(camera.center.longitude, closeTo(-70.65, 0.02));
   });
 
+  test('la intensidad del ripple crece con el caudal y el activo', () {
+    final quiet = _point(id: 1, title: 'Quiet', project: 'A', flow: 0);
+    final flowing = _point(id: 2, title: 'Flow', project: 'A', flow: 12);
+    final maxFlow = 12.0;
+
+    final ambient = captureRippleStrength(
+      point: quiet,
+      selected: false,
+      maxFlow: maxFlow,
+    );
+    final activeQuiet = captureRippleStrength(
+      point: quiet,
+      selected: true,
+      maxFlow: maxFlow,
+    );
+    final flowingStrength = captureRippleStrength(
+      point: flowing,
+      selected: false,
+      maxFlow: maxFlow,
+    );
+    final activeFlowing = captureRippleStrength(
+      point: flowing,
+      selected: true,
+      maxFlow: maxFlow,
+    );
+
+    expect(ambient, inInclusiveRange(0.12, 0.35));
+    expect(flowingStrength, greaterThan(ambient));
+    expect(activeQuiet, greaterThan(ambient));
+    expect(activeFlowing, greaterThan(flowingStrength));
+    expect(activeFlowing, lessThanOrEqualTo(1.0));
+  });
+
+  test('el líder une el borde del chip con el beacon en línea recta', () {
+    const chip = Rect.fromLTWH(20, 40, 148, 46);
+    const beacon = Offset(220, 280);
+    final path = captureLeaderPath(chip, beacon);
+
+    expect(path.getBounds().width, greaterThan(40));
+    expect(path.getBounds().height, greaterThan(40));
+    final metrics = path.computeMetrics().toList();
+    expect(metrics, isNotEmpty);
+    final start = metrics.first.getTangentForOffset(0)!.position;
+    final end = metrics.first.getTangentForOffset(metrics.first.length)!.position;
+    expect((start - chip.center).distance, lessThan(90));
+    expect((end - beacon).distance, lessThan(8));
+    // Recta: el punto medio del trazo queda cerca del segmento start→end.
+    final mid = metrics.first.getTangentForOffset(metrics.first.length * 0.5)!.position;
+    final expected = Offset.lerp(start, end, 0.5)!;
+    expect((mid - expected).distance, lessThan(2));
+  });
+
   test('las fichas de puntos cercanos no se montan', () {
     final anchors = [
       for (var index = 0; index < 6; index++) Offset(180, 220 + index * 3),
@@ -78,6 +138,62 @@ void main() {
     for (var i = 0; i < chips.length; i++) {
       for (var j = i + 1; j < chips.length; j++) {
         expect(chips[i].inflate(2).overlaps(chips[j]), isFalse);
+      }
+    }
+  });
+
+  test('al abrir una ficha las demás se apartan', () {
+    const size = Size(420, 720);
+    final base = placeCaptureChips(const [
+      Offset(80, 120),
+      Offset(80, 180),
+      Offset(80, 240),
+      Offset(340, 200),
+    ], size);
+    final opened = repelCaptureChips(
+      chips: base,
+      selected: 1,
+      size: size,
+      expandedWidth: 220,
+      expandedHeight: 176,
+    );
+
+    expect(opened, hasLength(base.length));
+    expect(opened[1].width, greaterThan(base[1].width - 1));
+    expect(opened[1].height, greaterThan(base[1].height - 1));
+    for (var i = 0; i < opened.length; i++) {
+      if (i == 1) continue;
+      expect(
+        opened[i].inflate(2).overlaps(opened[1]),
+        isFalse,
+        reason: 'ficha $i ${opened[i]} pisa la abierta ${opened[1]}',
+      );
+    }
+  });
+
+  test('las fichas se reparte por los bordes y dejan el centro libre', () {
+    const size = Size(420, 720);
+    final anchors = [
+      const Offset(210, 360),
+      const Offset(160, 300),
+      const Offset(260, 400),
+      const Offset(200, 340),
+      const Offset(240, 380),
+      const Offset(180, 420),
+    ];
+    final chips = placeCaptureChips(anchors, size);
+    expect(chips, hasLength(anchors.length));
+
+    for (final chip in chips) {
+      final ny = chip.center.dy / size.height;
+      final onBand = ny < 0.28 || ny > 0.72;
+      expect(onBand, isTrue, reason: 'ficha $chip no está arriba/abajo');
+      for (final anchor in anchors) {
+        expect(
+          chip.inflate(4).overlaps(Rect.fromCircle(center: anchor, radius: 40)),
+          isFalse,
+          reason: 'ficha $chip pisa el punto $anchor',
+        );
       }
     }
   });
@@ -131,11 +247,23 @@ void main() {
     await tester.pump();
 
     expect(find.text('Pozo Norte'), findsOneWidget);
+    expect(find.text('Canal Sur'), findsOneWidget);
+    expect(find.text('Pozo Este'), findsOneWidget);
     expect(find.text('Conectado'), findsWidgets);
-    expect(find.text('Advertencia'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('capture-node-1')));
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 280));
+    expect(opened, isNull);
+    expect(find.text('Ver'), findsOneWidget);
+    expect(find.text('Tipo'), findsOneWidget);
+    expect(find.text('Subterráneo'), findsOneWidget);
+    expect(find.text('Sin ubicación GPS'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('capture-quick-ver')));
+    // Animación de ingreso (~920ms) + ticker continuo: no usar pumpAndSettle.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1100));
     expect(opened?['title'], 'Pozo Norte');
     expect(tester.takeException(), isNull);
   });
@@ -174,7 +302,11 @@ void main() {
 
     expect(find.text('Pozo Norte'), findsOneWidget);
     expect(find.text('Canal Sur'), findsOneWidget);
-    expect(find.text('Conectado'), findsNWidgets(2));
+
+    await tester.tap(find.byKey(const ValueKey('capture-node-7')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 280));
+    expect(find.text('-33.45000, -70.66000'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -241,6 +373,7 @@ Map<String, dynamic> _point({
   bool gap = false,
   double? lat,
   double? lon,
+  double? flow,
 }) {
   return {
     'id': id,
@@ -250,10 +383,11 @@ Map<String, dynamic> _point({
     'lat': ?lat,
     'lon': ?lon,
     'latest_telemetry': gap
-        ? {'days_not_connection': 2}
+        ? {'days_not_connection': 2, if (flow != null) 'flow': flow}
         : {
             'date_time_medition': DateTime.now().toIso8601String(),
             'days_not_connection': 0,
+            if (flow != null) 'flow': flow,
           },
   };
 }

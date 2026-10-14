@@ -268,7 +268,6 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
     final reduceMotion = MediaQuery.of(context).disableAnimations;
     final unreadCount = _ticketNotifications['unread_count'] as int? ?? 0;
     final page = _buildSelectedPage();
-    final showHeader = _selectedTab != 0;
     final switcher = ClipRect(
       child: AnimatedSwitcher(
         duration: reduceMotion
@@ -299,50 +298,62 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
       ),
     );
 
+    final isHome = _selectedTab == 0;
     return Scaffold(
+      backgroundColor: const Color(0xFF071820),
+      // Home: el cuerpo pasa DETRÁS del menú glass (mapa full-bleed).
+      extendBody: isHome && !wide,
       body: Stack(
         fit: StackFit.expand,
         children: [
           const Positioned.fill(child: WaterAtmosphere(opacity: 0.9)),
-          SafeArea(
-            child: Row(
-              children: [
-                if (wide)
-                  LiquidNavRail(
-                    selectedIndex: _selectedTab,
-                    unreadCount: unreadCount,
-                    onSelect: _selectTab,
-                  ),
-                Expanded(
-                  child: Column(
-                    children: [
-                      if (showHeader)
+          // Home: mapa edge-to-edge (sin SafeArea que deje franja).
+          // Otras tabs: SafeArea + header normal.
+          if (isHome)
+            Positioned.fill(child: switcher)
+          else
+            SafeArea(
+              child: Row(
+                children: [
+                  if (wide)
+                    LiquidNavRail(
+                      selectedIndex: _selectedTab,
+                      unreadCount: unreadCount,
+                      onSelect: _selectTab,
+                    ),
+                  Expanded(
+                    child: Column(
+                      children: [
                         _AppHeader(
                           userName: widget.session.displayName,
                           unreadCount: unreadCount,
                           onNotifications: () => _selectTab(2),
                           onProfile: () => _selectTab(4),
                         ),
-                      Expanded(child: switcher),
-                    ],
+                        Expanded(child: switcher),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
         ],
       ),
       bottomNavigationBar: wide
           ? null
-          : LiquidNavBar(
-              selectedIndex: _selectedTab,
-              unreadCount: unreadCount,
-              onSelect: _selectTab,
+          : Material(
+              type: MaterialType.transparency,
+              child: LiquidNavBar(
+                selectedIndex: _selectedTab,
+                unreadCount: unreadCount,
+                onSelect: _selectTab,
+              ),
             ),
     );
   }
 
   Widget _buildSelectedPage() {
+    final wide = MediaQuery.sizeOf(context).width >= 980;
     if (_loadError != null && _selectedTab < 2) {
       return _ErrorState(message: _loadError!, onRetry: _loadDashboard);
     }
@@ -355,7 +366,7 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
                 points: _points,
                 openTickets: _openTickets,
                 compliance: _compliance,
-                bottomInset: 16,
+                bottomInset: wide ? 12 : 88,
                 onRefresh: _loadDashboard,
                 onOpenSupport: _openSupport,
                 onOpenCompliance: _openPointCompliance,
@@ -716,36 +727,31 @@ class _DashboardTabState extends State<_DashboardTab> {
   }
 
   Widget _mapView(VoidCallback? toSummary) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final handleH = toSummary == null ? 0.0 : 52.0;
-        final room = math.max(0.0, constraints.maxHeight - handleH);
-        final floor = toSummary == null
-            ? 0.0
-            : math.min(widget.bottomInset, room);
-        return Column(
-          children: [
-            SizedBox(
-              height: room - floor,
-              child: CaptureNetworkMap(
-                points: widget.points,
-                onPointSelected: widget.onSelectPoint,
-              ),
+    final topSafe = MediaQuery.paddingOf(context).top;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // El painter del mapa pinta TODO el rect; solo el contenido
+        // (puntos/tags) respeta safe top + bottom nav.
+        CaptureNetworkMap(
+          points: widget.points,
+          onPointSelected: widget.onSelectPoint,
+          topInset: topSafe + 8,
+          bottomInset: widget.bottomInset + (toSummary == null ? 0 : 44),
+        ),
+        if (toSummary != null)
+          Positioned(
+            left: 0,
+            right: 0,
+            // Encima del LiquidNavBar flotante (~66 + padding).
+            bottom: math.max(88, widget.bottomInset - 4),
+            child: _ModeHandle(
+              label: 'Resumen',
+              icon: Icons.expand_more,
+              onCommit: toSummary,
             ),
-            if (toSummary != null) ...[
-              SizedBox(
-                height: handleH,
-                child: _ModeHandle(
-                  label: 'Resumen',
-                  icon: Icons.expand_more,
-                  onCommit: toSummary,
-                ),
-              ),
-              SizedBox(height: floor),
-            ],
-          ],
-        );
-      },
+          ),
+      ],
     );
   }
 
