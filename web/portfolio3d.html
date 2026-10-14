@@ -390,6 +390,145 @@ function slots(count) {
   return places;
 }
 
+// Lámina-mapa oscura bajo las captaciones: superficie continua, sin placa blanca.
+function buildTerrain(places) {
+  const group = new THREE.Group();
+  group.name = 'terrain';
+  if (!places.length) return group;
+
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (const place of places) {
+    minX = Math.min(minX, place.x);
+    maxX = Math.max(maxX, place.x);
+    minZ = Math.min(minZ, place.z);
+    maxZ = Math.max(maxZ, place.z);
+  }
+  const pad = 1.85;
+  const cx = (minX + maxX) / 2;
+  const cz = (minZ + maxZ) / 2;
+  const spanX = Math.max(maxX - minX + pad * 2, 4.2);
+  const spanZ = Math.max(maxZ - minZ + pad * 2, 4.2);
+  const thickness = 0.22;
+
+  const deck = mute(new THREE.Mesh(
+    new THREE.BoxGeometry(spanX, thickness, spanZ),
+    new THREE.MeshStandardMaterial({
+      color: 0x12262C,
+      roughness: 0.92,
+      metalness: 0.04,
+    }),
+  ));
+  deck.position.set(cx, -thickness / 2, cz);
+  group.add(deck);
+
+  const skin = mute(new THREE.Mesh(
+    new THREE.PlaneGeometry(spanX * 0.985, spanZ * 0.985),
+    new THREE.MeshStandardMaterial({
+      color: 0x17343B,
+      roughness: 0.78,
+      metalness: 0.02,
+      emissive: 0x0A2A30,
+      emissiveIntensity: 0.35,
+    }),
+  ));
+  skin.rotation.x = -Math.PI / 2;
+  skin.position.set(cx, 0.012, cz);
+  group.add(skin);
+
+  const gridMat = new THREE.LineBasicMaterial({
+    color: 0x66E0C2,
+    transparent: true,
+    opacity: 0.1,
+  });
+  const majorMat = new THREE.LineBasicMaterial({
+    color: 0x91A8AA,
+    transparent: true,
+    opacity: 0.16,
+  });
+  const halfX = spanX * 0.46;
+  const halfZ = spanZ * 0.46;
+  const steps = 6;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const x = cx - halfX + t * halfX * 2;
+    const z = cz - halfZ + t * halfZ * 2;
+    const mat = i === 0 || i === steps || i === steps / 2 ? majorMat : gridMat;
+    const alongZ = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(x, 0.02, cz - halfZ),
+      new THREE.Vector3(x, 0.02, cz + halfZ),
+    ]);
+    const alongX = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(cx - halfX, 0.02, z),
+      new THREE.Vector3(cx + halfX, 0.02, z),
+    ]);
+    group.add(mute(new THREE.Line(alongZ, mat)));
+    group.add(mute(new THREE.Line(alongX, mat)));
+  }
+
+  for (let ring = 1; ring <= 2; ring++) {
+    const rx = halfX * (0.42 + ring * 0.22);
+    const rz = halfZ * (0.42 + ring * 0.22);
+    const curve = new THREE.EllipseCurve(0, 0, rx, rz, 0, Math.PI * 2, false, 0);
+    const pts = curve.getPoints(48).map((p) => new THREE.Vector3(cx + p.x, 0.025, cz + p.y));
+    const geo = new THREE.BufferGeometry().setFromPoints(pts);
+    group.add(mute(new THREE.LineLoop(
+      geo,
+      new THREE.LineBasicMaterial({
+        color: 0x66E0C2,
+        transparent: true,
+        opacity: 0.08 + ring * 0.03,
+      }),
+    )));
+  }
+
+  for (const place of places) {
+    const padMesh = mute(new THREE.Mesh(
+      new THREE.CircleGeometry(0.55, 28),
+      new THREE.MeshStandardMaterial({
+        color: 0x0E1F24,
+        roughness: 0.9,
+        metalness: 0,
+        transparent: true,
+        opacity: 0.72,
+      }),
+    ));
+    padMesh.rotation.x = -Math.PI / 2;
+    padMesh.position.set(place.x, 0.018, place.z);
+    group.add(padMesh);
+
+    const ring = mute(new THREE.Mesh(
+      new THREE.RingGeometry(0.42, 0.52, 28),
+      new THREE.MeshBasicMaterial({
+        color: 0x66E0C2,
+        transparent: true,
+        opacity: 0.14,
+        side: THREE.DoubleSide,
+      }),
+    ));
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(place.x, 0.022, place.z);
+    group.add(ring);
+  }
+
+  const rim = mute(new THREE.Mesh(
+    new THREE.PlaneGeometry(spanX * 1.01, spanZ * 1.01),
+    new THREE.MeshBasicMaterial({
+      color: 0x66E0C2,
+      transparent: true,
+      opacity: 0.08,
+      side: THREE.DoubleSide,
+    }),
+  ));
+  rim.rotation.x = -Math.PI / 2;
+  rim.position.set(cx, -0.002, cz);
+  group.add(rim);
+
+  return group;
+}
+
 const ISO_AZ = Math.PI / 4;
 const ISO_POLAR = Math.acos(1 / Math.sqrt(3));
 let orbitAz = ISO_AZ;
@@ -440,6 +579,19 @@ function frameCamera() {
     samples.push(new THREE.Vector3(-1, 0, -1), new THREE.Vector3(1, 1.4, 1));
   }
   for (const marker of markers) samples.push(...boundsOf(marker));
+  const terrain = scene.getObjectByName('terrain');
+  if (terrain) {
+    terrain.updateWorldMatrix(true, true);
+    const box = new THREE.Box3().setFromObject(terrain);
+    if (!box.isEmpty()) {
+      samples.push(
+        new THREE.Vector3(box.min.x, box.max.y, box.min.z),
+        new THREE.Vector3(box.max.x, box.max.y, box.max.z),
+        new THREE.Vector3(box.min.x, box.max.y, box.max.z),
+        new THREE.Vector3(box.max.x, box.max.y, box.min.z),
+      );
+    }
+  }
   let dist = 8;
   const dir = viewDirection(azimuth, orbitPolar);
   for (let attempt = 0; attempt < 10; attempt++) {
@@ -510,6 +662,7 @@ function rebuild(points) {
     cz += place.z;
   }
   overview.target.set(cx / count, 0.5, cz / count);
+  scene.add(buildTerrain(places));
   for (let index = 0; index < count; index++) {
     const point = points[index] || {};
     const flowing = pointFlows(point);
