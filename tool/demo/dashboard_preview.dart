@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:smarthydro_app/features/dashboard/point_link.dart';
 import 'package:smarthydro_app/features/dashboard/widgets/portfolio_network.dart';
 import 'package:smarthydro_app/shared/widgets/hydro_glass.dart';
-import 'package:smarthydro_app/shared/widgets/water_atmosphere.dart';
+import 'package:smarthydro_app/shared/widgets/workstation_backdrop.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -89,7 +89,7 @@ class _PreviewHome extends StatelessWidget {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          const WaterAtmosphere(opacity: 0.9),
+          const WorkstationBackdrop(),
           SafeArea(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),

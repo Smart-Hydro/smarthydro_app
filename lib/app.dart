@@ -6,12 +6,12 @@ import 'core/session/session_provider.dart';
 import 'features/auth/login_screen.dart';
 import 'features/dashboard/live_dashboard_screen.dart';
 import 'shared/ui/hydro_ui.dart';
-import 'shared/widgets/water_atmosphere.dart';
+import 'shared/widgets/workstation_backdrop.dart';
 
 class SmartHydroApp extends ConsumerWidget {
   const SmartHydroApp({super.key});
 
-  static const _ocean = Color(0xFF0B171B);
+  static const _ocean = WorkstationBackdrop.base;
   static const _surface = Color(0xFF12252A);
 
   @override
@@ -35,8 +35,7 @@ class SmartHydroApp extends ConsumerWidget {
         return Stack(
           fit: StackFit.expand,
           children: [
-            const ColoredBox(color: _ocean),
-            const WaterAtmosphere(opacity: 0.9),
+            const WorkstationBackdrop(),
             if (child != null) Positioned.fill(child: child),
           ],
         );

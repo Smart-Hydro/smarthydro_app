@@ -721,7 +721,7 @@ class _DashboardTab extends StatefulWidget {
 class _DashboardTabState extends State<_DashboardTab> {
   _SummaryLens _lens = _SummaryLens.all;
   final GlobalKey _resumenKey = GlobalKey();
-  double _resumenHeight = _ModeHandle.height;
+  double _resumenHeight = _ResumenPeek.height;
 
   void _syncResumenHeight() {
     final box = _resumenKey.currentContext?.findRenderObject() as RenderBox?;
@@ -757,7 +757,7 @@ class _DashboardTabState extends State<_DashboardTab> {
     final resumen = captureResumenInsets(
       bottomInset: widget.bottomInset,
       handleHeight: _resumenHeight,
-      gap: _ModeHandle.openGap,
+      gap: _ResumenPeek.openGap,
     );
     return Stack(
       fit: StackFit.expand,
@@ -771,20 +771,20 @@ class _DashboardTabState extends State<_DashboardTab> {
           onPointSelected: widget.onSelectPoint,
           onRequestSupport: widget.onRequestSupport,
           topInset: topSafe + 8,
-          bottomInset: widget.bottomInset + (toSummary == null ? 0 : 44),
+          bottomInset: widget.bottomInset + (toSummary == null ? 0 : 56),
           // La ficha abierta queda 10 px sobre Resumen. En ancho no hay chip.
           openBottomClearance: toSummary == null ? 8 : resumen.cardClearance,
         ),
+        // Solo móvil: franja peek del resumen. Web usa el panel lateral.
         if (toSummary != null)
           Positioned(
-            left: 0,
-            right: 0,
+            left: 12,
+            right: 12,
             // Encima del LiquidNavBar flotante (~66 + padding).
             bottom: resumen.handleBottom,
-            child: _ModeHandle(
+            child: _ResumenPeek(
               key: _resumenKey,
-              label: 'Resumen',
-              icon: Icons.expand_more,
+              points: widget.points,
               onCommit: toSummary,
             ),
           ),
@@ -855,6 +855,213 @@ class _DashboardTabState extends State<_DashboardTab> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Franja peek del resumen en móvil: invita a abrir el panel completo.
+class _ResumenPeek extends StatefulWidget {
+  const _ResumenPeek({
+    super.key,
+    required this.points,
+    required this.onCommit,
+  });
+
+  /// Alto de respaldo hasta medir la franja.
+  static const double height = 52;
+
+  /// La ficha abierta queda esta distancia sobre la franja.
+  static const double openGap = 10;
+
+  final List<Map<String, dynamic>> points;
+  final VoidCallback onCommit;
+
+  @override
+  State<_ResumenPeek> createState() => _ResumenPeekState();
+}
+
+class _ResumenPeekState extends State<_ResumenPeek>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  );
+  var _drag = 0.0;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _pulse.stop();
+    } else if (!_pulse.isAnimating) {
+      _pulse.repeat();
+    }
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reduce = MediaQuery.disableAnimationsOf(context);
+    final mix = captureLinkCounts(widget.points);
+    final total = widget.points.length;
+    return Semantics(
+      button: true,
+      label: 'Ver el resumen',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onCommit,
+        onVerticalDragStart: (_) => _drag = 0,
+        onVerticalDragUpdate: (details) => _drag += details.delta.dy,
+        onVerticalDragEnd: (details) {
+          final velocity = details.primaryVelocity ?? 0;
+          if (_drag > 36 || velocity > 280) widget.onCommit();
+          _drag = 0;
+        },
+        child: AnimatedBuilder(
+          animation: _pulse,
+          builder: (context, _) {
+            final wave = reduce
+                ? 0.35
+                : 0.5 + 0.5 * math.sin(_pulse.value * math.pi * 2);
+            return DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(18),
+                color: const Color(0xD6081216),
+              ),
+              child: HydroGlassLight(
+                padding: const EdgeInsets.fromLTRB(14, 10, 12, 10),
+                radius: 18,
+                strength: 1.05,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            total == 0
+                                ? 'Resumen'
+                                : '$total ${total == 1 ? 'punto' : 'puntos'}',
+                            style: TextStyle(
+                              color: const Color(
+                                0xFFF4FBFA,
+                              ).withValues(alpha: 0.78 + 0.22 * wave),
+                              fontWeight: FontWeight.w800,
+                              fontSize: 13,
+                              height: 1.1,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          if (total == 0)
+                            const Text(
+                              'Desliza para ver el estado',
+                              style: TextStyle(
+                                color: Color(0xFF9AB0B1),
+                                fontSize: 11,
+                                height: 1.1,
+                              ),
+                            )
+                          else
+                            Row(
+                              children: [
+                                _PeekStat(
+                                  value: mix.connected,
+                                  color: const Color(0xFF66E0C2),
+                                  label: 'ok',
+                                ),
+                                const SizedBox(width: 10),
+                                _PeekStat(
+                                  value: mix.warning,
+                                  color: const Color(0xFFFFC46B),
+                                  label: 'aviso',
+                                ),
+                                const SizedBox(width: 10),
+                                _PeekStat(
+                                  value: mix.incident,
+                                  color: const Color(0xFFFF847A),
+                                  label: 'alerta',
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.expand_more_rounded,
+                          size: 18,
+                          color: const Color(
+                            0xFF8EE6D8,
+                          ).withValues(alpha: 0.45 + 0.45 * wave),
+                        ),
+                        Text(
+                          'Ver',
+                          style: TextStyle(
+                            color: const Color(
+                              0xFF8EE6D8,
+                            ).withValues(alpha: 0.55 + 0.35 * wave),
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _PeekStat extends StatelessWidget {
+  const _PeekStat({
+    required this.value,
+    required this.color,
+    required this.label,
+  });
+
+  final int value;
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final quiet = value == 0;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 7,
+          height: 7,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: quiet ? color.withValues(alpha: 0.25) : color,
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          '$value $label',
+          style: TextStyle(
+            color: quiet ? const Color(0xFF6F8586) : const Color(0xFFD5E6E4),
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            height: 1,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1101,10 +1308,8 @@ class _NetworkPanel extends StatelessWidget {
       );
     }
 
-    return HydroGlass(
-      frosted: true,
+    return Padding(
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
-      radius: 22,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

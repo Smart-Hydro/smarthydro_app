@@ -44,6 +44,23 @@ class SmartHydroApi {
 
   final Dio _dio;
 
+  /// Salud pública del API (`GET /health`). Sin auth.
+  Future<bool> health() async {
+    try {
+      final response = await _dio.get<dynamic>('/health');
+      final data = response.data;
+      if (data is Map) {
+        final status = data['status']?.toString().toLowerCase();
+        return status == 'ok' || status == 'healthy' || status == 'up';
+      }
+      return response.statusCode != null &&
+          response.statusCode! >= 200 &&
+          response.statusCode! < 300;
+    } on DioException {
+      return false;
+    }
+  }
+
   Future<SmartHydroSession> login({
     required String email,
     required String password,

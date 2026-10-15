@@ -35,38 +35,31 @@
     html, body {
       margin: 0;
       height: 100%;
-      background: #071820;
+      background: #081216;
       overflow: hidden;
     }
+    /* Splash = estación de trabajo: base oscura + cuadrícula fina, sin halos. */
     body::before {
       content: "";
       position: fixed;
-      inset: -18%;
+      inset: 0;
       z-index: -1;
-      background:
-        radial-gradient(ellipse at 18% 12%, rgba(26, 140, 132, 0.28), transparent 52%),
-        radial-gradient(ellipse at 88% 82%, rgba(36, 78, 150, 0.22), transparent 48%),
-        linear-gradient(180deg, #071820 0%, #0E3A40 46%, #08161C 100%);
-      animation: water-drift 32s ease-in-out infinite alternate;
-      will-change: transform;
-    }
-    @keyframes water-drift {
-      from { transform: translate3d(0, 0, 0) scale(1); }
-      to { transform: translate3d(-2.5%, -1.5%, 0) scale(1.05); }
-    }
-    @media (prefers-reduced-motion: reduce) {
-      body::before { animation: none; }
+      background-color: #081216;
+      background-image:
+        linear-gradient(rgba(231, 244, 242, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(231, 244, 242, 0.04) 1px, transparent 1px);
+      background-size: 16px 16px;
     }
     flt-platform-view,
     flt-platform-view-slot {
-      background: #0B171B !important;
+      background: #081216 !important;
     }
   </style>
   <script>
     // El slot vive en el shadow root de flt-glass-pane. El CSS de la
     // página no entra ahí, y sin este color el hueco se ve blanco.
     (function () {
-      var css = 'flt-platform-view, flt-platform-view-slot { background: #0B171B !important; }';
+      var css = 'flt-platform-view, flt-platform-view-slot { background: #081216 !important; }';
       function inject(root) {
         if (!root || root.getElementById('pv-slot-dark')) return;
         var style = document.createElement('style');
