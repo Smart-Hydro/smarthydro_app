@@ -1,11 +1,13 @@
 import 'dart:math' as math;
-import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 
+import '../../../core/api/smarthydro_api.dart';
 import '../../../core/brand.dart';
+import '../../../shared/ui/hydro_ui.dart';
+import '../../../shared/widgets/workstation_backdrop.dart';
 import '../point_link.dart';
 import '../point_meta.dart';
 import '../point_system.dart';
@@ -25,7 +27,7 @@ const capturePlateHeight = 32.0;
 /// Aire entre placas, para que el enlace se lea.
 const capturePlateGap = 32.0;
 
-/// Núcleo DATASMART. Cinco cuadros, para calzar en la misma grilla.
+/// Núcleo SMARTHYDRO. Cinco cuadros, para calzar en la misma grilla.
 const captureHubSize = 80.0;
 
 /// Nodo de la red. El nombre va dentro; la caja no tapa el enlace.
@@ -50,6 +52,7 @@ class CaptureNetworkMap extends StatelessWidget {
     this.bottomInset = 0,
     this.topInset = 0,
     this.openBottomClearance = 8,
+    this.checkApiHealth,
     super.key,
   });
 
@@ -75,6 +78,9 @@ class CaptureNetworkMap extends StatelessWidget {
   /// En el teléfono es el tope de Resumen más 10 px.
   final double openBottomClearance;
 
+  /// Salud del API (`GET /health`). En tests se inyecta para no abrir Dio.
+  final Future<bool> Function()? checkApiHealth;
+
   @override
   Widget build(BuildContext context) {
     return _WaterView(
@@ -86,6 +92,7 @@ class CaptureNetworkMap extends StatelessWidget {
       topInset: topInset,
       bottomInset: bottomInset,
       openBottomClearance: openBottomClearance,
+      checkApiHealth: checkApiHealth,
     );
   }
 }
@@ -100,6 +107,7 @@ class _WaterView extends StatefulWidget {
     required this.topInset,
     required this.bottomInset,
     required this.openBottomClearance,
+    this.checkApiHealth,
   });
 
   final List<Map<String, dynamic>> points;
@@ -110,6 +118,7 @@ class _WaterView extends StatefulWidget {
   final double topInset;
   final double bottomInset;
   final double openBottomClearance;
+  final Future<bool> Function()? checkApiHealth;
 
   @override
   State<_WaterView> createState() => _WaterViewState();
@@ -121,16 +130,18 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
   Ticker? _ticker;
   late final AnimationController _approach = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 920),
+    duration: const Duration(milliseconds: 640),
   );
   late final AnimationController _seat = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 220),
+    duration: const Duration(milliseconds: 140),
   );
   int? _selected;
   int _page = 0;
   bool _pageForward = true;
   bool _motion = true;
+  bool? _apiOnline;
+  final SmartHydroApi _api = SmartHydroApi();
   final GlobalKey _stackKey = GlobalKey();
   final GlobalKey _openKey = GlobalKey();
   Rect? _openPlacement;
@@ -143,6 +154,15 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
       _seconds.value = elapsed.inMicroseconds / 1e6;
     });
     _ticker!.start();
+    _refreshApiHealth();
+  }
+
+  Future<void> _refreshApiHealth() async {
+    final check = widget.checkApiHealth ?? _api.health;
+    final ok = await check();
+    if (!mounted) return;
+    if (_apiOnline == ok) return;
+    setState(() => _apiOnline = ok);
   }
 
   @override
@@ -268,14 +288,12 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
         // El encabezado ocupa la franja de arriba. La red vive debajo.
         const headerBand = 84.0;
         final contentTop = widget.topInset + headerBand;
-        // La ficha tiene alto fijo. Abrirla no mueve los loggers.
-        const panelWanted = 188.0;
-        final panelBottom = math.max(8.0, widget.openBottomClearance - 2);
-        final room = size.height - contentTop - panelBottom - 12;
-        final panelHeight = room <= 140
-            ? math.max(96.0, room)
-            : math.min(panelWanted, room - 120);
-        final fieldBottom = panelBottom + panelHeight + 12;
+        // Sin lista inferior permanente: el diagrama usa casi todo el alto.
+        // La ficha de un punto elegido flota encima y no reserva layout.
+        final fieldBottom = math.max(
+          widget.bottomInset + 8,
+          widget.openBottomClearance,
+        );
         var pageSize = math.max(
           1,
           captureSchemePageSize(size, top: contentTop, bottom: fieldBottom),
@@ -390,12 +408,13 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                           child: IgnorePointer(
                             child: _DataSmartCore(
                               clock: _motion ? _seconds : null,
+                              apiOnline: _apiOnline,
                             ),
                           ),
                         ),
                       AnimatedSwitcher(
                         duration: _motion
-                            ? const Duration(milliseconds: 340)
+                            ? const Duration(milliseconds: 220)
                             : Duration.zero,
                         switchInCurve: Curves.easeOutCubic,
                         switchOutCurve: Curves.easeInCubic,
@@ -408,7 +427,7 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                         transitionBuilder: (child, animation) {
                           final dir = _pageForward ? 1.0 : -1.0;
                           final slide = Tween<Offset>(
-                            begin: Offset(dir * 0.16, 0),
+                            begin: Offset(dir * 0.06, 0),
                             end: Offset.zero,
                           ).animate(animation);
                           return FadeTransition(
@@ -519,17 +538,17 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                     ),
                   ),
                 if (widget.points.isEmpty) const _EmptyNetwork(),
-                if (widget.points.isNotEmpty)
+                // Solo al elegir un punto: ficha compacta flotante.
+                // No reserva alto del diagrama.
+                if (found >= 0)
                   Positioned(
                     left: captureEdgePad,
                     right: captureEdgePad,
-                    bottom: panelBottom,
-                    height: panelHeight,
+                    bottom: math.max(8.0, widget.openBottomClearance - 2),
+                    height: 228,
                     child: _ViewRecords(
-                      points: pagePoints,
-                      focus: found < 0 ? null : widget.points[found],
-                      onOpen: (index) => _select(pageIndexes[index]),
-                      onEnter: selected == null ? null : _openSelected,
+                      focus: widget.points[found],
+                      onEnter: _openSelected,
                       onClose: _clearSelection,
                       openTickets: widget.openTickets,
                       compliance: widget.compliance,
@@ -617,15 +636,13 @@ class _LivingWaterPainter extends CustomPainter {
     if (size.isEmpty) return;
     final bounds = Offset.zero & size;
 
-    // Velo oscuro sobre el agua de la app. La cuadrícula sigue leyéndose.
-    canvas.drawRect(
-      bounds,
-      Paint()..color = const Color(0xFF081216).withValues(alpha: 0.72),
-    );
+    // Base opaca de estación de trabajo. Sin velo sobre agua ni adornos.
+    canvas.drawRect(bounds, Paint()..color = WorkstationBackdrop.base);
+
+    // La cuadrícula cubre toda la página; no se corta sobre la ficha.
+    _paintGrid(canvas, size);
 
     final board = _boardRect(size);
-    _paintGrid(canvas, size, board);
-
     if (selected != null && approach > 0) {
       _paintDiveWash(canvas, size, approach);
     }
@@ -644,24 +661,24 @@ class _LivingWaterPainter extends CustomPainter {
     }
   }
 
-  /// La cuadrícula es la pantalla. Termina sobre la ficha, sin marco.
+  /// Zona del esquema (hub + loggers). La grilla ya no depende de este rect.
   Rect _boardRect(Size size) {
     final bottom = math.max(0.0, size.height - boardBottom);
     return Rect.fromLTRB(0, 0, size.width, bottom);
   }
 
-  void _paintGrid(Canvas canvas, Size size, Rect board) {
-    if (board.width <= 0 || board.height <= 0) return;
+  void _paintGrid(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
     final line = Paint()
-      ..color = const Color(0xFFE7F4F2).withValues(alpha: 0.045)
+      ..color = workstationGridLine
       ..strokeWidth = 1;
     const step = captureBoardStep;
     final ox = ((pan.dx % step) + step) % step;
     final oy = ((pan.dy % step) + step) % step;
     for (var x = ox; x <= size.width; x += step) {
-      canvas.drawLine(Offset(x, board.top), Offset(x, board.bottom), line);
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), line);
     }
-    for (var y = oy; y <= board.bottom; y += step) {
+    for (var y = oy; y <= size.height; y += step) {
       canvas.drawLine(Offset(0, y), Offset(size.width, y), line);
     }
   }
@@ -670,7 +687,6 @@ class _LivingWaterPainter extends CustomPainter {
   /// El desenfoque exterior solo roza la celda de al lado.
   void _paintLoggerCells(Canvas canvas) {
     final breath = motion ? 0.5 + 0.5 * math.sin(seconds * 1.7) : 0.45;
-    const step = captureBoardStep;
     for (var index = 0; index < plates.length; index++) {
       final plate = plates[index];
       if (plate.width < 1 || plate.height < 1) continue;
@@ -698,15 +714,7 @@ class _LivingWaterPainter extends CustomPainter {
           ..strokeWidth = 1.15
           ..color = color.withValues(alpha: alpha),
       );
-      final seam = Paint()
-        ..strokeWidth = 1
-        ..color = color.withValues(alpha: alpha * 0.22);
-      for (var x = plate.left + step; x < plate.right - 0.5; x += step) {
-        canvas.drawLine(Offset(x, plate.top), Offset(x, plate.bottom), seam);
-      }
-      for (var y = plate.top + step; y < plate.bottom - 0.5; y += step) {
-        canvas.drawLine(Offset(plate.left, y), Offset(plate.right, y), seam);
-      }
+      // Sin rayitas internas: el logger se lee solo.
       if (hot) _paintSelectionCorners(canvas, plate, color);
     }
   }
@@ -798,8 +806,10 @@ class _HubLinkPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (hub.isEmpty || plates.isEmpty) return;
     final blocks = [...plates, hub];
-    for (var index = 0; index < plates.length; index++) {
-      final path = captureHubLink(plates[index], hub);
+    final links = captureHubLinks(plates, hub);
+    for (var index = 0; index < links.length; index++) {
+      final path = links[index];
+      if (path.length < 2) continue;
       final hot = selected == index;
       final alpha = selected == null
           ? 0.62
@@ -808,7 +818,7 @@ class _HubLinkPainter extends CustomPainter {
           : 0.22;
       final paint = Paint()
         ..color = const Color(0xFFD5E4E2).withValues(alpha: alpha)
-        ..strokeWidth = hot ? 1.4 : 1.15
+        ..strokeWidth = hot ? 1.35 : 1.05
         ..strokeCap = StrokeCap.round;
       for (var step = 0; step < path.length - 1; step++) {
         _dashClipped(
@@ -817,7 +827,7 @@ class _HubLinkPainter extends CustomPainter {
           path[step + 1],
           blocks,
           paint,
-          phase: motion ? seconds * 14 : 0,
+          phase: motion ? seconds * 10 : 0,
         );
       }
     }
@@ -1381,37 +1391,114 @@ int _schemeRows(double height, {required double top, required double bottom}) {
   return (plates: [for (final rect in slots) rect ?? Rect.zero], hub: hubRect);
 }
 
-/// Camino ortogonal desde el medio de la caja hasta el medio del núcleo.
+/// Camino ortogonal desde el logger hasta un punto de entrada en el hub.
+/// [attachY] fija la altura de entrada; [busX] el canal vertical del lado.
 @visibleForTesting
-List<Offset> captureHubLink(Rect plate, Rect hub) {
+List<Offset> captureHubLink(
+  Rect plate,
+  Rect hub, {
+  double? attachY,
+  double? busX,
+}) {
   if (plate.isEmpty || hub.isEmpty) return const [];
   final dx = hub.center.dx - plate.center.dx;
   final dy = hub.center.dy - plate.center.dy;
-  final overlapX = plate.right > hub.left && plate.left < hub.right;
-  final overlapY = plate.bottom > hub.top && plate.top < hub.bottom;
-  if (overlapX && !overlapY) {
-    final x = plate.center.dx;
-    return dy >= 0
-        ? [Offset(x, plate.bottom), Offset(x, hub.top)]
-        : [Offset(x, plate.top), Offset(x, hub.bottom)];
-  }
-  if (overlapY && !overlapX) {
-    final y = plate.center.dy;
-    return dx >= 0
-        ? [Offset(plate.right, y), Offset(hub.left, y)]
-        : [Offset(plate.left, y), Offset(hub.right, y)];
+  // Con bus/entrada asignados no usar atajos: cruzarían el canal vertical.
+  final routed = attachY != null || busX != null;
+  if (!routed) {
+    final overlapX = plate.right > hub.left && plate.left < hub.right;
+    final overlapY = plate.bottom > hub.top && plate.top < hub.bottom;
+    if (overlapX && !overlapY) {
+      final x = plate.center.dx;
+      return dy >= 0
+          ? [Offset(x, plate.bottom), Offset(x, hub.top)]
+          : [Offset(x, plate.top), Offset(x, hub.bottom)];
+    }
+    if (overlapY && !overlapX) {
+      final y = plate.center.dy;
+      return dx >= 0
+          ? [Offset(plate.right, y), Offset(hub.left, y)]
+          : [Offset(plate.left, y), Offset(hub.right, y)];
+    }
   }
   final toRight = dx >= 0;
   final start = toRight
       ? Offset(plate.right, plate.center.dy)
       : Offset(plate.left, plate.center.dy);
-  final busX = toRight
-      ? (plate.right + hub.left) / 2
-      : (hub.right + plate.left) / 2;
   final endX = toRight ? hub.left : hub.right;
-  final y = hub.center.dy;
-  if ((start.dy - y).abs() < 1) return [start, Offset(endX, y)];
-  return [start, Offset(busX, start.dy), Offset(busX, y), Offset(endX, y)];
+  final y = (attachY ?? hub.center.dy)
+      .clamp(hub.top + 4, hub.bottom - 4)
+      .toDouble();
+  final end = Offset(endX, y);
+  if ((start.dy - y).abs() < 1) return [start, end];
+  final channel =
+      busX ??
+      (toRight ? hub.left - captureBoardStep : hub.right + captureBoardStep);
+  if ((channel - start.dx).abs() < 1) {
+    return [start, Offset(start.dx, y), end];
+  }
+  return [start, Offset(channel, start.dy), Offset(channel, y), end];
+}
+
+/// Enlaces de todos los loggers al hub sin cruzarse: un bus fijo por lado
+/// y entradas distintas a lo largo del borde del núcleo.
+@visibleForTesting
+List<List<Offset>> captureHubLinks(List<Rect> plates, Rect hub) {
+  if (hub.isEmpty || plates.isEmpty) return const [];
+  final left = <int>[];
+  final right = <int>[];
+  for (var i = 0; i < plates.length; i++) {
+    final plate = plates[i];
+    if (plate.isEmpty) continue;
+    if (plate.center.dx <= hub.center.dx) {
+      left.add(i);
+    } else {
+      right.add(i);
+    }
+  }
+  int byY(int a, int b) => plates[a].center.dy.compareTo(plates[b].center.dy);
+  left.sort(byY);
+  right.sort(byY);
+
+  double sideBus(List<int> side, {required bool toRight}) {
+    if (side.isEmpty) {
+      return toRight ? hub.left - captureBoardStep : hub.right + captureBoardStep;
+    }
+    if (toRight) {
+      var edge = hub.left - captureBoardStep;
+      for (final i in side) {
+        edge = math.max(edge, plates[i].right + 4);
+      }
+      return math.min(edge, hub.left - 4);
+    }
+    var edge = hub.right + captureBoardStep;
+    for (final i in side) {
+      edge = math.min(edge, plates[i].left - 4);
+    }
+    return math.max(edge, hub.right + 4);
+  }
+
+  final leftBus = sideBus(left, toRight: true);
+  final rightBus = sideBus(right, toRight: false);
+  final attach = List<double?>.filled(plates.length, null);
+  void assignY(List<int> side) {
+    for (var i = 0; i < side.length; i++) {
+      final t = (i + 1) / (side.length + 1);
+      attach[side[i]] = hub.top + hub.height * t;
+    }
+  }
+
+  assignY(left);
+  assignY(right);
+  return [
+    for (var i = 0; i < plates.length; i++)
+      captureHubLink(
+        plates[i],
+        hub,
+        attachY: attach[i],
+        busX: plates[i].center.dx <= hub.center.dx ? leftBus : rightBus,
+      ),
+  ];
 }
 
 /// Coloca fichas arriba/abajo, alejadas de los puntos (arquitectura de nodos).
@@ -1743,6 +1830,39 @@ double seatCaptureChipTop({
   );
 }
 
+/// Mosaico inferior de ventanas compactas (HOME web). Filas de abajo hacia arriba.
+@visibleForTesting
+List<Rect> layoutPointWindows({
+  required Size area,
+  required int count,
+  double windowWidth = 340,
+  double windowHeight = 228,
+  double gap = 12,
+  double bottomInset = 8,
+}) {
+  if (count <= 0 ||
+      area.width <= 0 ||
+      area.height <= 0 ||
+      windowWidth <= 0 ||
+      windowHeight <= 0) {
+    return const [];
+  }
+  final columns = math.max(
+    1,
+    ((area.width + gap) / (windowWidth + gap)).floor(),
+  );
+  final rects = <Rect>[];
+  for (var i = 0; i < count; i++) {
+    final col = i % columns;
+    final row = i ~/ columns;
+    final left = col * (windowWidth + gap);
+    final bottom = area.height - bottomInset - row * (windowHeight + gap);
+    final top = bottom - windowHeight;
+    rects.add(Rect.fromLTWH(left, top, windowWidth, windowHeight));
+  }
+  return rects;
+}
+
 class _LoggerNode extends StatelessWidget {
   const _LoggerNode({
     required this.point,
@@ -1893,21 +2013,34 @@ class _PageStep extends StatelessWidget {
   }
 }
 
-/// Núcleo de agua. Recibe las líneas de los loggers. Mismo vidrio.
+/// Núcleo SMARTHYDRO. Muestra si el API responde en /health.
 class _DataSmartCore extends StatelessWidget {
-  const _DataSmartCore({this.clock});
+  const _DataSmartCore({this.clock, this.apiOnline});
 
   final ValueNotifier<double>? clock;
+  final bool? apiOnline;
 
   @override
   Widget build(BuildContext context) {
+    final online = apiOnline;
+    final statusColor = online == null
+        ? const Color(0xFF9AB0B1)
+        : online
+        ? const Color(0xFF66E0C2)
+        : const Color(0xFFFF847A);
+    final statusLabel = online == null
+        ? 'API…'
+        : online
+        ? 'API en línea'
+        : 'API fuera';
+
     Widget core(double glow) {
       final edge = 0.55 + 0.35 * glow;
       return DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: const Color(0xFF7EE0D0).withValues(alpha: edge),
+            color: statusColor.withValues(alpha: edge),
             width: 1.4,
           ),
           gradient: LinearGradient(
@@ -1919,20 +2052,32 @@ class _DataSmartCore extends StatelessWidget {
             ],
           ),
         ),
-        child: const Column(
+        child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.water_drop_outlined, size: 18, color: Color(0xFF9EE6D8)),
-            SizedBox(height: 4),
-            Text(
-              'DATASMART',
+            Icon(Icons.hub_outlined, size: 16, color: statusColor),
+            const SizedBox(height: 3),
+            const Text(
+              'SMARTHYDRO',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: Color(0xFFE7F4F2),
-                fontSize: 8,
+                fontSize: 7.5,
                 fontWeight: FontWeight.w700,
-                letterSpacing: 0.6,
+                letterSpacing: 0.4,
+                height: 1,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              statusLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: statusColor.withValues(alpha: 0.92),
+                fontSize: 7,
+                fontWeight: FontWeight.w600,
                 height: 1,
               ),
             ),
@@ -1943,7 +2088,7 @@ class _DataSmartCore extends StatelessWidget {
 
     return Semantics(
       container: true,
-      label: 'DATASMART',
+      label: 'SMARTHYDRO, $statusLabel',
       child: KeyedSubtree(
         key: const ValueKey('capture-hub'),
         child: clock == null
@@ -2162,12 +2307,9 @@ class _LegendDot extends StatelessWidget {
   }
 }
 
-/// Último registro de cada punto que está en el esquema.
-/// Con un punto elegido, la lista pasa a esa ficha y ofrece entrar.
+/// Ficha compacta del punto elegido. Flota sobre el diagrama; no hay lista.
 class _ViewRecords extends StatelessWidget {
   const _ViewRecords({
-    required this.points,
-    required this.onOpen,
     required this.focus,
     required this.onEnter,
     required this.onClose,
@@ -2176,9 +2318,7 @@ class _ViewRecords extends StatelessWidget {
     required this.onRequestSupport,
   });
 
-  final List<Map<String, dynamic>> points;
-  final ValueChanged<int> onOpen;
-  final Map<String, dynamic>? focus;
+  final Map<String, dynamic> focus;
   final VoidCallback? onEnter;
   final VoidCallback onClose;
   final List<Map<String, dynamic>> openTickets;
@@ -2187,159 +2327,33 @@ class _ViewRecords extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final focus = this.focus;
-    final summary = focus == null
-        ? captureViewSummary(points)
-        : pointLinkLabel(pointLinkOf(focus));
     final motion = !MediaQuery.disableAnimationsOf(context);
-    return ClipRRect(
+    return DecoratedBox(
       key: const ValueKey('capture-view-records'),
-      borderRadius: BorderRadius.circular(16),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                const Color(0xFFF7FBFA).withValues(alpha: 0.16),
-                const Color(0xFF16343A).withValues(alpha: 0.46),
-              ],
-            ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-            child: AnimatedSwitcher(
-              duration: motion
-                  ? const Duration(milliseconds: 240)
-                  : Duration.zero,
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeInCubic,
-              layoutBuilder: (current, previous) {
-                return Stack(
-                  alignment: Alignment.topCenter,
-                  children: [...previous, ?current],
-                );
-              },
-              transitionBuilder: (child, animation) {
-                final slide = Tween<Offset>(
-                  begin: const Offset(0, 0.08),
-                  end: Offset.zero,
-                ).animate(animation);
-                return FadeTransition(
-                  opacity: animation,
-                  child: SlideTransition(position: slide, child: child),
-                );
-              },
-              child: focus == null
-                  ? Column(
-                      key: const ValueKey('capture-board-list'),
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          summary,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Color(0xFFB7C8C6),
-                            fontSize: 11,
-                            height: 1.15,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Expanded(
-                          child: ListView.builder(
-                            padding: EdgeInsets.zero,
-                            physics: const ClampingScrollPhysics(),
-                            itemCount: points.length,
-                            itemBuilder: (context, index) {
-                              return _ViewPointRow(
-                                point: points[index],
-                                onTap: () => onOpen(index),
-                              );
-                            },
-                          ),
-                        ),
-                      ],
-                    )
-                  : _FocusedPoint(
-                      key: ValueKey('capture-board-focus-${_pointKey(focus)}'),
-                      point: focus,
-                      status: summary,
-                      onEnter: onEnter,
-                      onClose: onClose,
-                      openTickets: openTickets,
-                      compliance: compliance,
-                      onRequestSupport: onRequestSupport,
-                    ),
-            ),
-          ),
-        ),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: const Color(0xD6081216),
       ),
-    );
-  }
-}
-
-class _ViewPointRow extends StatelessWidget {
-  const _ViewPointRow({required this.point, required this.onTap});
-
-  final Map<String, dynamic> point;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final reading = captureReadingLabel(point);
-    final when = captureMeasuredAt(point);
-    final detail = reading == when ? when : '$reading · $when';
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        height: 26,
-        child: Row(
-          children: [
-            Icon(
-              captureIsSurface(point)
-                  ? Icons.waves_outlined
-                  : Icons.water_drop_outlined,
-              size: 15,
-              color: _linkColor(point),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              flex: 5,
-              child: Text(
-                _title(point),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Color(0xFFF4F8F6),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  height: 1.1,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              flex: 6,
-              child: Text(
-                detail,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.right,
-                style: const TextStyle(
-                  color: Color(0xFFD5E4E2),
-                  fontSize: 11,
-                  height: 1.1,
-                  fontFeatures: [FontFeature.tabularFigures()],
-                ),
-              ),
-            ),
-          ],
+      child: HydroGlassLight(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+        radius: 16,
+        strength: 1.1,
+        child: AnimatedSwitcher(
+          duration: motion
+              ? const Duration(milliseconds: 180)
+              : Duration.zero,
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          child: _FocusedPoint(
+            key: ValueKey('capture-board-focus-${_pointKey(focus)}'),
+            point: focus,
+            status: pointLinkLabel(pointLinkOf(focus)),
+            onEnter: onEnter,
+            onClose: onClose,
+            openTickets: openTickets,
+            compliance: compliance,
+            onRequestSupport: onRequestSupport,
+          ),
         ),
       ),
     );
@@ -2385,26 +2399,40 @@ class _FocusedPoint extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Icon(
-                      surface
-                          ? Icons.waves_outlined
-                          : Icons.water_drop_outlined,
-                      size: 16,
+                    _FocusLoggerPlate(
                       color: color,
+                      surface: surface,
+                      selected: true,
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 10),
                     Expanded(
-                      child: Text(
-                        _title(point),
+                      child: Text.rich(
+                        TextSpan(
+                          children: [
+                            TextSpan(
+                              text: _title(point),
+                              style: const TextStyle(
+                                color: Color(0xFFF4F8F6),
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                height: 1.2,
+                              ),
+                            ),
+                            TextSpan(
+                              text: ' · $status',
+                              style: TextStyle(
+                                color: color,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                height: 1.2,
+                              ),
+                            ),
+                          ],
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Color(0xFFF4F8F6),
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          height: 1.1,
-                        ),
                       ),
                     ),
                     IconButton(
@@ -2412,24 +2440,18 @@ class _FocusedPoint extends StatelessWidget {
                       visualDensity: VisualDensity.compact,
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(
-                        minWidth: 28,
-                        minHeight: 28,
+                        minWidth: 30,
+                        minHeight: 30,
                       ),
                       icon: const Icon(
                         Icons.close_rounded,
-                        size: 16,
+                        size: 17,
                         color: Color(0xFFD5E4E2),
                       ),
                     ),
                   ],
                 ),
-                Text(
-                  status,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: color, fontSize: 11, height: 1.15),
-                ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 10),
                 _ProfileLine(
                   surface ? Icons.waves_outlined : Icons.water_drop_outlined,
                   'Tipo',
@@ -2462,7 +2484,7 @@ class _FocusedPoint extends StatelessWidget {
                   captureVariableLabel(point),
                   maxLines: 2,
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 6),
                 const Row(
                   children: [
                     Icon(
@@ -2484,7 +2506,7 @@ class _FocusedPoint extends StatelessWidget {
                 ),
                 if (tickets.isEmpty)
                   const Padding(
-                    padding: EdgeInsets.only(top: 2),
+                    padding: EdgeInsets.only(top: 4),
                     child: Text(
                       'Sin tickets abiertos',
                       maxLines: 1,
@@ -2515,7 +2537,7 @@ class _FocusedPoint extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 10),
         Row(
           children: [
             Expanded(
@@ -2527,7 +2549,7 @@ class _FocusedPoint extends StatelessWidget {
                   foregroundColor: const Color(0xFFE7F4F2),
                   backgroundColor: Colors.white.withValues(alpha: 0.08),
                   side: BorderSide(color: Colors.white.withValues(alpha: 0.28)),
-                  minimumSize: const Size.fromHeight(32),
+                  minimumSize: const Size.fromHeight(36),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   shape: RoundedRectangleBorder(
@@ -2546,7 +2568,7 @@ class _FocusedPoint extends StatelessWidget {
                 style: FilledButton.styleFrom(
                   foregroundColor: const Color(0xFFE7F4F2),
                   backgroundColor: const Color(0xFF1C4A46),
-                  minimumSize: const Size.fromHeight(32),
+                  minimumSize: const Size.fromHeight(36),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   shape: RoundedRectangleBorder(
@@ -2566,6 +2588,78 @@ class _FocusedPoint extends StatelessWidget {
   }
 }
 
+/// Mini caja de logger en el encabezado de la ficha (misma lectura que el mapa).
+class _FocusLoggerPlate extends StatelessWidget {
+  const _FocusLoggerPlate({
+    required this.color,
+    required this.surface,
+    required this.selected,
+  });
+
+  final Color color;
+  final bool surface;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      key: const ValueKey('capture-focus-logger'),
+      width: 44,
+      height: 28,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: color.withValues(alpha: selected ? 0.82 : 0.4),
+            width: selected ? 1.5 : 1,
+          ),
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              const Color(0xFFF7FBFA).withValues(alpha: 0.20),
+              const Color(0xFF1A343C).withValues(alpha: 0.78),
+            ],
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 5),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 14,
+                height: 14,
+                child: CustomPaint(
+                  painter: _BeaconPainter(
+                    color: color,
+                    selected: selected,
+                    surface: surface,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: color.withValues(alpha: 0.95),
+                  boxShadow: [
+                    BoxShadow(
+                      color: color.withValues(alpha: 0.45),
+                      blurRadius: 4,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ProfileLine extends StatelessWidget {
   const _ProfileLine(this.icon, this.label, this.value, {this.maxLines = 1});
 
@@ -2577,7 +2671,7 @@ class _ProfileLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 3),
+      padding: const EdgeInsets.only(bottom: 5),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2906,10 +3000,11 @@ String captureNetworkSubtitle(List<Map<String, dynamic>> points) {
   return '$count $noun · $online conectados · $where';
 }
 
-/// Mezcla de la vista: conectados, advertencias e incidencias que se ven.
+/// Conteos de enlace para el peek del resumen (móvil).
 @visibleForTesting
-String captureViewSummary(List<Map<String, dynamic>> points) {
-  if (points.isEmpty) return 'Nada en esta vista';
+({int connected, int warning, int incident}) captureLinkCounts(
+  List<Map<String, dynamic>> points,
+) {
   var connected = 0;
   var warning = 0;
   var incident = 0;
@@ -2923,6 +3018,17 @@ String captureViewSummary(List<Map<String, dynamic>> points) {
         incident++;
     }
   }
+  return (connected: connected, warning: warning, incident: incident);
+}
+
+/// Mezcla de la vista: conectados, advertencias e incidencias que se ven.
+@visibleForTesting
+String captureViewSummary(List<Map<String, dynamic>> points) {
+  if (points.isEmpty) return 'Nada en esta vista';
+  final mix = captureLinkCounts(points);
+  final connected = mix.connected;
+  final warning = mix.warning;
+  final incident = mix.incident;
   String piece(int count, String one, String many) {
     if (count == 0) return '';
     return count == 1 ? '1 $one' : '$count $many';

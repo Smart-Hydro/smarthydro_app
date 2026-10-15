@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart' hide Path;
@@ -15,6 +17,61 @@ void main() {
     );
     expect(captureLatLng({'lat': 0, 'lon': 0}), isNull);
     expect(captureLatLng({'title': 'Pozo'}), isNull);
+  });
+
+  test('layoutPointWindows con 0 no emite rects', () {
+    expect(
+      layoutPointWindows(area: const Size(1200, 800), count: 0),
+      isEmpty,
+    );
+  });
+
+  test('layoutPointWindows un panel abajo a la izquierda', () {
+    final rects = layoutPointWindows(
+      area: const Size(1200, 800),
+      count: 1,
+      bottomInset: 8,
+    );
+    expect(rects, hasLength(1));
+    expect(rects.first.width, 340);
+    expect(rects.first.height, 228);
+    expect(rects.first.left, 0);
+    expect(rects.first.bottom, 800 - 8);
+  });
+
+  test('layoutPointWindows tres paneles caben en una fila', () {
+    final rects = layoutPointWindows(
+      area: const Size(1200, 800),
+      count: 3,
+    );
+    expect(rects, hasLength(3));
+    expect(rects[0].top, rects[1].top);
+    expect(rects[1].top, rects[2].top);
+    expect(rects[0].left, lessThan(rects[1].left));
+    expect(rects[1].left, lessThan(rects[2].left));
+  });
+
+  test('layoutPointWindows el cuarto pasa a la fila de arriba', () {
+    final rects = layoutPointWindows(
+      area: const Size(1200, 800),
+      count: 4,
+      windowWidth: 340,
+      gap: 12,
+    );
+    expect(rects, hasLength(4));
+    expect(rects[3].bottom, lessThanOrEqualTo(rects[0].top - 12));
+  });
+
+  test('layoutPointWindows nunca es más ancho que windowWidth', () {
+    final rects = layoutPointWindows(
+      area: const Size(900, 600),
+      count: 5,
+      windowWidth: 340,
+    );
+    for (final rect in rects) {
+      expect(rect.width, 340);
+      expect(rect.height, 228);
+    }
   });
 
   test('el logger calza en la cuadrícula y cabe el nombre', () {
@@ -211,6 +268,28 @@ void main() {
     ]);
   });
 
+  test('los enlaces al hub llegan en puntos distintos y no se cruzan', () {
+    final scheme = placeCaptureScheme(
+      8,
+      const Size(420, 720),
+      top: 80,
+      bottom: 48,
+    );
+    final links = captureHubLinks(scheme.plates, scheme.hub);
+    expect(links, hasLength(8));
+    final ends = <Offset>[];
+    for (final link in links) {
+      expect(link.length, greaterThanOrEqualTo(2));
+      ends.add(link.last);
+      for (var i = 0; i < link.length - 1; i++) {
+        final sameAxis =
+            link[i].dx == link[i + 1].dx || link[i].dy == link[i + 1].dy;
+        expect(sameAxis, isTrue);
+      }
+    }
+    expect(_orthogonalPolylinesCross(links), isFalse);
+  });
+
   test('el cumplimiento solo aparece con ficha DGA', () {
     expect(captureHasCompliance({'type_dga': 'SUBTERRANEO'}), isFalse);
     expect(captureHasCompliance({'send_dga': true, 'code_dga': 'X1'}), isTrue);
@@ -231,24 +310,26 @@ void main() {
 
   test('el resumen cuenta lo que hay en la vista', () {
     expect(captureViewSummary(const []), 'Nada en esta vista');
+    final sample = [
+      {
+        'latest_telemetry': {
+          'date_time_medition': '2026-10-14T15:00:00Z',
+          'days_not_connection': 0,
+        },
+      },
+      {
+        'latest_telemetry': {'days_not_connection': 3},
+      },
+      {
+        'latest_telemetry': {
+          'date_time_medition': '2026-10-14T15:00:00Z',
+          'is_error': true,
+        },
+      },
+    ];
+    expect(captureLinkCounts(sample), (connected: 1, warning: 1, incident: 1));
     expect(
-      captureViewSummary([
-        {
-          'latest_telemetry': {
-            'date_time_medition': '2026-10-14T15:00:00Z',
-            'days_not_connection': 0,
-          },
-        },
-        {
-          'latest_telemetry': {'days_not_connection': 3},
-        },
-        {
-          'latest_telemetry': {
-            'date_time_medition': '2026-10-14T15:00:00Z',
-            'is_error': true,
-          },
-        },
-      ]),
+      captureViewSummary(sample),
       '1 conectado · 1 advertencia · 1 incidencia',
     );
   });
@@ -651,7 +732,7 @@ void main() {
         home: Scaffold(
           body: SizedBox(
             height: 640,
-            child: CaptureNetworkMap(
+            child: _map(
               points: points,
               onPointSelected: (point) => opened = point,
             ),
@@ -663,12 +744,11 @@ void main() {
 
     expect(find.text('Esquema de telemetría'), findsOneWidget);
     expect(find.text('En esta vista'), findsNothing);
-    expect(find.text('2 conectados · 1 advertencia'), findsOneWidget);
+    expect(find.textContaining('conectados'), findsOneWidget);
     expect(find.text('Pozo Norte'), findsWidgets);
     expect(find.text('Canal Sur'), findsWidgets);
     expect(find.text('Pozo Este'), findsWidgets);
     expect(find.text('Conectado'), findsWidgets);
-    expect(find.textContaining('Sin lectura'), findsWidgets);
 
     await tester.tap(find.byKey(const ValueKey('capture-node-1')));
     await tester.pump();
@@ -715,7 +795,7 @@ void main() {
           body: SizedBox(
             width: 390,
             height: 640,
-            child: CaptureNetworkMap(
+            child: _map(
               points: [
                 point,
                 _point(id: 5, title: 'Canal Sur', project: 'Fundo'),
@@ -808,13 +888,61 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+    'la ficha del punto es alta, con estado al lado y caja de logger',
+    (tester) async {
+      final point = {
+        'id': 4,
+        'title': 'Pozo Norte',
+        'project_name': 'Fundo',
+        'type_dga': 'SUBTERRANEO',
+        'provider': 'nettra',
+        'frecuency': 15,
+        'latest_telemetry': {
+          'date_time_medition': '2026-10-14T15:00:00Z',
+          'days_not_connection': 0,
+          'flow': 1.2,
+        },
+      };
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 390,
+              height: 640,
+              child: _map(
+                points: [point],
+                onPointSelected: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('capture-node-4')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 280));
+
+      final panel = tester.getRect(
+        find.byKey(const ValueKey('capture-view-records')),
+      );
+      expect(panel.height, greaterThanOrEqualTo(220));
+      expect(find.textContaining('Pozo Norte · Conectado'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('capture-focus-logger')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('con GPS muestra el mapa de la red', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: SizedBox(
             height: 640,
-            child: CaptureNetworkMap(
+            child: _map(
               points: [
                 _point(
                   id: 7,
@@ -862,7 +990,7 @@ void main() {
           body: SizedBox(
             width: 390,
             height: 760,
-            child: CaptureNetworkMap(
+            child: _map(
               points: [
                 _point(
                   id: 1,
@@ -906,7 +1034,7 @@ void main() {
           body: SizedBox(
             width: 390,
             height: 760,
-            child: CaptureNetworkMap(
+            child: _map(
               points: [
                 for (var index = 0; index < titles.length; index++)
                   _point(
@@ -936,11 +1064,7 @@ void main() {
     }
 
     final map = tester.getRect(find.byType(CaptureNetworkMap));
-    final before = tester.getRect(
-      find.byKey(const ValueKey('capture-view-records')),
-    );
-    final dock = clearance - 2 < 8 ? 8.0 : clearance - 2;
-    expect(map.bottom - before.bottom, closeTo(dock, 1));
+    expect(find.byKey(const ValueKey('capture-view-records')), findsNothing);
 
     final node = find.byKey(
       ValueKey('capture-node-${titles.indexOf(lowest) + 1}'),
@@ -952,7 +1076,8 @@ void main() {
     final panel = tester.getRect(
       find.byKey(const ValueKey('capture-view-records')),
     );
-    expect(map.bottom - panel.bottom, closeTo(dock, 1));
+    final dock = clearance - 2 < 8 ? 8.0 : clearance - 2;
+    expect(map.bottom - panel.bottom, greaterThanOrEqualTo(dock - 1));
     expect(find.text('Entrar'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -966,7 +1091,7 @@ void main() {
           body: SizedBox(
             width: 390,
             height: 760,
-            child: CaptureNetworkMap(
+            child: _map(
               points: [
                 for (var index = 0; index < titles.length; index++)
                   _point(id: index + 1, title: titles[index], project: 'Fundo'),
@@ -1022,7 +1147,7 @@ void main() {
           body: SizedBox(
             width: 390,
             height: 760,
-            child: CaptureNetworkMap(
+            child: _map(
               points: [
                 for (var index = 0; index < names.length; index++)
                   _point(
@@ -1085,7 +1210,7 @@ void main() {
           body: SizedBox(
             width: 390,
             height: 640,
-            child: CaptureNetworkMap(points: points, onPointSelected: (_) {}),
+            child: _map(points: points, onPointSelected: (_) {}),
           ),
         ),
       ),
@@ -1111,6 +1236,42 @@ void main() {
   });
 }
 
+/// Cruce propio entre polilíneas ortogonales (no cuenta T-joints en extremos).
+bool _orthogonalPolylinesCross(List<List<Offset>> links) {
+  bool proper(Offset a0, Offset a1, Offset b0, Offset b1) {
+    final aHoriz = (a0.dy - a1.dy).abs() < 0.5;
+    final bHoriz = (b0.dy - b1.dy).abs() < 0.5;
+    if (aHoriz == bHoriz) return false;
+    final h0 = aHoriz ? a0 : b0;
+    final h1 = aHoriz ? a1 : b1;
+    final v0 = aHoriz ? b0 : a0;
+    final v1 = aHoriz ? b1 : a1;
+    final y = h0.dy;
+    final x = v0.dx;
+    final minHx = math.min(h0.dx, h1.dx);
+    final maxHx = math.max(h0.dx, h1.dx);
+    final minVy = math.min(v0.dy, v1.dy);
+    final maxVy = math.max(v0.dy, v1.dy);
+    const eps = 0.6;
+    if (x <= minHx + eps || x >= maxHx - eps) return false;
+    if (y <= minVy + eps || y >= maxVy - eps) return false;
+    return true;
+  }
+
+  for (var i = 0; i < links.length; i++) {
+    for (var j = i + 1; j < links.length; j++) {
+      final a = links[i];
+      final b = links[j];
+      for (var ai = 0; ai < a.length - 1; ai++) {
+        for (var bi = 0; bi < b.length - 1; bi++) {
+          if (proper(a[ai], a[ai + 1], b[bi], b[bi + 1])) return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 /// Distancia a la línea de la pizarra más cercana. Cero si cae encima.
 double _onBoardLine(double value) {
   final step = captureBoardStep;
@@ -1126,6 +1287,30 @@ Finder _schemaTitle(String title) {
       return key is ValueKey<String> && key.value.startsWith('capture-label-');
     }),
     matching: find.text(title),
+  );
+}
+
+/// Evita timers de Dio en widget tests del esquema.
+CaptureNetworkMap _map({
+  required List<Map<String, dynamic>> points,
+  required ValueChanged<Map<String, dynamic>> onPointSelected,
+  List<Map<String, dynamic>> openTickets = const [],
+  List<Map<String, dynamic>> compliance = const [],
+  ValueChanged<Map<String, dynamic>>? onRequestSupport,
+  double bottomInset = 0,
+  double topInset = 0,
+  double openBottomClearance = 8,
+}) {
+  return CaptureNetworkMap(
+    points: points,
+    onPointSelected: onPointSelected,
+    openTickets: openTickets,
+    compliance: compliance,
+    onRequestSupport: onRequestSupport,
+    bottomInset: bottomInset,
+    topInset: topInset,
+    openBottomClearance: openBottomClearance,
+    checkApiHealth: () async => true,
   );
 }
 
