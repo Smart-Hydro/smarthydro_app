@@ -888,6 +888,38 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('en movil sigue una sola ficha ancha del panel', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 390,
+            height: 640,
+            child: _map(
+              points: [
+                _point(id: 1, title: 'Pozo Norte', project: 'Fundo'),
+                _point(id: 2, title: 'Canal Sur', project: 'Fundo'),
+              ],
+              onPointSelected: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('capture-node-1')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 280));
+
+    expect(find.byKey(const ValueKey('capture-view-records')), findsOneWidget);
+    expect(find.byKey(const ValueKey('capture-point-window-1')), findsNothing);
+    final panel = tester.getRect(
+      find.byKey(const ValueKey('capture-view-records')),
+    );
+    expect(panel.height, greaterThanOrEqualTo(220));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'la ficha del punto es alta, con estado al lado y caja de logger',
     (tester) async {
@@ -935,6 +967,127 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('en web abre varias ventanas compactas en mosaico', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wideApp(
+        child: _map(
+          points: [
+            _point(id: 1, title: 'Pozo Norte', project: 'Fundo'),
+            _point(id: 2, title: 'Canal Sur', project: 'Fundo'),
+            _point(id: 3, title: 'Pozo Este', project: 'Fundo'),
+          ],
+          onPointSelected: (_) {},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('capture-node-1')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 280));
+    await tester.tap(find.byKey(const ValueKey('capture-node-2')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 280));
+
+    expect(find.byKey(const ValueKey('capture-point-window-1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('capture-point-window-2')), findsOneWidget);
+    expect(find.byKey(const ValueKey('capture-view-records')), findsNothing);
+    final w1 = tester.getRect(
+      find.byKey(const ValueKey('capture-point-window-1')),
+    );
+    final w2 = tester.getRect(
+      find.byKey(const ValueKey('capture-point-window-2')),
+    );
+    expect(w1.width, lessThanOrEqualTo(360));
+    expect(w2.width, lessThanOrEqualTo(360));
+    expect(find.textContaining('Pozo Norte · Conectado'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('en web el mismo logger cierra su ventana', (tester) async {
+    await tester.pumpWidget(
+      _wideApp(
+        child: _map(
+          points: [
+            _point(id: 1, title: 'Pozo Norte', project: 'Fundo'),
+            _point(id: 2, title: 'Canal Sur', project: 'Fundo'),
+          ],
+          onPointSelected: (_) {},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('capture-node-1')));
+    await tester.pump(const Duration(milliseconds: 280));
+    expect(find.byKey(const ValueKey('capture-point-window-1')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('capture-node-1')));
+    await tester.pump(const Duration(milliseconds: 280));
+    expect(find.byKey(const ValueKey('capture-point-window-1')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('en web la X cierra solo esa ventana', (tester) async {
+    await tester.pumpWidget(
+      _wideApp(
+        child: _map(
+          points: [
+            _point(id: 1, title: 'Pozo Norte', project: 'Fundo'),
+            _point(id: 2, title: 'Canal Sur', project: 'Fundo'),
+          ],
+          onPointSelected: (_) {},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('capture-node-1')));
+    await tester.pump(const Duration(milliseconds: 280));
+    await tester.tap(find.byKey(const ValueKey('capture-node-2')));
+    await tester.pump(const Duration(milliseconds: 280));
+
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey('capture-point-window-1')),
+        matching: find.byIcon(Icons.close_rounded),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 280));
+    expect(find.byKey(const ValueKey('capture-point-window-1')), findsNothing);
+    expect(find.byKey(const ValueKey('capture-point-window-2')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('si el punto desaparece se cae del mosaico', (tester) async {
+    final points = [
+      _point(id: 1, title: 'Pozo Norte', project: 'Fundo'),
+      _point(id: 2, title: 'Canal Sur', project: 'Fundo'),
+    ];
+    await tester.pumpWidget(
+      _wideApp(
+        child: _map(points: points, onPointSelected: (_) {}),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('capture-node-1')));
+    await tester.pump(const Duration(milliseconds: 280));
+    await tester.tap(find.byKey(const ValueKey('capture-node-2')));
+    await tester.pump(const Duration(milliseconds: 280));
+
+    await tester.pumpWidget(
+      _wideApp(
+        child: _map(
+          points: [_point(id: 2, title: 'Canal Sur', project: 'Fundo')],
+          onPointSelected: (_) {},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 280));
+    expect(find.byKey(const ValueKey('capture-point-window-1')), findsNothing);
+    expect(find.byKey(const ValueKey('capture-point-window-2')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('con GPS muestra el mapa de la red', (tester) async {
     await tester.pumpWidget(
@@ -1287,6 +1440,22 @@ Finder _schemaTitle(String title) {
       return key is ValueKey<String> && key.value.startsWith('capture-label-');
     }),
     matching: find.text(title),
+  );
+}
+
+/// App ancha (≥980) para el mosaico de ventanas web.
+Widget _wideApp({required Widget child}) {
+  return MaterialApp(
+    builder: (context, nested) {
+      final mq = MediaQuery.of(context);
+      return MediaQuery(
+        data: mq.copyWith(size: const Size(1200, 800)),
+        child: nested!,
+      );
+    },
+    home: Scaffold(
+      body: SizedBox(width: 1200, height: 800, child: child),
+    ),
   );
 }
 

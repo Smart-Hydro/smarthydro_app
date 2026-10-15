@@ -137,6 +137,8 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
     duration: const Duration(milliseconds: 140),
   );
   int? _selected;
+  /// Claves de puntos con ventana abierta (HOME web). Orden = orden de apertura.
+  final List<String> _openKeys = [];
   int _page = 0;
   bool _pageForward = true;
   bool _motion = true;
@@ -145,6 +147,27 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
   final GlobalKey _stackKey = GlobalKey();
   final GlobalKey _openKey = GlobalKey();
   Rect? _openPlacement;
+
+  bool _isWide(BuildContext context) =>
+      MediaQuery.sizeOf(context).width >= 980;
+
+  String _keyOf(Map<String, dynamic> point) => '${_pointKey(point)}';
+
+  Map<String, dynamic>? _pointForOpenKey(String key) {
+    for (final point in widget.points) {
+      if (_keyOf(point) == key) return point;
+    }
+    return null;
+  }
+
+  void _pruneOpenKeys() {
+    _openKeys.removeWhere((key) => _pointForOpenKey(key) == null);
+  }
+
+  int? _indexForOpenKey(String key) {
+    final index = widget.points.indexWhere((point) => _keyOf(point) == key);
+    return index < 0 ? null : index;
+  }
 
   @override
   void initState() {
@@ -180,9 +203,16 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
   @override
   void didUpdateWidget(covariant _WaterView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _pruneOpenKeys();
     if (widget.points.length != oldWidget.points.length) {
       _page = 0;
-      _selected = null;
+      if (_openKeys.isEmpty) {
+        _selected = null;
+      } else if (_selected != null && _selected! >= widget.points.length) {
+        _selected = _openKeys.isEmpty
+            ? null
+            : _indexForOpenKey(_openKeys.last);
+      }
     } else if (_selected != null && _selected! >= widget.points.length) {
       _selected = null;
     }
@@ -194,8 +224,11 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
     setState(() {
       _pageForward = delta >= 0;
       _page = next;
-      _selected = null;
-      _openPlacement = null;
+      // En web las ventanas persisten entre páginas; en móvil se cierra la ficha.
+      if (!_isWide(context)) {
+        _selected = null;
+        _openPlacement = null;
+      }
     });
   }
 
@@ -209,12 +242,24 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
   }
 
   void _select(int index) {
+    if (index < 0 || index >= widget.points.length) return;
+    final key = _keyOf(widget.points[index]);
     setState(() {
-      // Segundo click en la misma tarjeta: se cierra con el mismo gesto.
-      _selected = _selected == index ? null : index;
       _openPlacement = null;
+      if (_isWide(context)) {
+        if (_openKeys.contains(key)) {
+          _openKeys.remove(key);
+        } else {
+          _openKeys.add(key);
+        }
+        _selected = _openKeys.isEmpty ? null : _indexForOpenKey(_openKeys.last);
+      } else {
+        // Segundo click en la misma tarjeta: se cierra con el mismo gesto.
+        _selected = _selected == index ? null : index;
+        _openKeys.clear();
+      }
     });
-    if (_selected == null) {
+    if (_selected == null && _openKeys.isEmpty) {
       _seat.value = 0;
     } else if (_motion) {
       _seat.forward(from: 0);
@@ -223,9 +268,22 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
     }
   }
 
+  void _closeOpenKey(String key) {
+    setState(() {
+      _openKeys.remove(key);
+      if (_selected != null &&
+          _selected! < widget.points.length &&
+          _keyOf(widget.points[_selected!]) == key) {
+        _selected = _openKeys.isEmpty ? null : _indexForOpenKey(_openKeys.last);
+      }
+      _openPlacement = null;
+    });
+  }
+
   void _clearSelection() {
     setState(() {
       _selected = null;
+      _openKeys.clear();
       _openPlacement = null;
     });
   }
@@ -336,9 +394,39 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
         final pagePoints = [
           for (final index in pageIndexes) widget.points[index],
         ];
+        final wide = _isWide(context);
         final found = _selected == null ? -1 : pageIndexes.indexOf(_selected!);
-        final selectedOnPage = found < 0 ? null : found;
+        int? selectedOnPage = found < 0 ? null : found;
+        if (wide && _openKeys.isNotEmpty) {
+          selectedOnPage = null;
+          for (final key in _openKeys.reversed) {
+            final local = pageIndexes.indexWhere(
+              (index) => _keyOf(widget.points[index]) == key,
+            );
+            if (local >= 0) {
+              selectedOnPage = local;
+              break;
+            }
+          }
+        }
+        final openLocals = <int>{
+          if (wide)
+            for (var local = 0; local < pageIndexes.length; local++)
+              if (_openKeys.contains(_keyOf(pagePoints[local]))) local,
+        };
         final maxFlow = captureMaxFlow(widget.points);
+        final openPoints = [
+          if (wide)
+            for (final key in _openKeys)
+              if (_pointForOpenKey(key) case final point?) point,
+        ];
+        final windowRects = wide
+            ? layoutPointWindows(
+                area: size,
+                count: openPoints.length,
+                bottomInset: math.max(8.0, widget.openBottomClearance - 2),
+              )
+            : const <Rect>[];
 
         return AnimatedBuilder(
           animation: _approach,
@@ -479,12 +567,19 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                                 height: plates[local].height,
                                 child: AnimatedOpacity(
                                   duration: const Duration(milliseconds: 200),
-                                  opacity: selected != null && local != selected
-                                      ? 0.38
-                                      : 1,
+                                  opacity:
+                                      (wide
+                                              ? openLocals.isNotEmpty &&
+                                                  !openLocals.contains(local)
+                                              : selected != null &&
+                                                  local != selected)
+                                          ? 0.38
+                                          : 1,
                                   child: _LoggerNode(
                                     point: pagePoints[local],
-                                    selected: local == selected,
+                                    selected: wide
+                                        ? openLocals.contains(local)
+                                        : local == selected,
                                     clock: _motion ? _seconds : null,
                                     onTap: () => _select(pageIndexes[local]),
                                   ),
@@ -538,16 +633,39 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                     ),
                   ),
                 if (widget.points.isEmpty) const _EmptyNetwork(),
-                // Solo al elegir un punto: ficha compacta flotante.
-                // No reserva alto del diagrama.
-                if (found >= 0)
+                // Web: ventanas compactas en mosaico. Móvil: una ficha ancha.
+                if (wide)
+                  for (var i = 0; i < openPoints.length; i++)
+                    Positioned(
+                      left: windowRects[i].left + captureEdgePad,
+                      top: windowRects[i].top,
+                      width: math.min(
+                        windowRects[i].width,
+                        size.width - captureEdgePad * 2,
+                      ),
+                      height: windowRects[i].height,
+                      child: _PointWindow(
+                        key: ValueKey(
+                          'capture-point-window-${_pointKey(openPoints[i])}',
+                        ),
+                        focus: openPoints[i],
+                        onEnter: () => widget.onOpen(openPoints[i]),
+                        onClose: () => _closeOpenKey(_keyOf(openPoints[i])),
+                        openTickets: widget.openTickets,
+                        compliance: widget.compliance,
+                        onRequestSupport: widget.onRequestSupport,
+                      ),
+                    )
+                else if (_selected != null &&
+                    _selected! >= 0 &&
+                    _selected! < widget.points.length)
                   Positioned(
                     left: captureEdgePad,
                     right: captureEdgePad,
                     bottom: math.max(8.0, widget.openBottomClearance - 2),
                     height: 228,
                     child: _ViewRecords(
-                      focus: widget.points[found],
+                      focus: widget.points[_selected!],
                       onEnter: _openSelected,
                       onClose: _clearSelection,
                       openTickets: widget.openTickets,
@@ -2307,7 +2425,7 @@ class _LegendDot extends StatelessWidget {
   }
 }
 
-/// Ficha compacta del punto elegido. Flota sobre el diagrama; no hay lista.
+/// Ficha compacta del punto elegido (móvil). Flota sobre el diagrama.
 class _ViewRecords extends StatelessWidget {
   const _ViewRecords({
     required this.focus,
@@ -2327,9 +2445,72 @@ class _ViewRecords extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return _FocusShell(
+      key: const ValueKey('capture-view-records'),
+      focus: focus,
+      onEnter: onEnter,
+      onClose: onClose,
+      openTickets: openTickets,
+      compliance: compliance,
+      onRequestSupport: onRequestSupport,
+    );
+  }
+}
+
+/// Ventana compacta de un punto abierto (HOME web, mosaico).
+class _PointWindow extends StatelessWidget {
+  const _PointWindow({
+    super.key,
+    required this.focus,
+    required this.onEnter,
+    required this.onClose,
+    required this.openTickets,
+    required this.compliance,
+    required this.onRequestSupport,
+  });
+
+  final Map<String, dynamic> focus;
+  final VoidCallback? onEnter;
+  final VoidCallback onClose;
+  final List<Map<String, dynamic>> openTickets;
+  final List<Map<String, dynamic>> compliance;
+  final ValueChanged<Map<String, dynamic>>? onRequestSupport;
+
+  @override
+  Widget build(BuildContext context) {
+    return _FocusShell(
+      focus: focus,
+      onEnter: onEnter,
+      onClose: onClose,
+      openTickets: openTickets,
+      compliance: compliance,
+      onRequestSupport: onRequestSupport,
+    );
+  }
+}
+
+class _FocusShell extends StatelessWidget {
+  const _FocusShell({
+    super.key,
+    required this.focus,
+    required this.onEnter,
+    required this.onClose,
+    required this.openTickets,
+    required this.compliance,
+    required this.onRequestSupport,
+  });
+
+  final Map<String, dynamic> focus;
+  final VoidCallback? onEnter;
+  final VoidCallback onClose;
+  final List<Map<String, dynamic>> openTickets;
+  final List<Map<String, dynamic>> compliance;
+  final ValueChanged<Map<String, dynamic>>? onRequestSupport;
+
+  @override
+  Widget build(BuildContext context) {
     final motion = !MediaQuery.disableAnimationsOf(context);
     return DecoratedBox(
-      key: const ValueKey('capture-view-records'),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
         color: const Color(0xD6081216),
