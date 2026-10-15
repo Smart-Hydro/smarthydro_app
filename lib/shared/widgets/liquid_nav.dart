@@ -11,12 +11,17 @@ class LiquidDestination {
 }
 
 const liquidDestinations = <LiquidDestination>[
-  LiquidDestination(icon: Icons.grid_view_rounded, label: 'Inicio'),
-  LiquidDestination(icon: Icons.water_drop_outlined, label: 'Puntos'),
+  LiquidDestination(icon: Icons.sensors_rounded, label: 'IoT'),
   LiquidDestination(icon: Icons.notifications_none_rounded, label: 'Avisos'),
   LiquidDestination(icon: Icons.apps_rounded, label: 'Más'),
   LiquidDestination(icon: Icons.person_outline_rounded, label: 'Perfil'),
 ];
+
+/// Avisos es el segundo destino. El conteo de no leídos va en ese ítem.
+const liquidAvisosIndex = 1;
+
+/// Perfil es el último destino del menú.
+const liquidProfileIndex = 3;
 
 class LiquidNavBar extends StatelessWidget {
   const LiquidNavBar({
@@ -85,7 +90,9 @@ class LiquidNavBar extends StatelessWidget {
                               child: _LiquidHit(
                                 destination: liquidDestinations[index],
                                 selected: index == selectedIndex,
-                                badge: index == 2 ? unreadCount : 0,
+                                badge: index == liquidAvisosIndex
+                                    ? unreadCount
+                                    : 0,
                                 onTap: () => onSelect(index),
                               ),
                             ),
@@ -151,7 +158,7 @@ class LiquidNavRail extends StatelessWidget {
                     child: _LiquidHit(
                       destination: liquidDestinations[index],
                       selected: index == selectedIndex,
-                      badge: index == 2 ? unreadCount : 0,
+                      badge: index == liquidAvisosIndex ? unreadCount : 0,
                       onTap: () => onSelect(index),
                     ),
                   ),
@@ -216,7 +223,11 @@ class _LiquidHit extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Badge(isLabelVisible: badge > 0, child: icon),
+          Badge(
+            isLabelVisible: badge > 0,
+            label: Text(badge > 99 ? '99+' : '$badge'),
+            child: icon,
+          ),
           const SizedBox(height: 2),
           Text(
             destination.label,

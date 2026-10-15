@@ -5,7 +5,6 @@ import '../../core/api/smarthydro_api.dart';
 import '../../core/session/session_provider.dart';
 import '../../shared/widgets/hydro_entrance.dart';
 import '../../shared/widgets/hydro_glass.dart';
-import '../../shared/widgets/water_atmosphere.dart';
 import '../../core/brand.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -85,10 +84,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final busy = _busy;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF071215),
+      backgroundColor: Colors.transparent,
       body: Stack(
         children: [
-          const Positioned.fill(child: WaterAtmosphere(opacity: 0.35)),
           SafeArea(
             child: Center(
               child: SingleChildScrollView(

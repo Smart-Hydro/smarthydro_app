@@ -174,15 +174,25 @@ class _AnalysisScreenState extends State<AnalysisScreen>
               overflow: TextOverflow.ellipsis,
               style: HydroText.subtitle,
             ),
-      trailing: HydroTabs<int>(
-        values: const [7, 14, 30],
-        selected: _days,
-        label: (v) => '${v}d',
-        onChanged: (v) {
-          if (v == _days) return;
-          setState(() => _days = v);
-          _load();
-        },
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            tooltip: 'Actualizar análisis',
+            onPressed: _loading ? null : _load,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+          HydroTabs<int>(
+            values: const [7, 14, 30],
+            selected: _days,
+            label: (v) => '${v}d',
+            onChanged: (v) {
+              if (v == _days) return;
+              setState(() => _days = v);
+              _load();
+            },
+          ),
+        ],
       ),
       body: HydroSwap(
         state: _loading ? 'loading' : (_error == null ? 'ready' : 'error'),

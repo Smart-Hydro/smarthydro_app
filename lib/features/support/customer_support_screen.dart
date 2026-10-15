@@ -36,6 +36,7 @@ Future<bool?> showSupportTicketSheet(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
+    constraints: const BoxConstraints(maxWidth: 640),
     builder: (context) => _NewTicketSheet(
       api: api,
       token: token,
@@ -137,41 +138,52 @@ class _CustomerSupportScreenState extends State<CustomerSupportScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Soporte'),
-      actions: [
-        IconButton(
-          onPressed: _load,
-          tooltip: 'Actualizar solicitudes',
-          icon: const Icon(Icons.refresh_rounded),
-        ),
-      ],
-    ),
-    floatingActionButton: FloatingActionButton.extended(
-      onPressed: _createTicket,
-      icon: const Icon(Icons.add_rounded),
-      label: const Text('Nueva solicitud'),
-    ),
-    body: HydroFrame(
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(18, 14, 18, 92),
-        children: [
-          if (_loading && _tickets.isEmpty)
-            const HydroSkeletonCards(height: 72)
-          else if (_loading)
-            const HydroLinearBar(),
-          if (_error != null) _SupportError(message: _error!, onRetry: _load),
-          if (!_loading && _error == null && _tickets.isEmpty)
-            const _SupportEmpty(),
-          for (final ticket in _tickets) ...[
-            _TicketCard(ticket: ticket, onTap: () => _openTicket(ticket)),
-            const SizedBox(height: 10),
-          ],
+  Widget build(BuildContext context) {
+    final wide = MediaQuery.sizeOf(context).width >= 980;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Soporte'),
+        actions: [
+          if (wide)
+            TextButton.icon(
+              onPressed: _createTicket,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Nueva solicitud'),
+            ),
+          IconButton(
+            onPressed: _load,
+            tooltip: 'Actualizar solicitudes',
+            icon: const Icon(Icons.refresh_rounded),
+          ),
         ],
       ),
-    ),
-  );
+      floatingActionButton: wide
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _createTicket,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Nueva solicitud'),
+            ),
+      body: HydroFrame(
+        child: ListView(
+          padding: EdgeInsets.fromLTRB(18, 14, 18, wide ? 32 : 92),
+          children: [
+            if (_loading && _tickets.isEmpty)
+              const HydroSkeletonCards(height: 72)
+            else if (_loading)
+              const HydroLinearBar(),
+            if (_error != null) _SupportError(message: _error!, onRetry: _load),
+            if (!_loading && _error == null && _tickets.isEmpty)
+              const _SupportEmpty(),
+            for (final ticket in _tickets) ...[
+              _TicketCard(ticket: ticket, onTap: () => _openTicket(ticket)),
+              const SizedBox(height: 10),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _NewTicketSheet extends StatefulWidget {

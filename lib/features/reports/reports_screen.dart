@@ -273,6 +273,11 @@ class _ReportsScreenState extends State<ReportsScreen> {
             overflow: TextOverflow.ellipsis,
             style: HydroText.subtitle,
           ),
+    trailing: IconButton(
+      tooltip: 'Actualizar registros',
+      onPressed: _busy != null ? null : () => _load(),
+      icon: const Icon(Icons.refresh_rounded),
+    ),
     body: _body(),
   );
 

@@ -180,33 +180,14 @@ class _WaterMotionPainter extends CustomPainter {
         ).createShader(Offset.zero & size),
     );
 
-    // Tres olas anchas. El trazo de la cresta las hace leer como agua
-    // sin sumar geometría.
+    // Una ola lenta y baja. Textura de agua, sin ocupar la vista.
     _drawLiquidSheet(
       canvas,
       size,
-      baseline: 0.28,
-      amplitude: size.height * 0.045,
-      phaseOffset: 0.4,
-      index: 0,
-      temporal: temporal,
-    );
-    _drawLiquidSheet(
-      canvas,
-      size,
-      baseline: 0.52,
-      amplitude: size.height * 0.05,
-      phaseOffset: 1.7,
+      baseline: 0.62,
+      amplitude: size.height * 0.018,
+      phaseOffset: 0.6,
       index: 1,
-      temporal: temporal * 2,
-    );
-    _drawLiquidSheet(
-      canvas,
-      size,
-      baseline: 0.74,
-      amplitude: size.height * 0.038,
-      phaseOffset: 3.1,
-      index: 2,
       temporal: temporal,
     );
   }
@@ -270,8 +251,8 @@ class _WaterMotionPainter extends CustomPainter {
       crest,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.4
-        ..color = const Color(0xFF8EE6D8).withValues(alpha: 0.22 * opacity),
+        ..strokeWidth = 1.1
+        ..color = const Color(0xFF8EE6D8).withValues(alpha: 0.14 * opacity),
     );
   }
 

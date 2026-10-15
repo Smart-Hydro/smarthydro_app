@@ -6,6 +6,7 @@ import 'core/session/session_provider.dart';
 import 'features/auth/login_screen.dart';
 import 'features/dashboard/live_dashboard_screen.dart';
 import 'shared/ui/hydro_ui.dart';
+import 'shared/widgets/water_atmosphere.dart';
 
 class SmartHydroApp extends ConsumerWidget {
   const SmartHydroApp({super.key});
@@ -30,10 +31,20 @@ class SmartHydroApp extends ConsumerWidget {
       key: ValueKey(session != null),
       title: 'Ikolu · Smart Hydro',
       debugShowCheckedModeBanner: false,
+      builder: (context, child) {
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            const ColoredBox(color: _ocean),
+            const WaterAtmosphere(opacity: 0.9),
+            if (child != null) Positioned.fill(child: child),
+          ],
+        );
+      },
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: scheme,
-        scaffoldBackgroundColor: _ocean,
+        scaffoldBackgroundColor: Colors.transparent,
         cardColor: _surface,
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.transparent,

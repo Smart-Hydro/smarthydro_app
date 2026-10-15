@@ -267,6 +267,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
+      backgroundColor: const Color(0xFF102328),
+      constraints: const BoxConstraints(maxWidth: 640),
       builder: (context) => _TicketDraftSheet(points: widget.points),
     );
     if (draft == null || !mounted) return;
@@ -599,9 +601,7 @@ class _ChatBubble extends StatelessWidget {
     return Align(
       alignment: align,
       child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.sizeOf(context).width * 0.88,
-        ),
+        constraints: const BoxConstraints(maxWidth: 560),
         child: Container(
           margin: const EdgeInsets.only(bottom: 10),
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),

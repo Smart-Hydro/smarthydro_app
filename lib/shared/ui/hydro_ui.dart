@@ -71,21 +71,16 @@ class HydroPage extends StatelessWidget {
   final double maxWidth;
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: HydroTone.bg,
-    body: DecoratedBox(
-      decoration: const BoxDecoration(
-        gradient: RadialGradient(
-          center: Alignment(0, -1.1),
-          radius: 1.4,
-          colors: [HydroTone.bgGlow, HydroTone.bg],
-        ),
-      ),
-      child: SafeArea(
+  Widget build(BuildContext context) {
+    final wide = MediaQuery.sizeOf(context).width >= 1100;
+    final cap = wide ? math.max(maxWidth, 1080.0) : maxWidth;
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: SafeArea(
         child: Align(
           alignment: Alignment.topCenter,
           child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: maxWidth),
+            constraints: BoxConstraints(maxWidth: cap),
             child: Column(
               children: [
                 HydroHeader(
@@ -99,8 +94,8 @@ class HydroPage extends StatelessWidget {
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class HydroHeader extends StatelessWidget {
