@@ -86,6 +86,12 @@ void main() {
     );
 
     expect(find.textContaining('SmartHydro N1'), findsOneWidget);
+    expect(find.byKey(const ValueKey('n1-buddy')), findsOneWidget);
+    expect(find.text('N1 · SmartHydro'), findsOneWidget);
+    expect(find.text('Pedir reporte'), findsOneWidget);
+    expect(find.text('Listar archivos'), findsOneWidget);
+    expect(find.text('Crear ticket'), findsOneWidget);
+    expect(find.text('Pregunta a N1…'), findsOneWidget);
     await tester.enterText(find.byType(TextField), 'cómo está P4');
     await tester.tap(find.byTooltip('Enviar'));
     await tester.pump();
@@ -153,8 +159,6 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byType(PopupMenuButton<String>));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('Listar archivos'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));

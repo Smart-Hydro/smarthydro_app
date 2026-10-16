@@ -4,8 +4,9 @@ import '../../core/brand.dart';
 import '../../core/n1/n1_api.dart';
 import '../../core/n1/n1_models.dart';
 import '../../shared/widgets/hydro_glass.dart';
+import 'n1_buddy.dart';
 
-/// Pregunta corta a N1. En el inicio es una barra; en el resto, un robot que se asoma.
+/// Pregunta corta a N1. En el inicio es una barra; en el resto, un buddy que se asoma.
 class QuickAsk extends StatefulWidget {
   const QuickAsk({
     required this.n1Api,
@@ -21,7 +22,7 @@ class QuickAsk extends StatefulWidget {
   final String email;
   final List<int> pointIds;
 
-  /// Botón de robot que abre el campo. En el inicio va en falso y se ve la barra.
+  /// Botón del buddy que abre el campo. En el inicio va en falso y se ve la barra.
   final bool peek;
 
   @override
@@ -48,6 +49,13 @@ class _QuickAskState extends State<QuickAsk> {
     _controller.dispose();
     _focus.dispose();
     super.dispose();
+  }
+
+  N1BuddyMood get _mood {
+    if (_busy) return N1BuddyMood.thinking;
+    if (_failed) return N1BuddyMood.error;
+    if (_answer != null) return N1BuddyMood.proud;
+    return N1BuddyMood.idle;
   }
 
   Future<void> _send() async {
@@ -110,8 +118,9 @@ class _QuickAskState extends State<QuickAsk> {
           SizedBox(width: 300, child: _bar()),
           const SizedBox(height: 8),
         ],
-        _CoucouButton(
+        _BuddyPeek(
           open: _open,
+          mood: _mood,
           onTap: () {
             setState(() => _open = !_open);
             if (_open) {
@@ -135,7 +144,7 @@ class _QuickAskState extends State<QuickAsk> {
         children: [
           Row(
             children: [
-              const CoucouMark(size: 26),
+              N1Buddy(size: 28, mood: _mood),
               const SizedBox(width: 8),
               Expanded(
                 child: TextField(
@@ -195,93 +204,58 @@ class _QuickAskState extends State<QuickAsk> {
   }
 }
 
-class _CoucouButton extends StatelessWidget {
-  const _CoucouButton({required this.open, required this.onTap});
+/// Buddy flotante N1: se asoma abajo a la derecha.
+class _BuddyPeek extends StatelessWidget {
+  const _BuddyPeek({
+    required this.open,
+    required this.mood,
+    required this.onTap,
+  });
 
   final bool open;
+  final N1BuddyMood mood;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final size = open ? 52.0 : 60.0;
     return Tooltip(
       message: open ? 'Cerrar' : 'Pregunta rápida',
       child: Material(
-        color: const Color(0xFF102328),
-        elevation: 6,
-        shadowColor: const Color(0x6600C8FF),
-        shape: const CircleBorder(),
+        color: Colors.transparent,
         child: InkWell(
           customBorder: const CircleBorder(),
           onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(7),
-            child: CoucouMark(size: open ? 26 : 30),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            width: size + 14,
+            height: size + 14,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  IkoluColors.cyan.withValues(alpha: open ? 0.28 : 0.38),
+                  const Color(0x00102328),
+                ],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: IkoluColors.cyan.withValues(alpha: 0.28),
+                  blurRadius: open ? 12 : 18,
+                  spreadRadius: open ? 0 : 1,
+                ),
+              ],
+            ),
+            alignment: Alignment.center,
+            child: N1Buddy(
+              key: const ValueKey('n1-quick-buddy'),
+              size: size,
+              mood: mood,
+            ),
           ),
         ),
       ),
     );
   }
-}
-
-/// Cabeza del asistente: antena, ojos y una sonrisa corta.
-class CoucouMark extends StatelessWidget {
-  const CoucouMark({this.size = 28, super.key});
-
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox.square(
-      dimension: size,
-      child: CustomPaint(painter: _CoucouPainter()),
-    );
-  }
-}
-
-class _CoucouPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final width = size.width;
-    final height = size.height;
-    final stroke = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = width * 0.045
-      ..color = IkoluColors.cyan;
-    final head = RRect.fromRectAndRadius(
-      Rect.fromLTWH(width * 0.16, height * 0.3, width * 0.68, height * 0.56),
-      Radius.circular(width * 0.22),
-    );
-    canvas.drawRRect(head, Paint()..color = const Color(0xFF12343C));
-    canvas.drawRRect(head, stroke);
-    final top = Offset(width * 0.5, height * 0.3);
-    final tip = Offset(width * 0.5, height * 0.08);
-    canvas.drawLine(
-      top,
-      tip,
-      Paint()
-        ..color = IkoluColors.cyanSoft
-        ..strokeWidth = width * 0.045
-        ..strokeCap = StrokeCap.round,
-    );
-    canvas.drawCircle(
-      tip,
-      width * 0.07,
-      Paint()..color = const Color(0xFFB8FFE8),
-    );
-    final eye = Paint()..color = const Color(0xFFE8F2F1);
-    canvas.drawCircle(Offset(width * 0.38, height * 0.52), width * 0.055, eye);
-    canvas.drawCircle(Offset(width * 0.62, height * 0.52), width * 0.055, eye);
-    final smile = Path()
-      ..moveTo(width * 0.38, height * 0.68)
-      ..quadraticBezierTo(
-        width * 0.5,
-        height * 0.78,
-        width * 0.62,
-        height * 0.68,
-      );
-    canvas.drawPath(smile, stroke..strokeWidth = width * 0.04);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

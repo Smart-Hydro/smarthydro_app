@@ -145,6 +145,149 @@ void main() {
     }
   });
 
+  test('la red crece a los cuatro lados del núcleo', () {
+    final scheme = placeCaptureScheme(
+      4,
+      const Size(900, 700),
+      top: 80,
+      bottom: 40,
+    );
+    final hub = scheme.hub;
+    expect(
+      scheme.plates.any((p) => p.center.dx < hub.left),
+      isTrue,
+      reason: 'falta un logger a la izquierda',
+    );
+    expect(
+      scheme.plates.any((p) => p.center.dx > hub.right),
+      isTrue,
+      reason: 'falta un logger a la derecha',
+    );
+    expect(
+      scheme.plates.any((p) => p.center.dy < hub.top),
+      isTrue,
+      reason: 'falta un logger arriba',
+    );
+    expect(
+      scheme.plates.any((p) => p.center.dy > hub.bottom),
+      isTrue,
+      reason: 'falta un logger abajo',
+    );
+  });
+
+  test('con muchos loggers la red se achica para seguir cabiendo', () {
+    final few = placeCaptureScheme(4, const Size(900, 700), top: 40, bottom: 40);
+    final many = placeCaptureScheme(
+      16,
+      const Size(900, 700),
+      top: 40,
+      bottom: 40,
+    );
+    expect(many.plates.first.width, lessThan(few.plates.first.width));
+    for (final plate in many.plates) {
+      expect(plate.overlaps(many.hub), isFalse);
+    }
+  });
+
+  test('las ventanas abren completas y no tapan loggers ni el minimapa', () {
+    const size = Size(1200, 800);
+    const contentTop = 84.0;
+    final scheme = placeCaptureScheme(3, size, top: contentTop, bottom: 8);
+    final bounds = Rect.fromLTRB(0, contentTop, size.width - 8, size.height - 8);
+    final minimap = Rect.fromLTWH(
+      size.width - 16 - 148,
+      contentTop + 8,
+      148,
+      96,
+    );
+    final frames = placeOpenWindowFrames(
+      count: 2,
+      bounds: bounds,
+      obstacles: [scheme.hub, ...scheme.plates, minimap],
+    );
+    expect(frames, hasLength(2));
+    for (final frame in frames) {
+      expect(frame.width, greaterThan(320));
+      expect(frame.height, greaterThan(360));
+      expect(frame.left, greaterThanOrEqualTo(bounds.left));
+      expect(frame.top, greaterThanOrEqualTo(bounds.top));
+      expect(frame.right, lessThanOrEqualTo(bounds.right + 0.1));
+      expect(frame.bottom, lessThanOrEqualTo(bounds.bottom - 12));
+      expect(frame.overlaps(scheme.hub), isFalse);
+      expect(frame.overlaps(minimap), isFalse);
+      for (final plate in scheme.plates) {
+        expect(frame.overlaps(plate), isFalse);
+      }
+    }
+    expect((frames[1].top - frames[0].top).abs(), greaterThan(20));
+  });
+
+  test('con el rail la ventana se angosta y sigue fuera de los loggers', () {
+    const size = Size(1100, 760);
+    const left = 128.0;
+    const contentTop = 84.0;
+    final scheme = placeCaptureScheme(
+      3,
+      size,
+      top: contentTop,
+      bottom: 8,
+      left: left,
+    );
+    final bounds = Rect.fromLTRB(left, contentTop, size.width - 8, size.height - 8);
+    final frames = placeOpenWindowFrames(
+      count: 1,
+      bounds: bounds,
+      obstacles: [scheme.hub, ...scheme.plates],
+    );
+    expect(frames, hasLength(1));
+    final frame = frames.single;
+    expect(frame.left, greaterThanOrEqualTo(bounds.left));
+    expect(frame.right, lessThanOrEqualTo(bounds.right + 0.1));
+    expect(frame.bottom, lessThanOrEqualTo(bounds.bottom - 12));
+    expect(frame.height, greaterThan(360));
+    expect(frame.overlaps(scheme.hub), isFalse);
+    for (final plate in scheme.plates) {
+      expect(frame.overlaps(plate), isFalse, reason: 'tapa $plate');
+    }
+  });
+
+  test('el segundo escritorio recibe las ventanas que no caben', () {
+    final first = layoutWindowDesktops(
+      area: const Size(800, 500),
+      count: 6,
+      desktop: 0,
+      windowWidth: 340,
+      windowHeight: 228,
+    );
+    final second = layoutWindowDesktops(
+      area: const Size(800, 500),
+      count: 6,
+      desktop: 1,
+      windowWidth: 340,
+      windowHeight: 228,
+    );
+    expect(first.pages, greaterThan(1));
+    expect(first.rects.length, first.capacity);
+    expect(second.rects.length, 6 - first.capacity);
+    expect(first.rects.every((r) => r.top >= 0), isTrue);
+    expect(second.rects.every((r) => r.top >= 0), isTrue);
+  });
+
+  test('el inset izquierdo deja el rail sin pisar placas ni hub', () {
+    const left = 128.0;
+    final scheme = placeCaptureScheme(
+      6,
+      const Size(1200, 800),
+      top: 100,
+      bottom: 40,
+      left: left,
+    );
+    expect(scheme.hub.left, greaterThanOrEqualTo(left));
+    for (final plate in scheme.plates) {
+      expect(plate.left, greaterThanOrEqualTo(left - 0.5));
+    }
+  });
+
   test('una página cabe y el resto espera al siguiente', () {
     final page = captureSchemePageSize(
       const Size(390, 640),
@@ -983,6 +1126,7 @@ void main() {
   testWidgets('en web abre varias ventanas compactas en mosaico', (
     tester,
   ) async {
+    _useDesktopSurface(tester);
     await tester.pumpWidget(
       _wideApp(
         child: _map(
@@ -1018,13 +1162,64 @@ void main() {
     final w2 = tester.getRect(
       find.byKey(const ValueKey('capture-point-window-2')),
     );
-    expect(w1.width, lessThanOrEqualTo(360));
-    expect(w2.width, lessThanOrEqualTo(360));
+    expect(w1.width, lessThanOrEqualTo(400));
+    expect(w2.width, lessThanOrEqualTo(400));
+    expect(w1.height, greaterThan(360));
+    expect(w1.top, greaterThanOrEqualTo(0));
+    expect(w1.bottom, lessThanOrEqualTo(800));
     expect(find.textContaining('Pozo Norte · Conectado'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('en web el mismo logger cierra su ventana', (tester) async {
+  testWidgets('en web la ventana se mueve y se redimensiona', (tester) async {
+    _useDesktopSurface(tester);
+    await tester.pumpWidget(
+      _wideApp(
+        child: _map(
+          points: [
+            _point(id: 1, title: 'Pozo Norte', project: 'Fundo'),
+          ],
+          onPointSelected: (_) {},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('capture-node-1')));
+    await tester.pump(const Duration(milliseconds: 280));
+
+    final before = tester.getRect(
+      find.byKey(const ValueKey('capture-point-window-1')),
+    );
+    await tester.drag(
+      find.byKey(const ValueKey('capture-window-drag-1')),
+      const Offset(-48, 30),
+    );
+    await tester.pump();
+    final moved = tester.getRect(
+      find.byKey(const ValueKey('capture-point-window-1')),
+    );
+    expect(moved.left, lessThan(before.left - 20));
+    expect(moved.top, greaterThan(before.top + 12));
+
+    await tester.drag(
+      find.byKey(const ValueKey('capture-window-resize-1')),
+      const Offset(30, 20),
+    );
+    await tester.pump();
+    final resized = tester.getRect(
+      find.byKey(const ValueKey('capture-point-window-1')),
+    );
+    expect(resized.width, greaterThan(moved.width + 10));
+    expect(resized.height, greaterThan(moved.height + 8));
+    expect(resized.right, lessThanOrEqualTo(1200));
+    expect(resized.bottom, lessThanOrEqualTo(800));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('en web la ventana persiste si pincho fuera o el mismo punto', (
+    tester,
+  ) async {
+    _useDesktopSurface(tester);
     await tester.pumpWidget(
       _wideApp(
         child: _map(
@@ -1039,17 +1234,38 @@ void main() {
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('capture-node-1')));
     await tester.pump(const Duration(milliseconds: 280));
+    final opened = tester.getRect(
+      find.byKey(const ValueKey('capture-point-window-1')),
+    );
+    await tester.drag(
+      find.byKey(const ValueKey('capture-window-drag-1')),
+      const Offset(-48, 30),
+    );
+    await tester.pump();
+    final placed = tester.getRect(
+      find.byKey(const ValueKey('capture-point-window-1')),
+    );
+
+    await tester.tapAt(const Offset(48, 160));
+    await tester.pump(const Duration(milliseconds: 280));
+    await tester.tap(find.byKey(const ValueKey('capture-node-1')));
+    await tester.pump(const Duration(milliseconds: 280));
+
     expect(
       find.byKey(const ValueKey('capture-point-window-1')),
       findsOneWidget,
     );
-    await tester.tap(find.byKey(const ValueKey('capture-node-1')));
-    await tester.pump(const Duration(milliseconds: 280));
-    expect(find.byKey(const ValueKey('capture-point-window-1')), findsNothing);
+    final kept = tester.getRect(
+      find.byKey(const ValueKey('capture-point-window-1')),
+    );
+    expect(kept.left, closeTo(placed.left, 1));
+    expect(kept.top, closeTo(placed.top, 1));
+    expect(kept.left, lessThan(opened.left - 20));
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('en web la X cierra solo esa ventana', (tester) async {
+    _useDesktopSurface(tester);
     await tester.pumpWidget(
       _wideApp(
         child: _map(
@@ -1083,6 +1299,7 @@ void main() {
   });
 
   testWidgets('si el punto desaparece se cae del mosaico', (tester) async {
+    _useDesktopSurface(tester);
     final points = [
       _point(id: 1, title: 'Pozo Norte', project: 'Fundo'),
       _point(id: 2, title: 'Canal Sur', project: 'Fundo'),
@@ -1626,6 +1843,14 @@ Finder _schemaTitle(String title) {
     }),
     matching: find.text(title),
   );
+}
+
+/// El MediaQuery ancho no alcanza: el layout real sigue el tamaño de la vista.
+void _useDesktopSurface(WidgetTester tester) {
+  tester.view.physicalSize = const Size(1200, 800);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
 }
 
 /// App ancha (≥980) para el mosaico de ventanas web.

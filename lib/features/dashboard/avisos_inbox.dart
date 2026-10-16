@@ -48,6 +48,25 @@ int avisoShare(int part, int total) {
   return ((part * 100) / total).round();
 }
 
+const _chartMonths = [
+  'ene',
+  'feb',
+  'mar',
+  'abr',
+  'may',
+  'jun',
+  'jul',
+  'ago',
+  'sep',
+  'oct',
+  'nov',
+  'dic',
+];
+
+/// Día del gráfico con mes corto, p. ej. `15 oct`.
+String avisoChartDayLabel(DateTime day) =>
+    '${day.day} ${_chartMonths[day.month - 1]}';
+
 /// Hora corta para la fila. [now] fija el reloj en pruebas.
 String avisoWhen(DateTime? time, {DateTime? now}) {
   if (time == null) return 'Sin fecha';
@@ -308,6 +327,8 @@ class _AvisosInboxState extends State<AvisosInbox> {
     }
   }
 
+  static const _stageMaxWidth = 720.0;
+
   @override
   Widget build(BuildContext context) {
     final clock = widget.now ?? DateTime.now();
@@ -335,88 +356,118 @@ class _AvisosInboxState extends State<AvisosInbox> {
     final chartDays = _filledDays(scoped, limit: span);
     final failed = widget.eventsError != null;
     final onTab = widget.showHeading;
+    final wide = MediaQuery.sizeOf(context).width >= 980;
+
+    final body = <Widget>[
+      if (critical + attention + other > 0) ...[
+        _SampleChart(
+          critical: critical,
+          attention: attention,
+          other: other,
+          days: chartDays,
+          wide: wide,
+        ),
+        const SizedBox(height: 14),
+      ],
+      if (points.length > 1 && pointKey != null) ...[
+        _PointPicker(
+          points: points,
+          selected: pointKey,
+          onSelect: (key) => setState(() {
+            _pointKey = key;
+            _openKey = null;
+          }),
+        ),
+        const SizedBox(height: 14),
+      ],
+      _SplitLens(
+        critical: critical,
+        attention: attention,
+        lens: shown,
+        onCritical: () => setState(() {
+          _picked = true;
+          _lens = AvisosLens.critical;
+          _openKey = null;
+        }),
+        onAttention: () => setState(() {
+          _picked = true;
+          _lens = AvisosLens.attention;
+          _openKey = null;
+        }),
+      ),
+      const SizedBox(height: 14),
+      if (failed)
+        _Note(
+          message: widget.eventsError!,
+          onRetry: () => widget.onRefresh(),
+        ),
+      if (clusters.isEmpty && widget.loading)
+        const _Bones()
+      else if (clusters.isEmpty && !failed)
+        _Calm(lens: shown)
+      else
+        for (final block in _byDay(clusters, clock)) ...[
+          Padding(
+            padding: const EdgeInsets.only(top: 4, bottom: 8),
+            child: Text(
+              block.label,
+              style: const TextStyle(
+                color: Color(0xFF9AB0B1),
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          for (final cluster in block.clusters) ...[
+            _ClusterCard(
+              cluster: cluster,
+              share: avisoShare(cluster.weight, visible),
+              open: _openKey == cluster.identity,
+              now: clock,
+              onToggle: () => setState(() {
+                _openKey = _openKey == cluster.identity
+                    ? null
+                    : cluster.identity;
+              }),
+              onOpenPoint: widget.onOpenPoint,
+            ),
+            const SizedBox(height: 8),
+          ],
+        ],
+    ];
 
     return RefreshIndicator(
       onRefresh: widget.onRefresh,
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: EdgeInsets.fromLTRB(20, onTab ? 12 : 4, 20, onTab ? 96 : 32),
-        children: [
-          if (critical + attention + other > 0) ...[
-            _SampleChart(
-              critical: critical,
-              attention: attention,
-              other: other,
-              days: chartDays,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final minH = constraints.hasBoundedHeight
+              ? constraints.maxHeight
+              : MediaQuery.sizeOf(context).height;
+          return SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: EdgeInsets.fromLTRB(
+              wide ? 24 : 20,
+              onTab ? (wide ? 24 : 12) : 4,
+              wide ? 24 : 20,
+              onTab ? (wide ? 40 : 96) : 32,
             ),
-            const SizedBox(height: 14),
-          ],
-          if (points.length > 1 && pointKey != null) ...[
-            _PointPicker(
-              points: points,
-              selected: pointKey,
-              onSelect: (key) => setState(() {
-                _pointKey = key;
-                _openKey = null;
-              }),
-            ),
-            const SizedBox(height: 14),
-          ],
-          _SplitLens(
-            critical: critical,
-            attention: attention,
-            lens: shown,
-            onCritical: () => setState(() {
-              _picked = true;
-              _lens = AvisosLens.critical;
-              _openKey = null;
-            }),
-            onAttention: () => setState(() {
-              _picked = true;
-              _lens = AvisosLens.attention;
-              _openKey = null;
-            }),
-          ),
-          const SizedBox(height: 14),
-          if (failed)
-            _Note(
-              message: widget.eventsError!,
-              onRetry: () => widget.onRefresh(),
-            ),
-          if (clusters.isEmpty && widget.loading)
-            const _Bones()
-          else if (clusters.isEmpty && !failed)
-            _Calm(lens: shown)
-          else
-            for (final block in _byDay(clusters, clock)) ...[
-              Padding(
-                padding: const EdgeInsets.only(top: 4, bottom: 8),
-                child: Text(
-                  block.label,
-                  style: const TextStyle(
-                    color: Color(0xFF9AB0B1),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: minH - (onTab ? 48 : 16)),
+              child: Align(
+                alignment: Alignment.center,
+                child: ConstrainedBox(
+                  key: const ValueKey('avisos-stage'),
+                  constraints: const BoxConstraints(maxWidth: _stageMaxWidth),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: body,
                   ),
                 ),
               ),
-              for (final cluster in block.clusters) ...[
-                _ClusterCard(
-                  cluster: cluster,
-                  share: avisoShare(cluster.weight, visible),
-                  open: _openKey == cluster.identity,
-                  now: clock,
-                  onToggle: () => setState(() {
-                    _openKey = _openKey == cluster.identity
-                        ? null
-                        : cluster.identity;
-                  }),
-                  onOpenPoint: widget.onOpenPoint,
-                ),
-                const SizedBox(height: 8),
-              ],
-            ],
-        ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -453,90 +504,186 @@ class _SampleChart extends StatelessWidget {
     required this.attention,
     required this.other,
     required this.days,
+    this.wide = false,
   });
 
   final int critical;
   final int attention;
   final int other;
   final List<_DayCount> days;
+  final bool wide;
+
+  int get _total => critical + attention + other;
+
+  Widget _severityBlock() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text(
+          'Severidad',
+          style: TextStyle(
+            color: Color(0xFF9AB0B1),
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.2,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            _MixDonut(
+              critical: critical,
+              attention: attention,
+              other: other,
+              total: _total,
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                children: [
+                  _SeverityLegendRow(
+                    color: IkoluColors.incident,
+                    label: 'Críticas',
+                    count: critical,
+                  ),
+                  const SizedBox(height: 8),
+                  _SeverityLegendRow(
+                    color: IkoluColors.warning,
+                    label: 'Atención',
+                    count: attention,
+                  ),
+                  if (other > 0) ...[
+                    const SizedBox(height: 8),
+                    _SeverityLegendRow(
+                      color: IkoluColors.info,
+                      label: 'Seguimiento',
+                      count: other,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _activityBlock() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Text(
+              'Actividad',
+              style: TextStyle(
+                color: Color(0xFF9AB0B1),
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.2,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              days.length == 1 ? '1 día' : '${days.length} días',
+              style: const TextStyle(
+                color: Color(0xFF7E9496),
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        _DayBars(days: days),
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    final stacked = !wide || days.isEmpty;
     return HydroGlass(
       radius: 20,
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-      child: Column(
-        children: [
-          SizedBox(
-            height: 128,
-            child: Row(
+      padding: EdgeInsets.fromLTRB(wide ? 18 : 14, 16, wide ? 18 : 14, 16),
+      child: stacked
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _MixDonut(
-                  critical: critical,
-                  attention: attention,
-                  other: other,
-                ),
-                const SizedBox(width: 8),
-                Expanded(child: _DayBars(days: days)),
+                _severityBlock(),
+                if (days.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  const Divider(height: 1, color: Color(0x1AFFFFFF)),
+                  const SizedBox(height: 12),
+                  _activityBlock(),
+                ],
               ],
+            )
+          : IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(flex: 5, child: _severityBlock()),
+                  const SizedBox(width: 12),
+                  const VerticalDivider(
+                    width: 1,
+                    thickness: 1,
+                    color: Color(0x1AFFFFFF),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(flex: 6, child: _activityBlock()),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 14,
-            runSpacing: 6,
-            children: [
-              _ChartKey(
-                icon: Icons.error_outline_rounded,
-                color: IkoluColors.incident,
-                text: critical == 1 ? '1 crítica' : '$critical críticas',
-              ),
-              _ChartKey(
-                icon: Icons.warning_amber_rounded,
-                color: IkoluColors.warning,
-                text: attention == 1
-                    ? '1 en atención'
-                    : '$attention en atención',
-              ),
-              if (other > 0)
-                _ChartKey(
-                  icon: Icons.info_outline_rounded,
-                  color: IkoluColors.info,
-                  text: other == 1 ? '1 seguimiento' : '$other seguimiento',
-                ),
-            ],
-          ),
-        ],
-      ),
     );
   }
 }
 
-class _ChartKey extends StatelessWidget {
-  const _ChartKey({
-    required this.icon,
+class _SeverityLegendRow extends StatelessWidget {
+  const _SeverityLegendRow({
     required this.color,
-    required this.text,
+    required this.label,
+    required this.count,
   });
 
-  final IconData icon;
   final Color color;
-  final String text;
+  final String label;
+  final int count;
 
   @override
   Widget build(BuildContext context) {
+    final quiet = count == 0;
     return Row(
-      mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, color: color, size: 16),
-        const SizedBox(width: 5),
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            color: quiet ? color.withValues(alpha: 0.35) : color,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: quiet
+                  ? const Color(0xFF7E9496)
+                  : const Color(0xFFD5E6E4),
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
         Text(
-          text,
-          style: const TextStyle(
-            color: Color(0xFFD5E4E2),
-            fontSize: 12,
+          '$count',
+          style: TextStyle(
+            color: quiet ? const Color(0xFF7E9496) : color,
+            fontSize: 14,
             fontWeight: FontWeight.w800,
-            fontFeatures: [FontFeature.tabularFigures()],
+            fontFeatures: const [FontFeature.tabularFigures()],
           ),
         ),
       ],
@@ -549,37 +696,19 @@ class _MixDonut extends StatelessWidget {
     required this.critical,
     required this.attention,
     required this.other,
+    required this.total,
   });
 
   final int critical;
   final int attention;
   final int other;
+  final int total;
 
   @override
   Widget build(BuildContext context) {
-    final marks = <Widget>[
-      if (critical > 0)
-        _DonutCount(
-          icon: Icons.error_outline_rounded,
-          color: IkoluColors.incident,
-          count: critical,
-        ),
-      if (attention > 0)
-        _DonutCount(
-          icon: Icons.warning_amber_rounded,
-          color: IkoluColors.warning,
-          count: attention,
-        ),
-      if (critical == 0 && attention == 0 && other > 0)
-        _DonutCount(
-          icon: Icons.info_outline_rounded,
-          color: IkoluColors.info,
-          count: other,
-        ),
-    ];
     return SizedBox(
-      width: 112,
-      height: 112,
+      width: 108,
+      height: 108,
       child: CustomPaint(
         painter: _DonutPainter(
           critical: critical,
@@ -590,47 +719,29 @@ class _MixDonut extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              for (var index = 0; index < marks.length; index++) ...[
-                if (index > 0) const SizedBox(height: 4),
-                marks[index],
-              ],
+              Text(
+                '$total',
+                style: const TextStyle(
+                  color: Color(0xFFF4FBFA),
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  height: 1,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
+              ),
+              const SizedBox(height: 2),
+              const Text(
+                'eventos',
+                style: TextStyle(
+                  color: Color(0xFF9AB0B1),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ],
           ),
         ),
       ),
-    );
-  }
-}
-
-class _DonutCount extends StatelessWidget {
-  const _DonutCount({
-    required this.icon,
-    required this.color,
-    required this.count,
-  });
-
-  final IconData icon;
-  final Color color;
-  final int count;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, color: color, size: 14),
-        const SizedBox(width: 4),
-        Text(
-          '$count',
-          style: TextStyle(
-            color: color,
-            fontSize: 16,
-            fontWeight: FontWeight.w800,
-            height: 1,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
-        ),
-      ],
     );
   }
 }
@@ -689,89 +800,124 @@ class _DayBars extends StatelessWidget {
 
   final List<_DayCount> days;
 
+  static const _chartH = 96.0;
+
   @override
   Widget build(BuildContext context) {
     if (days.isEmpty) return const SizedBox.shrink();
     final peak = days.fold<int>(1, (maxCount, day) {
       return day.total > maxCount ? day.total : maxCount;
     });
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (final day in days)
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 3),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Text(
-                    '${day.total}',
-                    style: TextStyle(
-                      color: _barTone(day),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Expanded(
-                    child: Align(
-                      alignment: Alignment.bottomCenter,
-                      child: FractionallySizedBox(
-                        heightFactor: _barFactor(day.total, peak),
-                        widthFactor: 0.72,
-                        child: ClipRRect(
-                          borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(7),
-                          ),
-                          child: Column(
-                            children: [
-                              if (day.other > 0)
-                                Expanded(
-                                  flex: day.other,
-                                  child: const ColoredBox(
-                                    color: IkoluColors.info,
-                                  ),
-                                ),
-                              if (day.attention > 0)
-                                Expanded(
-                                  flex: day.attention,
-                                  child: const ColoredBox(
-                                    color: IkoluColors.warning,
-                                  ),
-                                ),
-                              if (day.critical > 0)
-                                Expanded(
-                                  flex: day.critical,
-                                  child: const ColoredBox(
-                                    color: IkoluColors.incident,
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${day.day.day}',
-                    style: const TextStyle(
-                      color: Color(0xFFE8F2F1),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
+        SizedBox(
+          key: const ValueKey('aviso-day-bar'),
+          height: _chartH,
+          child: CustomPaint(
+            painter: _DayBarsPainter(days: days, peak: peak),
+            child: const SizedBox.expand(
+              child: ColoredBox(
+                key: ValueKey('aviso-day-bar-fill'),
+                color: Color(0x00000000),
               ),
             ),
           ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            for (final day in days)
+              Expanded(
+                child: Text(
+                  avisoChartDayLabel(day.day),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Color(0xFFB7C9C8),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+          ],
+        ),
       ],
     );
   }
+}
 
-  Color _barTone(_DayCount day) {
+class _DayBarsPainter extends CustomPainter {
+  const _DayBarsPainter({required this.days, required this.peak});
+
+  final List<_DayCount> days;
+  final int peak;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (days.isEmpty || peak <= 0 || size.width <= 0 || size.height <= 0) {
+      return;
+    }
+    final slotW = size.width / days.length;
+    final barW = (slotW * 0.55).clamp(10.0, 28.0);
+    final topPad = 16.0;
+    final chartH = size.height - topPad;
+
+    for (var i = 0; i < days.length; i++) {
+      final day = days[i];
+      if (day.total <= 0) continue;
+      final ratio = day.total / peak;
+      final factor = ratio < 0.32 ? 0.32 : ratio;
+      final barH = chartH * factor;
+      final cx = slotW * i + slotW / 2;
+      final left = cx - barW / 2;
+      final top = size.height - barH;
+
+      // Track
+      final track = RRect.fromRectAndRadius(
+        Rect.fromLTWH(left, topPad, barW, chartH),
+        const Radius.circular(6),
+      );
+      canvas.drawRRect(track, Paint()..color = const Color(0xFF1A3338));
+
+      var y = size.height;
+      void slice(int count, Color color) {
+        if (count <= 0) return;
+        final h = barH * (count / day.total);
+        y -= h;
+        final rect = RRect.fromRectAndCorners(
+          Rect.fromLTWH(left, y, barW, h),
+          topLeft: y <= top + 0.5 ? const Radius.circular(6) : Radius.zero,
+          topRight: y <= top + 0.5 ? const Radius.circular(6) : Radius.zero,
+        );
+        canvas.drawRRect(rect, Paint()..color = color);
+      }
+
+      slice(day.critical, IkoluColors.incident);
+      slice(day.attention, IkoluColors.warning);
+      slice(day.other, IkoluColors.info);
+
+      final label = TextPainter(
+        text: TextSpan(
+          text: '${day.total}',
+          style: TextStyle(
+            color: _tone(day),
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: slotW);
+      label.paint(
+        canvas,
+        Offset(cx - label.width / 2, top - label.height - 2),
+      );
+    }
+  }
+
+  Color _tone(_DayCount day) {
     if (day.critical >= day.attention && day.critical >= day.other) {
       return IkoluColors.incident;
     }
@@ -779,11 +925,9 @@ class _DayBars extends StatelessWidget {
     return IkoluColors.info;
   }
 
-  double _barFactor(int total, int peak) {
-    if (peak <= 0 || total <= 0) return 0;
-    final ratio = total / peak;
-    return ratio < 0.42 ? 0.42 : ratio;
-  }
+  @override
+  bool shouldRepaint(covariant _DayBarsPainter oldDelegate) =>
+      oldDelegate.peak != peak || oldDelegate.days != days;
 }
 
 class _PointOption {

@@ -5,9 +5,11 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api/smarthydro_api.dart';
+import '../../core/brand.dart';
 import '../../core/n1/n1_api.dart';
 import '../../core/n1/n1_models.dart';
 import '../../shared/widgets/hydro_glass.dart';
+import 'n1_buddy.dart';
 
 enum _ChatRole { user, assistant, system }
 
@@ -486,44 +488,100 @@ class _AssistantScreenState extends State<AssistantScreen> {
     if (query != null && query.isNotEmpty) await _sendReport(query);
   }
 
+  N1BuddyMood get _mood {
+    if (_busy || _messages.any((m) => m.pending)) return N1BuddyMood.thinking;
+    for (final msg in _messages.reversed) {
+      if (msg.role == _ChatRole.user) continue;
+      if (msg.errorCode != null) return N1BuddyMood.error;
+      if (msg.role == _ChatRole.assistant) return N1BuddyMood.proud;
+      break;
+    }
+    return N1BuddyMood.idle;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final canSend = !_busy && widget.n1Api.isConfigured;
     return Scaffold(
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: const Text('Asistente'),
-        actions: [
-          PopupMenuButton<String>(
-            tooltip: 'Acciones N1',
-            onSelected: (value) {
-              switch (value) {
-                case 'report':
-                  _promptReport();
-                case 'files':
-                  _listFiles();
-                case 'ticket':
-                  _createTicketFlow();
-              }
-            },
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: 'report', child: Text('Pedir reporte')),
-              PopupMenuItem(value: 'files', child: Text('Listar archivos')),
-              PopupMenuItem(value: 'ticket', child: Text('Crear ticket')),
-            ],
-          ),
-        ],
+        backgroundColor: const Color(0xE6081216),
+        titleSpacing: 8,
+        title: Row(
+          children: [
+            N1Buddy(
+              key: const ValueKey('n1-buddy'),
+              size: 36,
+              mood: _mood,
+            ),
+            const SizedBox(width: 10),
+            const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'N1 · SmartHydro',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                    height: 1.1,
+                  ),
+                ),
+                Text(
+                  'Asistente',
+                  style: TextStyle(
+                    color: Color(0xFF9AB0B1),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
       body: HydroFrame(
         child: Column(
           children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _ActionChip(
+                      label: 'Pedir reporte',
+                      icon: Icons.description_outlined,
+                      enabled: canSend,
+                      onTap: _promptReport,
+                    ),
+                    const SizedBox(width: 8),
+                    _ActionChip(
+                      label: 'Listar archivos',
+                      icon: Icons.folder_outlined,
+                      enabled: canSend,
+                      onTap: _listFiles,
+                    ),
+                    const SizedBox(width: 8),
+                    _ActionChip(
+                      label: 'Crear ticket',
+                      icon: Icons.confirmation_number_outlined,
+                      enabled: canSend,
+                      onTap: _createTicketFlow,
+                    ),
+                  ],
+                ),
+              ),
+            ),
             Expanded(
               child: ListView.builder(
                 controller: _scroll,
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
                 itemCount: _messages.length,
                 itemBuilder: (context, index) {
                   final msg = _messages[index];
                   return _ChatBubble(
                     message: msg,
+                    mood: _mood,
                     onOpenUrl: _openUrl,
                     onRequery: msg.pending && msg.requeryOp != null
                         ? () => _requery(msg)
@@ -536,36 +594,57 @@ class _AssistantScreenState extends State<AssistantScreen> {
               top: false,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _controller,
-                        enabled: !_busy && widget.n1Api.isConfigured,
-                        minLines: 1,
-                        maxLines: 4,
-                        textInputAction: TextInputAction.send,
-                        onSubmitted: (_) => _sendAsk(),
-                        decoration: const InputDecoration(
-                          hintText: 'Pregunta a N1…',
-                          border: OutlineInputBorder(),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: const Color(0xCC0E1A1E),
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.08),
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(6, 4, 4, 4),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _controller,
+                            enabled: canSend,
+                            minLines: 1,
+                            maxLines: 4,
+                            textInputAction: TextInputAction.send,
+                            onSubmitted: (_) => _sendAsk(),
+                            style: const TextStyle(color: Color(0xFFE8F2F1)),
+                            decoration: const InputDecoration(
+                              hintText: 'Pregunta a N1…',
+                              hintStyle: TextStyle(color: Color(0xFF7E9496)),
+                              border: InputBorder.none,
+                              contentPadding: EdgeInsets.fromLTRB(12, 10, 8, 10),
+                            ),
+                          ),
                         ),
-                      ),
+                        IconButton.filled(
+                          tooltip: 'Enviar',
+                          style: IconButton.styleFrom(
+                            backgroundColor: IkoluColors.cyan,
+                            foregroundColor: const Color(0xFF062028),
+                            disabledBackgroundColor: const Color(0xFF1A3338),
+                          ),
+                          onPressed: canSend ? () => _sendAsk() : null,
+                          icon: _busy
+                              ? const SizedBox.square(
+                                  dimension: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Color(0xFF062028),
+                                  ),
+                                )
+                              : const Icon(Icons.send_rounded),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 8),
-                    IconButton.filled(
-                      tooltip: 'Enviar',
-                      onPressed: _busy || !widget.n1Api.isConfigured
-                          ? null
-                          : () => _sendAsk(),
-                      icon: _busy
-                          ? const SizedBox.square(
-                              dimension: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.send_rounded),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -576,14 +655,70 @@ class _AssistantScreenState extends State<AssistantScreen> {
   }
 }
 
+class _ActionChip extends StatelessWidget {
+  const _ActionChip({
+    required this.label,
+    required this.icon,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: enabled
+          ? const Color(0x2212D4C8)
+          : const Color(0x14FFFFFF),
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(18),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: enabled
+                    ? IkoluColors.cyanSoft
+                    : const Color(0xFF7E9496),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  color: enabled
+                      ? const Color(0xFFE8F2F1)
+                      : const Color(0xFF7E9496),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ChatBubble extends StatelessWidget {
   const _ChatBubble({
     required this.message,
+    required this.mood,
     required this.onOpenUrl,
     this.onRequery,
   });
 
   final _ChatMessage message;
+  final N1BuddyMood mood;
   final ValueChanged<String> onOpenUrl;
   final VoidCallback? onRequery;
 
@@ -592,121 +727,148 @@ class _ChatBubble extends StatelessWidget {
     final isUser = message.role == _ChatRole.user;
     final isSystem = message.role == _ChatRole.system;
     final bg = isUser
-        ? const Color(0xFF1A3A3E)
+        ? const Color(0xFF164A52)
         : isSystem
         ? const Color(0xFF0F1C20)
         : const Color(0xFF12252A);
-    final align = isUser ? Alignment.centerRight : Alignment.centerLeft;
+    final radius = BorderRadius.only(
+      topLeft: const Radius.circular(18),
+      topRight: const Radius.circular(18),
+      bottomLeft: Radius.circular(isUser ? 18 : 6),
+      bottomRight: Radius.circular(isUser ? 6 : 18),
+    );
 
-    return Align(
-      alignment: align,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 560),
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 10),
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: message.errorCode != null
-                  ? const Color(0xFFFF847A).withValues(alpha: 0.45)
-                  : message.pending
-                  ? const Color(0xFFFFC46B).withValues(alpha: 0.35)
-                  : Colors.white.withValues(alpha: 0.06),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (message.pending)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 6),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SizedBox.square(
-                        dimension: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                      SizedBox(width: 8),
-                      Text(
-                        '⏳ En curso…',
-                        style: TextStyle(
-                          color: Color(0xFFFFC46B),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              SelectableText(
-                message.text,
-                style: TextStyle(
-                  color: message.errorCode != null
-                      ? const Color(0xFFFFA39B)
-                      : const Color(0xFFE8F2F1),
-                  height: 1.4,
-                ),
-              ),
-              if (message.ticketId != null) ...[
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Chip(
-                      label: Text('ticket_id ${message.ticketId}'),
-                      visualDensity: VisualDensity.compact,
-                      backgroundColor: const Color(
-                        0xFF66E0C2,
-                      ).withValues(alpha: 0.15),
-                    ),
-                    IconButton(
-                      tooltip: 'Copiar id',
-                      onPressed: () async {
-                        await Clipboard.setData(
-                          ClipboardData(text: '${message.ticketId}'),
-                        );
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('ticket_id copiado')),
-                          );
-                        }
-                      },
-                      icon: const Icon(Icons.copy_rounded, size: 18),
-                    ),
-                  ],
-                ),
-              ],
-              if (message.links.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  children: [
-                    for (final url in message.links)
-                      ActionChip(
-                        avatar: const Icon(Icons.link_rounded, size: 16),
-                        label: Text(
-                          _shortUrl(url),
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                        onPressed: () => onOpenUrl(url),
-                      ),
-                  ],
-                ),
-              ],
-              if (onRequery != null) ...[
-                const SizedBox(height: 6),
-                TextButton.icon(
-                  onPressed: onRequery,
-                  icon: const Icon(Icons.refresh_rounded, size: 16),
-                  label: const Text('Reconsultar'),
-                ),
-              ],
-            ],
+    final bubble = ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 520),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: radius,
+          border: Border.all(
+            color: message.errorCode != null
+                ? const Color(0xFFFF847A).withValues(alpha: 0.45)
+                : message.pending
+                ? const Color(0xFFFFC46B).withValues(alpha: 0.35)
+                : isUser
+                ? IkoluColors.cyan.withValues(alpha: 0.22)
+                : Colors.white.withValues(alpha: 0.06),
           ),
         ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (message.pending)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 6),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox.square(
+                      dimension: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    SizedBox(width: 8),
+                    Text(
+                      '⏳ En curso…',
+                      style: TextStyle(
+                        color: Color(0xFFFFC46B),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            SelectableText(
+              message.text,
+              style: TextStyle(
+                color: message.errorCode != null
+                    ? const Color(0xFFFFA39B)
+                    : const Color(0xFFE8F2F1),
+                height: 1.4,
+              ),
+            ),
+            if (message.ticketId != null) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Chip(
+                    label: Text('ticket_id ${message.ticketId}'),
+                    visualDensity: VisualDensity.compact,
+                    backgroundColor: const Color(
+                      0xFF66E0C2,
+                    ).withValues(alpha: 0.15),
+                  ),
+                  IconButton(
+                    tooltip: 'Copiar id',
+                    onPressed: () async {
+                      await Clipboard.setData(
+                        ClipboardData(text: '${message.ticketId}'),
+                      );
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('ticket_id copiado')),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.copy_rounded, size: 18),
+                  ),
+                ],
+              ),
+            ],
+            if (message.links.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  for (final url in message.links)
+                    ActionChip(
+                      avatar: const Icon(Icons.link_rounded, size: 16),
+                      label: Text(
+                        _shortUrl(url),
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      onPressed: () => onOpenUrl(url),
+                    ),
+                ],
+              ),
+            ],
+            if (onRequery != null) ...[
+              const SizedBox(height: 6),
+              TextButton.icon(
+                onPressed: onRequery,
+                icon: const Icon(Icons.refresh_rounded, size: 16),
+                label: const Text('Reconsultar'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+
+    if (isUser) {
+      return Align(alignment: Alignment.centerRight, child: bubble);
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          N1Buddy(
+            size: 28,
+            mood: message.errorCode != null
+                ? N1BuddyMood.error
+                : message.pending
+                ? N1BuddyMood.thinking
+                : mood,
+          ),
+          const SizedBox(width: 8),
+          Flexible(child: bubble),
+        ],
       ),
     );
   }

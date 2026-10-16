@@ -58,6 +58,7 @@ class CaptureNetworkMap extends StatelessWidget {
     this.onRequestSupport,
     this.bottomInset = 0,
     this.topInset = 0,
+    this.leftInset = 0,
     this.openBottomClearance = 8,
     this.checkApiHealth,
     this.locationTiles,
@@ -83,6 +84,9 @@ class CaptureNetworkMap extends StatelessWidget {
   /// Margen superior solo para puntos/tags (el agua pinta todo el rect).
   final double topInset;
 
+  /// Margen izquierdo para el rail desktop (el agua pinta todo el rect).
+  final double leftInset;
+
   /// La ficha abierta no baja de esta distancia al borde inferior.
   /// En el teléfono es el tope de Resumen más 10 px.
   final double openBottomClearance;
@@ -106,6 +110,7 @@ class CaptureNetworkMap extends StatelessWidget {
       onRequestSupport: onRequestSupport,
       topInset: topInset,
       bottomInset: bottomInset,
+      leftInset: leftInset,
       openBottomClearance: openBottomClearance,
       checkApiHealth: checkApiHealth,
       locationTiles: locationTiles,
@@ -123,6 +128,7 @@ class _WaterView extends StatefulWidget {
     required this.onRequestSupport,
     required this.topInset,
     required this.bottomInset,
+    required this.leftInset,
     required this.openBottomClearance,
     this.checkApiHealth,
     this.locationTiles,
@@ -136,6 +142,7 @@ class _WaterView extends StatefulWidget {
   final ValueChanged<Map<String, dynamic>>? onRequestSupport;
   final double topInset;
   final double bottomInset;
+  final double leftInset;
   final double openBottomClearance;
   final Future<bool> Function()? checkApiHealth;
   final TileProvider? locationTiles;
@@ -161,7 +168,13 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
 
   /// Claves de puntos con ventana abierta (HOME web). Orden = orden de apertura.
   final List<String> _openKeys = [];
+
+  /// Orden de pintura. La última queda delante. No cambia de escritorio.
+  final List<String> _windowZ = [];
+  final Map<String, Rect> _windowFrames = {};
+  int _focusTick = 0;
   int _page = 0;
+  int _windowDesktop = 0;
   bool _pageForward = true;
   bool _motion = true;
   bool? _apiOnline;
@@ -196,6 +209,13 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
 
   void _pruneOpenKeys() {
     _openKeys.removeWhere((key) => _pointForOpenKey(key) == null);
+    _windowZ.removeWhere((key) => !_openKeys.contains(key));
+    _windowFrames.removeWhere((key, _) => !_openKeys.contains(key));
+  }
+
+  void _raiseWindow(String key) {
+    _windowZ.remove(key);
+    _windowZ.add(key);
   }
 
   int? _indexForOpenKey(String key) {
@@ -278,17 +298,19 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
     final key = _keyOf(widget.points[index]);
     setState(() {
       _openPlacement = null;
+      _focusTick++;
       if (_isWide(context)) {
-        if (_openKeys.contains(key)) {
-          _openKeys.remove(key);
-        } else {
+        // Solo la X cierra. Volver a tocar el punto lo trae al frente.
+        if (!_openKeys.contains(key)) {
           _openKeys.add(key);
+          _windowDesktop = 1 << 20;
         }
-        _selected = _openKeys.isEmpty ? null : _indexForOpenKey(_openKeys.last);
+        _raiseWindow(key);
+        _selected = _indexForOpenKey(key);
       } else {
-        // Segundo click en la misma tarjeta: se cierra con el mismo gesto.
-        _selected = _selected == index ? null : index;
+        _selected = index;
         _openKeys.clear();
+        _windowZ.clear();
       }
     });
     if (_selected == null && _openKeys.isEmpty) {
@@ -300,9 +322,23 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
     }
   }
 
+  Rect _clampWindow(Rect rect, Rect bounds) {
+    const minW = 280.0;
+    const minH = 220.0;
+    final maxW = math.max(minW, bounds.width);
+    final maxH = math.max(minH, bounds.height);
+    final w = rect.width.clamp(minW, maxW).toDouble();
+    final h = rect.height.clamp(minH, maxH).toDouble();
+    final left = rect.left.clamp(bounds.left, bounds.right - w).toDouble();
+    final top = rect.top.clamp(bounds.top, bounds.bottom - h).toDouble();
+    return Rect.fromLTWH(left, top, w, h);
+  }
+
   void _closeOpenKey(String key) {
     setState(() {
       _openKeys.remove(key);
+      _windowZ.remove(key);
+      _windowFrames.remove(key);
       if (_selected != null &&
           _selected! < widget.points.length &&
           _keyOf(widget.points[_selected!]) == key) {
@@ -316,6 +352,8 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
     setState(() {
       _selected = null;
       _openKeys.clear();
+      _windowZ.clear();
+      _windowFrames.clear();
       _openPlacement = null;
     });
   }
@@ -379,6 +417,7 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
         // Con la pregunta rápida la franja es un poco más alta.
         final headerBand = widget.askBar == null ? 84.0 : 108.0;
         final contentTop = widget.topInset + headerBand;
+        final contentLeft = widget.leftInset;
         // Sin lista inferior permanente: el diagrama usa casi todo el alto.
         // La ficha de un punto elegido flota encima y no reserva layout.
         final fieldBottom = math.max(
@@ -387,7 +426,12 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
         );
         var pageSize = math.max(
           1,
-          captureSchemePageSize(size, top: contentTop, bottom: fieldBottom),
+          captureSchemePageSize(
+            size,
+            top: contentTop,
+            bottom: fieldBottom,
+            left: contentLeft,
+          ),
         );
         var pages = math.max(1, (widget.points.length / pageSize).ceil());
         final pagerBand = pages > 1 ? 40.0 : 0.0;
@@ -398,6 +442,7 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
               size,
               top: contentTop,
               bottom: fieldBottom + pagerBand,
+              left: contentLeft,
             ),
           );
           pages = math.max(1, (widget.points.length / pageSize).ceil());
@@ -414,6 +459,7 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
           size,
           top: contentTop,
           bottom: fieldBottom + pagerBand,
+          left: contentLeft,
           groups: [
             for (final index in pageIndexes)
               captureProjectKey(widget.points[index]),
@@ -453,13 +499,53 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
             for (final key in _openKeys)
               if (_pointForOpenKey(key) case final point?) point,
         ];
-        final windowRects = wide
-            ? layoutPointWindows(
+        final desks = wide
+            ? layoutWindowDesktops(
                 area: size,
                 count: openPoints.length,
+                desktop: _windowDesktop,
+                windowWidth: 360,
+                windowHeight: 460,
                 bottomInset: math.max(8.0, widget.openBottomClearance - 2),
+                leftInset: contentLeft,
               )
-            : const <Rect>[];
+            : (
+                capacity: 1,
+                pages: 1,
+                rects: const <Rect>[],
+              );
+        final windowBounds = Rect.fromLTRB(
+          contentLeft,
+          contentTop,
+          math.max(contentLeft + 280, size.width - 8),
+          math.max(contentTop + 240, size.height - 8),
+        );
+        final deskIndex = desks.pages <= 1
+            ? 0
+            : (_windowDesktop >= 100000
+                  ? desks.pages - 1
+                  : _windowDesktop.clamp(0, desks.pages - 1));
+        final windowStart = deskIndex * desks.capacity;
+        final windowPoints = openPoints
+            .skip(windowStart)
+            .take(desks.rects.length)
+            .toList();
+        final windowObstacles = <Rect>[
+          if (!hub.isEmpty) hub,
+          ...plates,
+          if (!_showLocations && pagePoints.length > 1)
+            Rect.fromLTWH(size.width - 164, contentTop + 8, 148, 96),
+        ];
+        final openFrames = placeOpenWindowFrames(
+          count: windowPoints.length,
+          bounds: windowBounds,
+          obstacles: windowObstacles,
+        );
+        final paintPoints = [...windowPoints]..sort((a, b) {
+          final az = _windowZ.indexOf(_keyOf(a));
+          final bz = _windowZ.indexOf(_keyOf(b));
+          return az.compareTo(bz);
+        });
 
         return AnimatedBuilder(
           animation: _approach,
@@ -471,9 +557,7 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
               clipBehavior: Clip.hardEdge,
               children: [
                 Positioned.fill(
-                  child: GestureDetector(
-                    onTap: _clearSelection,
-                    child: ValueListenableBuilder<double>(
+                  child: ValueListenableBuilder<double>(
                       valueListenable: _seconds,
                       builder: (context, seconds, _) {
                         return CustomPaint(
@@ -495,7 +579,6 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                         );
                       },
                     ),
-                  ),
                 ),
               ],
             );
@@ -507,7 +590,7 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
               children: [
                 waterLayer,
                 Positioned(
-                  left: 18,
+                  left: math.max(18.0, contentLeft + 12),
                   right: 18,
                   top: widget.topInset + 10,
                   child: _NetworkHeader(
@@ -524,7 +607,7 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                 ),
                 if (_showLocations)
                   Positioned(
-                    left: 0,
+                    left: contentLeft,
                     right: 0,
                     top: contentTop,
                     bottom: fieldBottom,
@@ -562,10 +645,10 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                           ),
                         AnimatedSwitcher(
                           duration: _motion
-                              ? const Duration(milliseconds: 220)
+                              ? const Duration(milliseconds: 160)
                               : Duration.zero,
-                          switchInCurve: Curves.easeOutCubic,
-                          switchOutCurve: Curves.easeInCubic,
+                          switchInCurve: Curves.easeOut,
+                          switchOutCurve: Curves.easeIn,
                           layoutBuilder: (current, previous) {
                             return Stack(
                               fit: StackFit.expand,
@@ -574,15 +657,27 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                           },
                           transitionBuilder: (child, animation) {
                             final dir = _pageForward ? 1.0 : -1.0;
-                            final slide = Tween<Offset>(
-                              begin: Offset(dir * 0.06, 0),
-                              end: Offset.zero,
-                            ).animate(animation);
+                            final snap = CurvedAnimation(
+                              parent: animation,
+                              curve: Curves.easeOutBack,
+                            );
                             return FadeTransition(
-                              opacity: animation,
+                              opacity: CurvedAnimation(
+                                parent: animation,
+                                curve: Curves.easeOut,
+                              ),
                               child: SlideTransition(
-                                position: slide,
-                                child: child,
+                                position: Tween<Offset>(
+                                  begin: Offset(dir * 0.045, 0),
+                                  end: Offset.zero,
+                                ).animate(snap),
+                                child: ScaleTransition(
+                                  scale: Tween<double>(
+                                    begin: 0.96,
+                                    end: 1,
+                                  ).animate(snap),
+                                  child: child,
+                                ),
                               ),
                             );
                           },
@@ -639,13 +734,21 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                                                   local != selected)
                                         ? 0.38
                                         : 1,
-                                    child: _LoggerNode(
-                                      point: pagePoints[local],
-                                      selected: wide
-                                          ? openLocals.contains(local)
-                                          : local == selected,
-                                      clock: _motion ? _seconds : null,
-                                      onTap: () => _select(pageIndexes[local]),
+                                    child: _Snap(
+                                      token: pageIndexes[local] == _selected
+                                          ? _focusTick
+                                          : 'still-$local',
+                                      play: pageIndexes[local] == _selected,
+                                      motion: _motion,
+                                      child: _LoggerNode(
+                                        point: pagePoints[local],
+                                        selected: wide
+                                            ? openLocals.contains(local)
+                                            : local == selected,
+                                        clock: _motion ? _seconds : null,
+                                        onTap: () =>
+                                            _select(pageIndexes[local]),
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -657,7 +760,7 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                   ),
                 if (!_showLocations && pages > 1)
                   Positioned(
-                    left: 12,
+                    left: math.max(12.0, contentLeft + 12),
                     right: 12,
                     bottom: fieldBottom + 4,
                     height: 32,
@@ -697,29 +800,133 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                     ),
                   ),
                 if (widget.points.isEmpty) const _EmptyNetwork(),
-                // Web: ventanas compactas en mosaico. Móvil: una ficha ancha.
+                if (!_showLocations && pagePoints.length > 1)
+                  Positioned(
+                    right: 16,
+                    top: contentTop + 8,
+                    child: _SchemeMinimap(
+                      plates: plates,
+                      hub: hub,
+                      selected: selected,
+                      onJump: (local) => _select(pageIndexes[local]),
+                    ),
+                  ),
+                if (wide && desks.pages > 1)
+                  Positioned(
+                    left: math.max(12.0, contentLeft + 12),
+                    bottom: math.max(8.0, widget.openBottomClearance - 2),
+                    child: _DesktopSwitch(
+                      index: deskIndex,
+                      pages: desks.pages,
+                      onPrev: deskIndex > 0
+                          ? () => setState(() => _windowDesktop = deskIndex - 1)
+                          : null,
+                      onNext: deskIndex < desks.pages - 1
+                          ? () => setState(() => _windowDesktop = deskIndex + 1)
+                          : null,
+                    ),
+                  ),
+                // Web: ventanas completas, movibles y redimensionables.
                 if (wide)
-                  for (var i = 0; i < openPoints.length; i++)
-                    Positioned(
-                      left: windowRects[i].left + captureEdgePad,
-                      top: windowRects[i].top,
-                      width: math.min(
-                        windowRects[i].width,
-                        size.width - captureEdgePad * 2,
-                      ),
-                      height: windowRects[i].height,
-                      child: _PointWindow(
-                        key: ValueKey(
-                          'capture-point-window-${_pointKey(openPoints[i])}',
+                  for (final point in paintPoints)
+                    () {
+                      final key = _keyOf(point);
+                      final i = windowPoints.indexOf(point);
+                      final fallback = i < openFrames.length
+                          ? openFrames[i]
+                          : Rect.fromLTWH(
+                              windowBounds.right - 360,
+                              windowBounds.top,
+                              math.min(360, windowBounds.width),
+                              math.min(460, windowBounds.height),
+                            );
+                      final frame = _clampWindow(
+                        _windowFrames[key] ?? fallback,
+                        windowBounds,
+                      );
+                      return Positioned(
+                        left: frame.left,
+                        top: frame.top,
+                        width: frame.width,
+                        height: frame.height,
+                        child: Stack(
+                          children: [
+                            _PointWindow(
+                              key: ValueKey(
+                                'capture-point-window-${_pointKey(point)}',
+                              ),
+                              focus: point,
+                              onEnter: () => widget.onOpen(point),
+                              onClose: () => _closeOpenKey(key),
+                              openTickets: widget.openTickets,
+                              compliance: widget.compliance,
+                              onRequestSupport: widget.onRequestSupport,
+                            ),
+                            Positioned(
+                              left: 8,
+                              top: 6,
+                              right: 40,
+                              height: 32,
+                              child: GestureDetector(
+                                key: ValueKey(
+                                  'capture-window-drag-${_pointKey(point)}',
+                                ),
+                                behavior: HitTestBehavior.translucent,
+                                onPanStart: (_) => setState(() => _raiseWindow(key)),
+                                onPanUpdate: (details) {
+                                  setState(() {
+                                    final current = _windowFrames[key] ?? frame;
+                                    _windowFrames[key] = _clampWindow(
+                                      current.shift(details.delta),
+                                      windowBounds,
+                                    );
+                                  });
+                                },
+                                child: const Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Icon(
+                                    Icons.drag_indicator_rounded,
+                                    size: 16,
+                                    color: Color(0xFF8FB0AC),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              right: 2,
+                              bottom: 2,
+                              width: 28,
+                              height: 28,
+                              child: GestureDetector(
+                                key: ValueKey(
+                                  'capture-window-resize-${_pointKey(point)}',
+                                ),
+                                behavior: HitTestBehavior.opaque,
+                                onPanUpdate: (details) {
+                                  setState(() {
+                                    final current = _windowFrames[key] ?? frame;
+                                    _windowFrames[key] = _clampWindow(
+                                      Rect.fromLTWH(
+                                        current.left,
+                                        current.top,
+                                        current.width + details.delta.dx,
+                                        current.height + details.delta.dy,
+                                      ),
+                                      windowBounds,
+                                    );
+                                  });
+                                },
+                                child: const Icon(
+                                  Icons.open_in_full_rounded,
+                                  size: 14,
+                                  color: Color(0xFF8FB0AC),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                        focus: openPoints[i],
-                        onEnter: () => widget.onOpen(openPoints[i]),
-                        onClose: () => _closeOpenKey(_keyOf(openPoints[i])),
-                        openTickets: widget.openTickets,
-                        compliance: widget.compliance,
-                        onRequestSupport: widget.onRequestSupport,
-                      ),
-                    )
+                      );
+                    }()
                 else if (_selected != null &&
                     _selected! >= 0 &&
                     _selected! < widget.points.length)
@@ -727,7 +934,7 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                     left: captureEdgePad,
                     right: captureEdgePad,
                     bottom: math.max(8.0, widget.openBottomClearance - 2),
-                    height: 228,
+                    height: math.min(520, size.height * 0.72),
                     child: _ViewRecords(
                       focus: widget.points[_selected!],
                       onEnter: _openSelected,
@@ -742,6 +949,36 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
           },
         );
       },
+    );
+  }
+}
+
+/// Golpe corto al elegir un punto. No cambia el tamaño de layout.
+class _Snap extends StatelessWidget {
+  const _Snap({
+    required this.token,
+    required this.play,
+    required this.motion,
+    required this.child,
+  });
+
+  final Object token;
+  final bool play;
+  final bool motion;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      key: ValueKey(token),
+      tween: Tween(begin: play && motion ? 0.92 : 1, end: 1),
+      duration: motion ? const Duration(milliseconds: 170) : Duration.zero,
+      curve: Curves.easeOutBack,
+      builder: (context, scale, child) => Transform.scale(
+        scale: scale,
+        child: child,
+      ),
+      child: child,
     );
   }
 }
@@ -1436,22 +1673,52 @@ List<Rect> placeNodeLabels(
 
 /// Cuántos loggers caben en la vista sin salir de la pizarra.
 @visibleForTesting
-int captureSchemePageSize(Size size, {double top = 8, double bottom = 8}) {
+int captureSchemePageSize(
+  Size size, {
+  double top = 8,
+  double bottom = 8,
+  double left = 0,
+}) {
   if (size.isEmpty) return 1;
-  final side = captureSchemeSideColumns(size.width);
-  final rows = _schemeRows(size.height, top: top, bottom: bottom);
-  return math.max(1, rows * side * 2);
+  var fitted = 1;
+  for (var count = 1; count <= 24; count++) {
+    final scheme = placeCaptureScheme(
+      count,
+      size,
+      top: top,
+      bottom: bottom,
+      left: left,
+    );
+    final viewLeft = math.max(captureEdgePad, left);
+    final viewRight = math.max(viewLeft, size.width - captureEdgePad);
+    final viewTop = math.max(captureEdgePad, top);
+    final viewBottom = math.max(viewTop, size.height - bottom);
+    if (_platesInside(
+      scheme.plates,
+      viewLeft,
+      viewRight,
+      viewTop,
+      viewBottom,
+      scheme.hub,
+    )) {
+      fitted = count;
+    } else {
+      break;
+    }
+  }
+  return fitted;
 }
 
 /// Columnas de loggers a cada lado del núcleo. En el teléfono cabe una.
 @visibleForTesting
-int captureSchemeSideColumns(double width) {
+int captureSchemeSideColumns(double width, {double left = 0}) {
   const pad = captureEdgePad;
   const step = captureBoardStep;
   const plateW = capturePlateWidth;
   const gap = capturePlateGap;
   const hub = captureHubSize;
-  final available = math.max(step * 2, width - 2 * pad);
+  final viewLeft = math.max(pad, left);
+  final available = math.max(step * 2, width - viewLeft - pad);
   var side = 1;
   for (var cols = 1; cols <= 3; cols++) {
     final flank = cols * plateW + (cols - 1) * gap;
@@ -1478,22 +1745,18 @@ int _schemeRows(double height, {required double top, required double bottom}) {
   return rows;
 }
 
-/// Loggers a los lados del núcleo. El núcleo queda al medio de la vista.
-/// Un solo logger se sienta arriba y baja en línea recta.
+/// Loggers alrededor del núcleo: crece a izquierda, derecha, arriba y abajo.
+/// Si son muchos, las placas se achican para seguir viéndose como una red.
 @visibleForTesting
 ({List<Rect> plates, Rect hub}) placeCaptureScheme(
   int count,
   Size size, {
   double top = 8,
   double bottom = 8,
+  double left = 0,
   List<String>? groups,
   List<String>? labels,
 }) {
-  const pad = captureEdgePad;
-  const step = captureBoardStep;
-  const plateW = capturePlateWidth;
-  const plateH = capturePlateHeight;
-  const gap = capturePlateGap;
   const hub = captureHubSize;
   if (count <= 0 || size.isEmpty) {
     return (plates: const <Rect>[], hub: Rect.zero);
@@ -1511,52 +1774,118 @@ int _schemeRows(double height, {required double top, required double bottom}) {
     });
   }
 
-  final flanked = count > 1;
-  final side = flanked ? captureSchemeSideColumns(size.width) : 1;
-  final perRow = side * 2;
-  final rows = flanked ? (count + perRow - 1) ~/ perRow : 1;
-  final flankW = side * plateW + (side - 1) * gap;
-  final blockW = flanked ? flankW + gap + hub + gap + flankW : plateW;
-  final blockH = flanked
-      ? rows * plateH + (rows - 1) * gap
-      : plateH + gap + hub;
-  final minTop = math.max(pad, top);
-  final y0 = _snapUpToStep(minTop, step);
-  final viewRight = math.max(pad, size.width - pad);
-  final viewBottom = math.max(y0, size.height - bottom);
-  final originX = pad + captureCenterShift(slack: (viewRight - pad) - blockW);
-  final span = math.max(blockH, hub);
-  final originY = y0 + captureCenterShift(slack: (viewBottom - y0) - span);
-  final platesY = originY + (span - blockH) / 2;
+  final viewLeft = math.max(captureEdgePad, left);
+  final viewRight = math.max(viewLeft + hub, size.width - captureEdgePad);
+  final viewTop = math.max(captureEdgePad, top);
+  final viewBottom = math.max(viewTop + hub, size.height - bottom);
+  final hubRect = Rect.fromCenter(
+    center: Offset((viewLeft + viewRight) / 2, (viewTop + viewBottom) / 2),
+    width: hub,
+    height: hub,
+  );
 
-  final slots = List<Rect?>.filled(count, null);
-  final Rect hubRect;
-  if (!flanked) {
-    slots[order.single] = Rect.fromLTWH(originX, platesY, plateW, plateH);
-    hubRect = Rect.fromLTWH(originX, platesY + plateH + gap, hub, hub);
-  } else {
-    final rawTop = platesY + (blockH - hub) / 2;
-    final hubTop = (rawTop / step).round() * step;
-    hubRect = Rect.fromLTWH(originX + flankW + gap, hubTop, hub, hub);
-    final pitch = plateH + gap;
-    final rightOrigin = originX + flankW + gap + hub + gap;
-    for (var slot = 0; slot < count; slot++) {
-      final row = slot ~/ perRow;
-      final inRow = slot % perRow;
-      final onLeft = inRow.isEven;
-      final col = inRow ~/ 2;
-      final left = onLeft
-          ? originX + (side - 1 - col) * (plateW + gap)
-          : rightOrigin + col * (plateW + gap);
-      slots[order[slot]] = Rect.fromLTWH(
-        left,
-        platesY + row * pitch,
-        plateW,
-        plateH,
-      );
-    }
+  if (count == 1) {
+    final plate = Rect.fromCenter(
+      center: Offset(hubRect.center.dx, hubRect.top - capturePlateGap - capturePlateHeight / 2),
+      width: capturePlateWidth,
+      height: capturePlateHeight,
+    );
+    return (plates: [plate], hub: hubRect);
   }
-  return (plates: [for (final rect in slots) rect ?? Rect.zero], hub: hubRect);
+
+  var scale = count <= 6 ? 1.0 : (1 - ((count - 6) / 40).clamp(0.0, 0.2));
+  var placed = _compassPlates(order, hubRect, scale);
+  for (var step = 0; step < 8; step++) {
+    if (_platesInside(
+      placed,
+      viewLeft,
+      viewRight,
+      viewTop,
+      viewBottom,
+      hubRect,
+    )) {
+      break;
+    }
+    if (scale <= 0.8) break;
+    scale = math.max(0.8, scale - 0.05);
+    placed = _compassPlates(order, hubRect, scale);
+  }
+  return (plates: placed, hub: hubRect);
+}
+
+List<Rect> _compassPlates(List<int> order, Rect hub, double scale) {
+  final count = order.length;
+  final pw = capturePlateWidth * scale;
+  final ph = capturePlateHeight * scale;
+  final gap = math.max(6.0, capturePlateGap * scale);
+  final strideX = pw + gap;
+  final strideY = ph + gap;
+  final baseX = hub.width / 2 + gap + pw / 2;
+  final baseY = hub.height / 2 + gap + ph / 2;
+  final cells = _compassCells(count);
+  final slots = List<Rect?>.filled(count, null);
+  for (var i = 0; i < count; i++) {
+    final cell = cells[i];
+    final dx = cell.dx == 0
+        ? 0.0
+        : cell.dx.sign * (baseX + (cell.dx.abs() - 1) * strideX);
+    final dy = cell.dy == 0
+        ? 0.0
+        : cell.dy.sign * (baseY + (cell.dy.abs() - 1) * strideY);
+    slots[order[i]] = Rect.fromCenter(
+      center: hub.center + Offset(dx, dy),
+      width: pw,
+      height: ph,
+    );
+  }
+  return [for (final rect in slots) rect ?? Rect.zero];
+}
+
+/// Anillos de Chebyshev: primero los cuatro cardinales, luego el resto.
+List<Offset> _compassCells(int count) {
+  final cells = <Offset>[];
+  var ring = 1;
+  while (cells.length < count) {
+    final ringCells = <Offset>[];
+    for (var y = -ring; y <= ring; y++) {
+      for (var x = -ring; x <= ring; x++) {
+        if (math.max(x.abs(), y.abs()) != ring) continue;
+        ringCells.add(Offset(x.toDouble(), y.toDouble()));
+      }
+    }
+    ringCells.sort((a, b) {
+      int rank(Offset c) {
+        if (c.dy == 0 && c.dx > 0) return 0;
+        if (c.dy == 0 && c.dx < 0) return 1;
+        if (c.dx == 0 && c.dy < 0) return 2;
+        if (c.dx == 0 && c.dy > 0) return 3;
+        return 20 + ((math.atan2(c.dy, c.dx) + math.pi) * 8).round();
+      }
+
+      return rank(a).compareTo(rank(b));
+    });
+    cells.addAll(ringCells);
+    ring++;
+  }
+  return cells.take(count).toList();
+}
+
+bool _platesInside(
+  List<Rect> plates,
+  double left,
+  double right,
+  double top,
+  double bottom,
+  Rect hub,
+) {
+  for (final plate in plates) {
+    if (plate.left < left - 0.5) return false;
+    if (plate.right > right + 0.5) return false;
+    if (plate.top < top - 0.5) return false;
+    if (plate.bottom > bottom + 0.5) return false;
+    if (plate.overlaps(hub)) return false;
+  }
+  return true;
 }
 
 /// Camino ortogonal desde el logger hasta un punto de entrada en el hub.
@@ -1615,10 +1944,17 @@ List<List<Offset>> captureHubLinks(List<Rect> plates, Rect hub) {
   if (hub.isEmpty || plates.isEmpty) return const [];
   final left = <int>[];
   final right = <int>[];
+  final above = <int>[];
+  final below = <int>[];
   for (var i = 0; i < plates.length; i++) {
     final plate = plates[i];
     if (plate.isEmpty) continue;
-    if (plate.center.dx <= hub.center.dx) {
+    final dx = (plate.center.dx - hub.center.dx).abs();
+    if (plate.bottom <= hub.top && dx < hub.width * 0.85) {
+      above.add(i);
+    } else if (plate.top >= hub.bottom && dx < hub.width * 0.85) {
+      below.add(i);
+    } else if (plate.center.dx <= hub.center.dx) {
       left.add(i);
     } else {
       right.add(i);
@@ -1662,12 +1998,15 @@ List<List<Offset>> captureHubLinks(List<Rect> plates, Rect hub) {
   assignY(right);
   return [
     for (var i = 0; i < plates.length; i++)
-      captureHubLink(
-        plates[i],
-        hub,
-        attachY: attach[i],
-        busX: plates[i].center.dx <= hub.center.dx ? leftBus : rightBus,
-      ),
+      if (above.contains(i) || below.contains(i))
+        captureHubLink(plates[i], hub)
+      else
+        captureHubLink(
+          plates[i],
+          hub,
+          attachY: attach[i],
+          busX: plates[i].center.dx <= hub.center.dx ? leftBus : rightBus,
+        ),
   ];
 }
 
@@ -2000,6 +2339,82 @@ double seatCaptureChipTop({
   );
 }
 
+/// Cada ventana entra completa en [bounds]. Si hay aire, no tapa loggers ni el minimapa.
+/// Las siguientes bajan un poco para que se vea la barra de la anterior.
+@visibleForTesting
+List<Rect> placeOpenWindowFrames({
+  required int count,
+  required Rect bounds,
+  List<Rect> obstacles = const [],
+  double windowWidth = 360,
+  double windowHeight = 460,
+  double cascade = 36,
+}) {
+  if (count <= 0 || bounds.width <= 0 || bounds.height <= 0) {
+    return const [];
+  }
+  final h = math.min(windowHeight, bounds.height);
+  final widest = math.min(windowWidth, bounds.width);
+  final widths = <double>[
+    for (final candidate in [widest, 330.0, 300.0, 280.0])
+      if (candidate <= widest + 0.1 && candidate >= 280) candidate,
+  ];
+  if (widths.isEmpty) widths.add(widest);
+  final slack = bounds.height - h >= 48 ? 20.0 : 0.0;
+
+  bool hits(Rect rect) {
+    for (final obstacle in obstacles) {
+      if (rect.overlaps(obstacle.inflate(4))) return true;
+    }
+    return false;
+  }
+
+  bool sameSlot(Rect a, Rect b) =>
+      (a.left - b.left).abs() < 8 && (a.top - b.top).abs() < 8;
+
+  Rect fit(double left, double top, double width) {
+    final maxLeft = math.max(bounds.left, bounds.right - width);
+    final l = left.clamp(bounds.left, maxLeft).toDouble();
+    final t = top
+        .clamp(bounds.top, math.max(bounds.top, bounds.bottom - h))
+        .toDouble();
+    return Rect.fromLTWH(l, t, width, h);
+  }
+
+  final placed = <Rect>[];
+  for (var i = 0; i < count; i++) {
+    Rect? chosen;
+    for (final width in widths) {
+      if (chosen != null) break;
+      final maxLeft = math.max(bounds.left, bounds.right - width);
+      final maxTop = math.max(bounds.top, bounds.bottom - h - slack);
+      for (var col = 0; col < 16 && chosen == null; col++) {
+        final left = maxLeft - col * 48;
+        for (var row = 0; row < 24 && chosen == null; row++) {
+          final top = bounds.top + row * 32 + i * cascade;
+          if (slack > 0 && top > maxTop + 0.5) continue;
+          final rect = fit(left, top, width);
+          if (rect.bottom > bounds.bottom - slack + 0.5) continue;
+          if (hits(rect) || placed.any((other) => sameSlot(other, rect))) {
+            continue;
+          }
+          chosen = rect;
+        }
+      }
+    }
+    final fallbackW = widths.first;
+    placed.add(
+      chosen ??
+          fit(
+            bounds.right - fallbackW,
+            bounds.top + 12 + i * cascade,
+            fallbackW,
+          ),
+    );
+  }
+  return placed;
+}
+
 /// Mosaico inferior de ventanas compactas (HOME web). Filas de abajo hacia arriba.
 @visibleForTesting
 List<Rect> layoutPointWindows({
@@ -2009,6 +2424,7 @@ List<Rect> layoutPointWindows({
   double windowHeight = 228,
   double gap = 12,
   double bottomInset = 8,
+  double leftInset = 0,
 }) {
   if (count <= 0 ||
       area.width <= 0 ||
@@ -2017,20 +2433,218 @@ List<Rect> layoutPointWindows({
       windowHeight <= 0) {
     return const [];
   }
+  final usableW = math.max(0.0, area.width - leftInset);
   final columns = math.max(
     1,
-    ((area.width + gap) / (windowWidth + gap)).floor(),
+    ((usableW + gap) / (windowWidth + gap)).floor(),
   );
   final rects = <Rect>[];
   for (var i = 0; i < count; i++) {
     final col = i % columns;
     final row = i ~/ columns;
-    final left = col * (windowWidth + gap);
+    final left = leftInset + col * (windowWidth + gap);
     final bottom = area.height - bottomInset - row * (windowHeight + gap);
     final top = bottom - windowHeight;
     rects.add(Rect.fromLTWH(left, top, windowWidth, windowHeight));
   }
   return rects;
+}
+
+/// Ventanas que caben en un escritorio. El resto pasa al siguiente.
+@visibleForTesting
+({int capacity, int pages, List<Rect> rects}) layoutWindowDesktops({
+  required Size area,
+  required int count,
+  int desktop = 0,
+  double windowWidth = 340,
+  double windowHeight = 228,
+  double gap = 12,
+  double bottomInset = 8,
+  double leftInset = 0,
+}) {
+  if (count <= 0 || area.width <= 0 || area.height <= 0) {
+    return (capacity: 1, pages: 1, rects: const <Rect>[]);
+  }
+  final usableW = math.max(windowWidth, area.width - leftInset);
+  final columns = math.max(1, ((usableW + gap) / (windowWidth + gap)).floor());
+  final usableH = math.max(windowHeight, area.height - bottomInset);
+  final rows = math.max(1, ((usableH + gap) / (windowHeight + gap)).floor());
+  final capacity = math.max(1, columns * rows);
+  final pages = math.max(1, (count / capacity).ceil());
+  final page = desktop.clamp(0, pages - 1);
+  final start = page * capacity;
+  final shown = math.max(0, math.min(capacity, count - start));
+  final laid = layoutPointWindows(
+    area: area,
+    count: shown,
+    windowWidth: windowWidth,
+    windowHeight: windowHeight,
+    gap: gap,
+    bottomInset: bottomInset,
+    leftInset: leftInset,
+  );
+  return (capacity: capacity, pages: pages, rects: laid);
+}
+
+class _DesktopSwitch extends StatelessWidget {
+  const _DesktopSwitch({
+    required this.index,
+    required this.pages,
+    required this.onPrev,
+    required this.onNext,
+  });
+
+  final int index;
+  final int pages;
+  final VoidCallback? onPrev;
+  final VoidCallback? onNext;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xE60E1A1E),
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              tooltip: 'Escritorio anterior',
+              onPressed: onPrev,
+              icon: const Icon(Icons.chevron_left_rounded, size: 18),
+              visualDensity: VisualDensity.compact,
+            ),
+            Text(
+              'Escritorio ${index + 1} / $pages',
+              style: const TextStyle(
+                color: Color(0xFFE8F2F1),
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            IconButton(
+              tooltip: 'Siguiente escritorio',
+              onPressed: onNext,
+              icon: const Icon(Icons.chevron_right_rounded, size: 18),
+              visualDensity: VisualDensity.compact,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SchemeMinimap extends StatelessWidget {
+  const _SchemeMinimap({
+    required this.plates,
+    required this.hub,
+    required this.selected,
+    required this.onJump,
+  });
+
+  final List<Rect> plates;
+  final Rect hub;
+  final int? selected;
+  final ValueChanged<int> onJump;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xCC0B1618),
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        width: 148,
+        height: 96,
+        child: GestureDetector(
+          onTapDown: (details) {
+            final local = details.localPosition;
+            var best = -1;
+            var bestD = 18.0;
+            final bounds = _bounds();
+            if (bounds == null) return;
+            for (var i = 0; i < plates.length; i++) {
+              final c = _map(plates[i].center, bounds, const Size(148, 96));
+              final d = (c - local).distance;
+              if (d < bestD) {
+                best = i;
+                bestD = d;
+              }
+            }
+            if (best >= 0) onJump(best);
+          },
+          child: CustomPaint(
+            painter: _MinimapPainter(
+              plates: plates,
+              hub: hub,
+              selected: selected,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Rect? _bounds() {
+    if (hub.isEmpty && plates.isEmpty) return null;
+    var rect = hub.isEmpty ? plates.first : hub;
+    for (final plate in plates) {
+      rect = rect.expandToInclude(plate);
+    }
+    return rect.inflate(8);
+  }
+
+  Offset _map(Offset point, Rect bounds, Size size) {
+    final sx = bounds.width <= 0 ? 0.0 : (point.dx - bounds.left) / bounds.width;
+    final sy = bounds.height <= 0 ? 0.0 : (point.dy - bounds.top) / bounds.height;
+    return Offset(sx * size.width, sy * size.height);
+  }
+}
+
+class _MinimapPainter extends CustomPainter {
+  const _MinimapPainter({
+    required this.plates,
+    required this.hub,
+    required this.selected,
+  });
+
+  final List<Rect> plates;
+  final Rect hub;
+  final int? selected;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (plates.isEmpty && hub.isEmpty) return;
+    var bounds = hub.isEmpty ? plates.first : hub;
+    for (final plate in plates) {
+      bounds = bounds.expandToInclude(plate);
+    }
+    bounds = bounds.inflate(8);
+    Offset map(Offset point) {
+      final sx = bounds.width <= 0 ? 0.0 : (point.dx - bounds.left) / bounds.width;
+      final sy = bounds.height <= 0 ? 0.0 : (point.dy - bounds.top) / bounds.height;
+      return Offset(sx * size.width, sy * size.height);
+    }
+
+    if (!hub.isEmpty) {
+      final c = map(hub.center);
+      canvas.drawCircle(c, 5, Paint()..color = IkoluColors.cyan);
+    }
+    for (var i = 0; i < plates.length; i++) {
+      final c = map(plates[i].center);
+      final active = i == selected;
+      canvas.drawCircle(
+        c,
+        active ? 4.2 : 2.6,
+        Paint()
+          ..color = active ? const Color(0xFFFFC46B) : const Color(0xFF9AD7D0),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _MinimapPainter oldDelegate) => true;
 }
 
 class _LoggerNode extends StatelessWidget {

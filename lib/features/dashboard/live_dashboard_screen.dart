@@ -29,6 +29,7 @@ import 'point_history_sheet.dart';
 import 'point_system.dart';
 import 'point_system_screen.dart';
 import 'point_meta.dart';
+import 'widgets/apps_hub.dart';
 import 'widgets/capture_network_map.dart';
 import 'widgets/hydraulic_board.dart';
 
@@ -287,39 +288,46 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Home: mapa edge-to-edge, con la barra de pregunta arriba.
-          // El resto: sin cabecera, y un robot para preguntar.
+          // Home: mapa edge-to-edge; el rail desktop flota encima.
+          // Otras pestañas: dejan hueco al rail y muestran QuickAsk.
           if (isHome)
             Positioned.fill(child: switcher)
           else
             SafeArea(
-              child: Row(
-                children: [
-                  if (wide)
-                    LiquidNavRail(
-                      selectedIndex: _selectedTab,
-                      unreadCount: unreadCount,
-                      onSelect: _selectTab,
+              child: Padding(
+                padding: EdgeInsets.only(left: wide ? liquidNavRailExtent : 0),
+                child: Stack(
+                  children: [
+                    Positioned.fill(child: switcher),
+                    Positioned(
+                      right: 12,
+                      bottom: 12,
+                      child: QuickAsk(
+                        peek: true,
+                        n1Api: ref.read(n1ApiProvider),
+                        token: widget.session.token,
+                        email: widget.session.email,
+                        pointIds: _pointIds(_points),
+                      ),
                     ),
-                  Expanded(
-                    child: Stack(
-                      children: [
-                        Positioned.fill(child: switcher),
-                        Positioned(
-                          right: 12,
-                          bottom: 12,
-                          child: QuickAsk(
-                            peek: true,
-                            n1Api: ref.read(n1ApiProvider),
-                            token: widget.session.token,
-                            email: widget.session.email,
-                            pointIds: _pointIds(_points),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+                  ],
+                ),
+              ),
+            ),
+          // Desktop: rail glass flotante siempre visible (también en Home).
+          if (wide)
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              child: SafeArea(
+                right: false,
+                child: LiquidNavRail(
+                  selectedIndex: _selectedTab,
+                  unreadCount: unreadCount,
+                  onSelect: _selectTab,
+                  onOpenApp: _openDesktopApp,
+                ),
               ),
             ),
         ],
@@ -374,13 +382,13 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
           onOpenPoint: _openPointById,
         );
       case 2:
-        return _MoreTab(
-          onOpenCompliance: _openCompliance,
-          onOpenSupport: _openSupport,
-          onOpenAssistant: _openAssistant,
-          onOpenGeo: _openGeo,
-          onOpenAnalysis: _openAnalysis,
-          onOpenReports: _openReports,
+        return AppsHub(
+          summary: AppsHubSummary.fromNetwork(
+            points: _points,
+            openTickets: _openTickets,
+            compliance: _compliance,
+          ),
+          onOpenApp: _openDesktopApp,
         );
       default:
         return HydroFrame(
@@ -498,6 +506,33 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
     );
   }
 
+  /// Índice alineado con [liquidDesktopApps].
+  void _openDesktopApp(int index) {
+    final app = (index >= 0 && index < liquidDesktopApps.length)
+        ? liquidDesktopApps[index]
+        : null;
+    if (app?.comingSoon == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${app!.label}: pronto disponible.')),
+      );
+      return;
+    }
+    switch (index) {
+      case 0:
+        _openGeo();
+      case 1:
+        _openAnalysis();
+      case 2:
+        _openCompliance();
+      case 3:
+        _openAssistant();
+      case 4:
+        _openSupport();
+      case 5:
+        _openReports();
+    }
+  }
+
   void _openPointById(dynamic rawId) {
     final id = rawId is int ? rawId : int.tryParse('$rawId');
     if (id == null) {
@@ -591,6 +626,7 @@ class _DashboardTabState extends State<_DashboardTab> {
   }
 
   Widget _mapView(VoidCallback? toSummary) {
+    final wide = MediaQuery.sizeOf(context).width >= 980;
     final topSafe = MediaQuery.paddingOf(context).top;
     final resumen = captureResumenInsets(
       bottomInset: widget.bottomInset,
@@ -601,7 +637,7 @@ class _DashboardTabState extends State<_DashboardTab> {
       fit: StackFit.expand,
       children: [
         // El painter del mapa pinta TODO el rect; solo el contenido
-        // (puntos/tags) respeta safe top + bottom nav.
+        // (puntos/tags) respeta safe top + bottom nav + rail desktop.
         CaptureNetworkMap(
           points: widget.points,
           openTickets: widget.openTickets,
@@ -610,6 +646,7 @@ class _DashboardTabState extends State<_DashboardTab> {
           onRequestSupport: widget.onRequestSupport,
           askBar: widget.askBar,
           topInset: topSafe + 8,
+          leftInset: wide ? liquidNavRailExtent : 0,
           bottomInset: widget.bottomInset + (toSummary == null ? 0 : 56),
           // La ficha abierta queda 10 px sobre Resumen. En ancho no hay chip.
           openBottomClearance: toSummary == null ? 8 : resumen.cardClearance,
@@ -2238,222 +2275,6 @@ class _NotificationsTab extends StatelessWidget {
         eventsError: eventsError,
         onRefresh: onRefresh,
         onOpenPoint: (id) => onOpenPoint(id),
-      ),
-    );
-  }
-}
-
-class _MoreTab extends StatelessWidget {
-  const _MoreTab({
-    required this.onOpenCompliance,
-    required this.onOpenSupport,
-    required this.onOpenAssistant,
-    required this.onOpenGeo,
-    required this.onOpenAnalysis,
-    required this.onOpenReports,
-  });
-
-  final VoidCallback onOpenCompliance;
-  final VoidCallback onOpenSupport;
-  final VoidCallback onOpenAssistant;
-  final VoidCallback onOpenGeo;
-  final VoidCallback onOpenAnalysis;
-  final VoidCallback onOpenReports;
-
-  @override
-  Widget build(BuildContext context) {
-    const apps = <_AppSpec>[
-      _AppSpec(
-        icon: Icons.public_rounded,
-        title: 'Ubicaciones',
-        subtitle: 'Mapa de los puntos',
-        color: IkoluColors.cyan,
-      ),
-      _AppSpec(
-        icon: Icons.query_stats_rounded,
-        title: 'Análisis',
-        subtitle: 'Cómo va cada punto',
-        color: IkoluColors.info,
-      ),
-      _AppSpec(
-        icon: Icons.balance_rounded,
-        title: 'Cumplimiento',
-        subtitle: 'Límites y mediciones',
-        color: IkoluColors.connected,
-      ),
-      _AppSpec(
-        icon: Icons.smart_toy_outlined,
-        title: 'Asistente',
-        subtitle: 'Pregunta a N1',
-        color: IkoluColors.cyanSoft,
-      ),
-      _AppSpec(
-        icon: Icons.support_agent_rounded,
-        title: 'Soporte',
-        subtitle: 'Solicitudes',
-        color: IkoluColors.warning,
-      ),
-      _AppSpec(
-        icon: Icons.table_view_outlined,
-        title: 'Registros',
-        subtitle: 'Telemetría en CSV',
-        color: Color(0xFFC5D5D4),
-      ),
-    ];
-    final open = <VoidCallback>[
-      onOpenGeo,
-      onOpenAnalysis,
-      onOpenCompliance,
-      onOpenAssistant,
-      onOpenSupport,
-      onOpenReports,
-    ];
-    return HydroFrame(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final columns = constraints.maxWidth >= 900
-              ? 4
-              : constraints.maxWidth >= 560
-              ? 3
-              : 2;
-          return CustomScrollView(
-            slivers: [
-              const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(22, 8, 22, 4),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Apps',
-                        style: TextStyle(
-                          color: Color(0xFFE8F2F1),
-                          fontSize: 22,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.4,
-                        ),
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        'Las herramientas de tu red',
-                        style: TextStyle(
-                          color: Color(0xFF9AB0B1),
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 18, 16, 32),
-                sliver: SliverGrid(
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: columns,
-                    mainAxisSpacing: 8,
-                    crossAxisSpacing: 8,
-                    childAspectRatio: 0.92,
-                  ),
-                  delegate: SliverChildBuilderDelegate((context, index) {
-                    return _AppTile(spec: apps[index], onTap: open[index]);
-                  }, childCount: apps.length),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _AppSpec {
-  const _AppSpec({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.color,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final Color color;
-}
-
-class _AppTile extends StatelessWidget {
-  const _AppTile({required this.spec, required this.onTap});
-
-  final _AppSpec spec;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(22),
-        splashColor: spec.color.withValues(alpha: 0.12),
-        highlightColor: spec.color.withValues(alpha: 0.06),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 10, 8, 8),
-          child: Column(
-            children: [
-              Container(
-                width: 68,
-                height: 68,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(20),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      spec.color.withValues(alpha: 0.95),
-                      spec.color.withValues(alpha: 0.42),
-                    ],
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: spec.color.withValues(alpha: 0.28),
-                      blurRadius: 16,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: Icon(
-                  spec.icon,
-                  color: const Color(0xFF071416),
-                  size: 30,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                spec.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 13,
-                  letterSpacing: -0.2,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                spec.subtitle,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Color(0xFF9AB0B1),
-                  fontSize: 11,
-                  height: 1.25,
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

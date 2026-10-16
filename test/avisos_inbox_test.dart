@@ -110,6 +110,71 @@ void main() {
     expect(avisoEventLabel('DISCONNECTION'), 'Desconexión');
   });
 
+  test('la etiqueta del gráfico de días incluye el mes', () {
+    expect(avisoChartDayLabel(DateTime(2026, 10, 15)), '15 oct');
+    expect(avisoChartDayLabel(DateTime(2026, 1, 3)), '3 ene');
+  });
+
+  testWidgets('en desktop el contenido queda centrado y no a todo el ancho', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await pump(
+      tester,
+      events: [
+        event(id: 1, severity: 'CRITICAL', created: '2026-10-15T10:00:00'),
+        event(id: 2, severity: 'WARNING', created: '2026-10-15T11:00:00'),
+      ],
+    );
+
+    expect(find.byKey(const ValueKey('avisos-stage')), findsOneWidget);
+    final stage = tester.getSize(find.byKey(const ValueKey('avisos-stage')));
+    expect(stage.width, lessThanOrEqualTo(880));
+    expect(stage.width, greaterThan(320));
+  });
+
+  testWidgets('las barras de actividad tienen altura y color visibles', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      events: [
+        event(id: 1, severity: 'CRITICAL', created: '2026-10-13T10:00:00'),
+        event(id: 2, severity: 'CRITICAL', created: '2026-10-14T10:00:00'),
+        event(id: 3, severity: 'CRITICAL', created: '2026-10-15T10:00:00'),
+        event(
+          id: 4,
+          severity: 'CRITICAL',
+          created: '2026-10-15T12:00:00',
+          title: 'Otro',
+        ),
+      ],
+    );
+
+    expect(find.text('Actividad'), findsOneWidget);
+    final bars = find.byKey(const ValueKey('aviso-day-bar'));
+    expect(bars, findsWidgets);
+    for (final element in bars.evaluate()) {
+      final size = tester.getSize(find.byWidget(element.widget));
+      expect(size.height, greaterThan(24), reason: 'barra sin altura: $size');
+      expect(size.width, greaterThan(8), reason: 'barra sin ancho: $size');
+    }
+    expect(find.byKey(const ValueKey('aviso-day-bar-fill')), findsWidgets);
+    for (final element
+        in find.byKey(const ValueKey('aviso-day-bar-fill')).evaluate()) {
+      final size = tester.getSize(find.byWidget(element.widget));
+      expect(
+        size.height,
+        greaterThan(24),
+        reason: 'relleno de barra invisible: $size',
+      );
+    }
+  });
+
   test('los repetidos del mismo punto se ponderan', () {
     final clusters = avisoClusters([
       event(id: 2, severity: 'CRITICAL', title: 'Sin enlace'),
@@ -181,9 +246,12 @@ void main() {
     expect(find.text('Reconectado'), findsNothing);
     expect(find.text('×2'), findsOneWidget);
     expect(find.text('100%'), findsOneWidget);
-    expect(find.text('15'), findsOneWidget);
-    expect(find.text('Críticas'), findsOneWidget);
-    expect(find.text('Atención'), findsOneWidget);
+    expect(find.text('15 oct'), findsOneWidget);
+    expect(find.text('Severidad'), findsOneWidget);
+    expect(find.text('Actividad'), findsOneWidget);
+    expect(find.text('eventos'), findsOneWidget);
+    expect(find.text('Críticas'), findsWidgets);
+    expect(find.text('Atención'), findsWidgets);
 
     await tester.tap(find.byKey(const ValueKey('aviso-point-picker')));
     await tester.pump();
