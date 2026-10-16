@@ -134,8 +134,8 @@ class _HydroLoadingState extends State<HydroLoading>
         builder: (context, _) {
           final travel = _controller.value;
           return SizedBox(
-            width: 120,
-            height: 8,
+            width: 96,
+            height: 4,
             child: CustomPaint(painter: _LoadingLinePainter(travel: travel)),
           );
         },
@@ -156,17 +156,17 @@ class _LoadingLinePainter extends CustomPainter {
       Offset(0, y),
       Offset(size.width, y),
       Paint()
-        ..color = IkoluColors.cyan.withValues(alpha: 0.16)
-        ..strokeWidth = 2
+        ..color = IkoluColors.cyan.withValues(alpha: 0.08)
+        ..strokeWidth = 1
         ..strokeCap = StrokeCap.round,
     );
     final head = travel * size.width;
     canvas.drawLine(
-      Offset(head - 28, y),
+      Offset(head - 22, y),
       Offset(head, y),
       Paint()
-        ..color = IkoluColors.cyan.withValues(alpha: 0.85)
-        ..strokeWidth = 2.4
+        ..color = IkoluColors.cyan.withValues(alpha: 0.38)
+        ..strokeWidth = 1.1
         ..strokeCap = StrokeCap.round,
     );
   }
@@ -180,7 +180,7 @@ class _LoadingLinePainter extends CustomPainter {
 /// recorre una pista fina. Reemplaza al LinearProgressIndicator genérico
 /// en cabeceras y listas mientras se cargan datos.
 class HydroLinearBar extends StatefulWidget {
-  const HydroLinearBar({this.height = 3, super.key});
+  const HydroLinearBar({this.height = 1.5, super.key});
 
   final double height;
 
@@ -241,7 +241,7 @@ class _LinearBarPainter extends CustomPainter {
       Offset(0, y),
       Offset(size.width, y),
       Paint()
-        ..color = IkoluColors.cyan.withValues(alpha: 0.12)
+        ..color = IkoluColors.cyan.withValues(alpha: 0.06)
         ..strokeWidth = size.height
         ..strokeCap = StrokeCap.round,
     );
@@ -258,7 +258,7 @@ class _LinearBarPainter extends CustomPainter {
           end: Alignment(head, y),
           colors: [
             IkoluColors.cyan.withValues(alpha: 0),
-            IkoluColors.cyan.withValues(alpha: 0.9),
+            IkoluColors.cyan.withValues(alpha: 0.34),
           ],
         ).createShader(Rect.fromPoints(Offset(tailStart, y), Offset(head, y)))
         ..strokeWidth = size.height
@@ -267,8 +267,8 @@ class _LinearBarPainter extends CustomPainter {
     // Gota cabeza brillante.
     canvas.drawCircle(
       Offset(head, y),
-      size.height * 0.9,
-      Paint()..color = const Color(0xFFEFFFFA),
+      size.height * 0.55,
+      Paint()..color = const Color(0x66EFFFFA),
     );
   }
 

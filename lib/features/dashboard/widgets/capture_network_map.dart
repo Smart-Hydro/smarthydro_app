@@ -4,13 +4,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 
+import 'package:flutter_map/flutter_map.dart';
+
 import '../../../core/api/smarthydro_api.dart';
 import '../../../core/brand.dart';
 import '../../../shared/ui/hydro_ui.dart';
 import '../../../shared/widgets/workstation_backdrop.dart';
+import '../../geo/capture_coordinates.dart';
+import '../../geo/capture_location_map.dart';
+import 'capture_logger_plate.dart';
 import '../point_link.dart';
 import '../point_meta.dart';
 import '../point_system.dart';
+
+export '../../geo/capture_coordinates.dart';
 
 /// Celdas vacías del borde. La cuadrícula llega al filo; los loggers no.
 const captureEdgePad = 32.0;
@@ -53,6 +60,8 @@ class CaptureNetworkMap extends StatelessWidget {
     this.topInset = 0,
     this.openBottomClearance = 8,
     this.checkApiHealth,
+    this.locationTiles,
+    this.askBar,
     super.key,
   });
 
@@ -81,6 +90,12 @@ class CaptureNetworkMap extends StatelessWidget {
   /// Salud del API (`GET /health`). En tests se inyecta para no abrir Dio.
   final Future<bool> Function()? checkApiHealth;
 
+  /// Teselas del mapa de ubicaciones. En la app van por red.
+  final TileProvider? locationTiles;
+
+  /// Barra de pregunta rápida. Si viene, reemplaza el título del esquema.
+  final Widget? askBar;
+
   @override
   Widget build(BuildContext context) {
     return _WaterView(
@@ -93,6 +108,8 @@ class CaptureNetworkMap extends StatelessWidget {
       bottomInset: bottomInset,
       openBottomClearance: openBottomClearance,
       checkApiHealth: checkApiHealth,
+      locationTiles: locationTiles,
+      askBar: askBar,
     );
   }
 }
@@ -108,6 +125,8 @@ class _WaterView extends StatefulWidget {
     required this.bottomInset,
     required this.openBottomClearance,
     this.checkApiHealth,
+    this.locationTiles,
+    this.askBar,
   });
 
   final List<Map<String, dynamic>> points;
@@ -119,6 +138,8 @@ class _WaterView extends StatefulWidget {
   final double bottomInset;
   final double openBottomClearance;
   final Future<bool> Function()? checkApiHealth;
+  final TileProvider? locationTiles;
+  final Widget? askBar;
 
   @override
   State<_WaterView> createState() => _WaterViewState();
@@ -137,21 +158,34 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
     duration: const Duration(milliseconds: 140),
   );
   int? _selected;
+
   /// Claves de puntos con ventana abierta (HOME web). Orden = orden de apertura.
   final List<String> _openKeys = [];
   int _page = 0;
   bool _pageForward = true;
   bool _motion = true;
   bool? _apiOnline;
+  bool _showLocations = false;
   final SmartHydroApi _api = SmartHydroApi();
   final GlobalKey _stackKey = GlobalKey();
   final GlobalKey _openKey = GlobalKey();
   Rect? _openPlacement;
 
-  bool _isWide(BuildContext context) =>
-      MediaQuery.sizeOf(context).width >= 980;
+  bool _isWide(BuildContext context) => MediaQuery.sizeOf(context).width >= 980;
 
   String _keyOf(Map<String, dynamic> point) => '${_pointKey(point)}';
+
+  String? _locationSelectionKey(bool wide) {
+    if (wide && _openKeys.isNotEmpty) {
+      final point = _pointForOpenKey(_openKeys.last);
+      return point == null ? null : capturePointKey(point);
+    }
+    final index = _selected;
+    if (index == null || index < 0 || index >= widget.points.length) {
+      return null;
+    }
+    return capturePointKey(widget.points[index]);
+  }
 
   Map<String, dynamic>? _pointForOpenKey(String key) {
     for (final point in widget.points) {
@@ -209,9 +243,7 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
       if (_openKeys.isEmpty) {
         _selected = null;
       } else if (_selected != null && _selected! >= widget.points.length) {
-        _selected = _openKeys.isEmpty
-            ? null
-            : _indexForOpenKey(_openKeys.last);
+        _selected = _openKeys.isEmpty ? null : _indexForOpenKey(_openKeys.last);
       }
     } else if (_selected != null && _selected! >= widget.points.length) {
       _selected = null;
@@ -344,7 +376,8 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
         }
         final size = Size(constraints.maxWidth, constraints.maxHeight);
         // El encabezado ocupa la franja de arriba. La red vive debajo.
-        const headerBand = 84.0;
+        // Con la pregunta rápida la franja es un poco más alta.
+        final headerBand = widget.askBar == null ? 84.0 : 108.0;
         final contentTop = widget.topInset + headerBand;
         // Sin lista inferior permanente: el diagrama usa casi todo el alto.
         // La ficha de un punto elegido flota encima y no reserva layout.
@@ -477,121 +510,152 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                   left: 18,
                   right: 18,
                   top: widget.topInset + 10,
-                  child: _NetworkHeader(points: widget.points),
+                  child: _NetworkHeader(
+                    points: widget.points,
+                    askBar: widget.askBar,
+                    locationMode: _showLocations,
+                    onToggleLocation: widget.points.isEmpty
+                        ? null
+                        : () => setState(() {
+                            _showLocations = !_showLocations;
+                            _openPlacement = null;
+                          }),
+                  ),
                 ),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  top: contentTop,
-                  bottom: fieldBottom + pagerBand,
-                  child: Stack(
-                    clipBehavior: Clip.hardEdge,
-                    children: [
-                      if (!hub.isEmpty)
-                        Positioned(
-                          left: hub.left,
-                          top: hub.top - contentTop,
-                          width: hub.width,
-                          height: hub.height,
-                          child: IgnorePointer(
-                            child: _DataSmartCore(
-                              clock: _motion ? _seconds : null,
-                              apiOnline: _apiOnline,
-                            ),
-                          ),
-                        ),
-                      AnimatedSwitcher(
-                        duration: _motion
-                            ? const Duration(milliseconds: 220)
-                            : Duration.zero,
-                        switchInCurve: Curves.easeOutCubic,
-                        switchOutCurve: Curves.easeInCubic,
-                        layoutBuilder: (current, previous) {
-                          return Stack(
-                            fit: StackFit.expand,
-                            children: [...previous, ?current],
-                          );
-                        },
-                        transitionBuilder: (child, animation) {
-                          final dir = _pageForward ? 1.0 : -1.0;
-                          final slide = Tween<Offset>(
-                            begin: Offset(dir * 0.06, 0),
-                            end: Offset.zero,
-                          ).animate(animation);
-                          return FadeTransition(
-                            opacity: animation,
-                            child: SlideTransition(
-                              position: slide,
-                              child: child,
-                            ),
-                          );
-                        },
-                        child: Stack(
-                          key: ValueKey('capture-page-$_page'),
-                          fit: StackFit.expand,
-                          clipBehavior: Clip.none,
-                          children: [
-                            Positioned.fill(
-                              child: IgnorePointer(
-                                child: ValueListenableBuilder<double>(
-                                  valueListenable: _seconds,
-                                  builder: (context, seconds, _) {
-                                    return CustomPaint(
-                                      painter: _HubLinkPainter(
-                                        plates: [
-                                          for (final plate in plates)
-                                            plate.shift(Offset(0, -contentTop)),
-                                        ],
-                                        hub: hub.shift(Offset(0, -contentTop)),
-                                        selected: selected,
-                                        seconds: seconds,
-                                        motion: _motion,
-                                      ),
-                                    );
-                                  },
-                                ),
+                if (_showLocations)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    top: contentTop,
+                    bottom: fieldBottom,
+                    child: CaptureLocationMap(
+                      points: widget.points,
+                      selectedKey: _locationSelectionKey(wide),
+                      tileProvider: widget.locationTiles,
+                      onSelect: (point) {
+                        final index = widget.points.indexOf(point);
+                        if (index >= 0) _select(index);
+                      },
+                    ),
+                  ),
+                if (!_showLocations)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    top: contentTop,
+                    bottom: fieldBottom + pagerBand,
+                    child: Stack(
+                      clipBehavior: Clip.hardEdge,
+                      children: [
+                        if (!hub.isEmpty)
+                          Positioned(
+                            left: hub.left,
+                            top: hub.top - contentTop,
+                            width: hub.width,
+                            height: hub.height,
+                            child: IgnorePointer(
+                              child: _DataSmartCore(
+                                clock: _motion ? _seconds : null,
+                                apiOnline: _apiOnline,
                               ),
                             ),
-                            for (
-                              var local = 0;
-                              local < pageIndexes.length;
-                              local++
-                            )
-                              Positioned(
-                                key: ValueKey(
-                                  'capture-label-${pageIndexes[local]}',
-                                ),
-                                left: plates[local].left,
-                                top: plates[local].top - contentTop,
-                                width: plates[local].width,
-                                height: plates[local].height,
-                                child: AnimatedOpacity(
-                                  duration: const Duration(milliseconds: 200),
-                                  opacity:
-                                      (wide
-                                              ? openLocals.isNotEmpty &&
-                                                  !openLocals.contains(local)
-                                              : selected != null &&
-                                                  local != selected)
-                                          ? 0.38
-                                          : 1,
-                                  child: _LoggerNode(
-                                    point: pagePoints[local],
-                                    selected: wide
-                                        ? openLocals.contains(local)
-                                        : local == selected,
-                                    clock: _motion ? _seconds : null,
-                                    onTap: () => _select(pageIndexes[local]),
+                          ),
+                        AnimatedSwitcher(
+                          duration: _motion
+                              ? const Duration(milliseconds: 220)
+                              : Duration.zero,
+                          switchInCurve: Curves.easeOutCubic,
+                          switchOutCurve: Curves.easeInCubic,
+                          layoutBuilder: (current, previous) {
+                            return Stack(
+                              fit: StackFit.expand,
+                              children: [...previous, ?current],
+                            );
+                          },
+                          transitionBuilder: (child, animation) {
+                            final dir = _pageForward ? 1.0 : -1.0;
+                            final slide = Tween<Offset>(
+                              begin: Offset(dir * 0.06, 0),
+                              end: Offset.zero,
+                            ).animate(animation);
+                            return FadeTransition(
+                              opacity: animation,
+                              child: SlideTransition(
+                                position: slide,
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: Stack(
+                            key: ValueKey('capture-page-$_page'),
+                            fit: StackFit.expand,
+                            clipBehavior: Clip.none,
+                            children: [
+                              Positioned.fill(
+                                child: IgnorePointer(
+                                  child: ValueListenableBuilder<double>(
+                                    valueListenable: _seconds,
+                                    builder: (context, seconds, _) {
+                                      return CustomPaint(
+                                        painter: _HubLinkPainter(
+                                          plates: [
+                                            for (final plate in plates)
+                                              plate.shift(
+                                                Offset(0, -contentTop),
+                                              ),
+                                          ],
+                                          hub: hub.shift(
+                                            Offset(0, -contentTop),
+                                          ),
+                                          selected: selected,
+                                          seconds: seconds,
+                                          motion: _motion,
+                                        ),
+                                      );
+                                    },
                                   ),
                                 ),
                               ),
-                          ],
+                              for (
+                                var local = 0;
+                                local < pageIndexes.length;
+                                local++
+                              )
+                                Positioned(
+                                  key: ValueKey(
+                                    'capture-label-${pageIndexes[local]}',
+                                  ),
+                                  left: plates[local].left,
+                                  top: plates[local].top - contentTop,
+                                  width: plates[local].width,
+                                  height: plates[local].height,
+                                  child: AnimatedOpacity(
+                                    duration: const Duration(milliseconds: 200),
+                                    opacity:
+                                        (wide
+                                            ? openLocals.isNotEmpty &&
+                                                  !openLocals.contains(local)
+                                            : selected != null &&
+                                                  local != selected)
+                                        ? 0.38
+                                        : 1,
+                                    child: _LoggerNode(
+                                      point: pagePoints[local],
+                                      selected: wide
+                                          ? openLocals.contains(local)
+                                          : local == selected,
+                                      clock: _motion ? _seconds : null,
+                                      onTap: () => _select(pageIndexes[local]),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                if (pages > 1)
+                if (!_showLocations && pages > 1)
                   Positioned(
                     left: 12,
                     right: 12,
@@ -1107,13 +1171,6 @@ void _separateGround(List<Offset> spots) {
   }
 }
 
-const captureLoggerNameStyle = TextStyle(
-  color: Color(0xFFF4F8F6),
-  fontSize: 11.5,
-  fontWeight: FontWeight.w600,
-  height: 1.05,
-);
-
 /// Ancho del logger según el nombre. Crece para no cortarlo.
 @visibleForTesting
 double captureLoggerWidthFor(String title, {bool compliance = false}) {
@@ -1177,13 +1234,6 @@ String? captureComplianceLevel(Map<String, dynamic> point) {
   if (level == null || level.isEmpty || level == 'null') return null;
   return level;
 }
-
-Color _complianceMarkColor(String? level) => switch (level) {
-  'critical' => IkoluColors.incident,
-  'warning' => IkoluColors.warning,
-  'safe' => IkoluColors.connected,
-  _ => const Color(0xFF9CC8C2),
-};
 
 /// Codo en la cuadrícula: horizontal y después vertical.
 @visibleForTesting
@@ -1580,7 +1630,9 @@ List<List<Offset>> captureHubLinks(List<Rect> plates, Rect hub) {
 
   double sideBus(List<int> side, {required bool toRight}) {
     if (side.isEmpty) {
-      return toRight ? hub.left - captureBoardStep : hub.right + captureBoardStep;
+      return toRight
+          ? hub.left - captureBoardStep
+          : hub.right + captureBoardStep;
     }
     if (toRight) {
       var edge = hub.left - captureBoardStep;
@@ -1996,95 +2048,12 @@ class _LoggerNode extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = _linkColor(point);
-    final surface = captureIsSurface(point);
-    final compliance = captureHasCompliance(point);
-    final link = pointLinkOf(point);
-    final kind = surface ? 'superficial' : 'pozo';
-    final mark = compliance ? ', con cumplimiento' : '';
-
-    Widget plate(double glow) {
-      final edge = selected ? 0.78 + 0.18 * glow : 0.22 + 0.28 * glow;
-      return DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: color.withValues(alpha: edge.clamp(0.0, 1.0).toDouble()),
-            width: selected ? 1.6 : 1,
-          ),
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              const Color(0xFFF7FBFA).withValues(alpha: 0.20),
-              const Color(0xFF1A343C).withValues(alpha: 0.78),
-            ],
-          ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(4, 0, 6, 0),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 16,
-                height: 16,
-                child: CustomPaint(
-                  painter: _BeaconPainter(
-                    color: color,
-                    selected: selected,
-                    surface: surface,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  _title(point),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: captureLoggerNameStyle,
-                ),
-              ),
-              const SizedBox(width: 4),
-              if (compliance) ...[
-                Icon(
-                  Icons.verified_outlined,
-                  size: 12,
-                  color: _complianceMarkColor(captureComplianceLevel(point)),
-                ),
-                const SizedBox(width: 3),
-              ],
-              _LinkLamp(
-                color: color,
-                live: clock != null && link == PointLink.connected,
-                clock: clock,
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Semantics(
-      button: true,
+    return CaptureLoggerPlate(
+      point: point,
       selected: selected,
-      container: true,
-      label: '${_title(point)}, $kind, ${pointLinkLabel(link)}$mark',
-      child: GestureDetector(
-        key: ValueKey('capture-node-${_pointKey(point)}'),
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: clock == null
-            ? plate(0.45)
-            : ValueListenableBuilder<double>(
-                valueListenable: clock!,
-                builder: (context, seconds, _) {
-                  final glow = 0.5 + 0.5 * math.sin(seconds * 1.7);
-                  return plate(glow);
-                },
-              ),
-      ),
+      onTap: onTap,
+      clock: clock,
+      tapKey: ValueKey('capture-node-${_pointKey(point)}'),
     );
   }
 }
@@ -2223,47 +2192,6 @@ class _DataSmartCore extends StatelessWidget {
   }
 }
 
-class _LinkLamp extends StatelessWidget {
-  const _LinkLamp({
-    required this.color,
-    required this.live,
-    required this.clock,
-  });
-
-  final Color color;
-  final bool live;
-  final ValueNotifier<double>? clock;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!live || clock == null) return _dot(1);
-    return ValueListenableBuilder<double>(
-      valueListenable: clock!,
-      builder: (context, seconds, _) {
-        final wave = math.sin(seconds * 5);
-        return _dot(0.25 + 0.75 * (0.5 + 0.5 * wave));
-      },
-    );
-  }
-
-  Widget _dot(double opacity) {
-    return Container(
-      width: 7,
-      height: 7,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: color.withValues(alpha: opacity),
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.55 * opacity),
-            blurRadius: 3,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _BeaconPainter extends CustomPainter {
   _BeaconPainter({
     required this.color,
@@ -2339,9 +2267,17 @@ class _BeaconPainter extends CustomPainter {
 }
 
 class _NetworkHeader extends StatelessWidget {
-  const _NetworkHeader({required this.points});
+  const _NetworkHeader({
+    required this.points,
+    required this.locationMode,
+    required this.onToggleLocation,
+    this.askBar,
+  });
 
   final List<Map<String, dynamic>> points;
+  final bool locationMode;
+  final VoidCallback? onToggleLocation;
+  final Widget? askBar;
 
   @override
   Widget build(BuildContext context) {
@@ -2349,37 +2285,65 @@ class _NetworkHeader extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Esquema de telemetría',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: Color(0xFFF4F8F6),
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  height: 1.15,
-                  letterSpacing: -0.2,
+          child: askBar != null
+              ? askBar!
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      locationMode ? 'Ubicaciones' : 'Esquema de telemetría',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFFF4F8F6),
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        height: 1.15,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      captureNetworkSubtitle(points),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF8FA3A4),
+                        fontSize: 12,
+                        height: 1.25,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      captureServicePulse(points),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFFC5D5D4),
+                        fontSize: 12,
+                        height: 1.3,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                captureNetworkSubtitle(points),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Color(0xFF8FA3A4),
-                  fontSize: 12,
-                  height: 1.25,
-                ),
-              ),
-            ],
-          ),
         ),
-        const SizedBox(width: 12),
+        if (onToggleLocation != null) ...[
+          const SizedBox(width: 4),
+          IconButton(
+            key: const ValueKey('capture-location-toggle'),
+            tooltip: locationMode ? 'Volver al esquema' : 'Ver ubicaciones',
+            onPressed: onToggleLocation,
+            visualDensity: VisualDensity.compact,
+            icon: Icon(
+              locationMode ? Icons.hub_outlined : Icons.location_on_outlined,
+              color: const Color(0xFF9CC8C2),
+              size: 20,
+            ),
+          ),
+        ],
+        const SizedBox(width: 4),
         const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
@@ -2520,9 +2484,7 @@ class _FocusShell extends StatelessWidget {
         radius: 16,
         strength: 1.1,
         child: AnimatedSwitcher(
-          duration: motion
-              ? const Duration(milliseconds: 180)
-              : Duration.zero,
+          duration: motion ? const Duration(milliseconds: 180) : Duration.zero,
           switchInCurve: Curves.easeOutCubic,
           switchOutCurve: Curves.easeInCubic,
           child: _FocusedPoint(
@@ -2911,86 +2873,6 @@ class _EmptyNetwork extends StatelessWidget {
   }
 }
 
-/// Encuadre para que todos los puntos quepan, dejando aire al título.
-@visibleForTesting
-({LatLng center, double zoom}) captureCameraFor(
-  Size size,
-  List<LatLng> points,
-) {
-  if (points.isEmpty || size.width < 32 || size.height < 32) {
-    return (center: const LatLng(-33.45, -70.66), zoom: 5);
-  }
-  var minLat = points.first.latitude;
-  var maxLat = minLat;
-  var minLon = points.first.longitude;
-  var maxLon = minLon;
-  for (final point in points) {
-    minLat = math.min(minLat, point.latitude);
-    maxLat = math.max(maxLat, point.latitude);
-    minLon = math.min(minLon, point.longitude);
-    maxLon = math.max(maxLon, point.longitude);
-  }
-  final center = LatLng((minLat + maxLat) / 2, (minLon + maxLon) / 2);
-  if ((maxLat - minLat).abs() < 0.0008 && (maxLon - minLon).abs() < 0.0008) {
-    return (center: center, zoom: 13);
-  }
-
-  final padX = math.min(56.0, size.width * 0.12);
-  final padTop = math.min(128.0, size.height * 0.24);
-  final padBottom = math.min(80.0, size.height * 0.14);
-  final availW = math.max(48.0, size.width - padX * 2);
-  final availH = math.max(48.0, size.height - padTop - padBottom);
-  final dx = math.max((maxLon - minLon).abs() / 360, 1e-9);
-  final dy = math.max((_mercatorY(minLat) - _mercatorY(maxLat)).abs(), 1e-9);
-  final zoomX = math.log(availW / (256 * dx)) / math.ln2;
-  final zoomY = math.log(availH / (256 * dy)) / math.ln2;
-  // Un nivel de aire para que la red no quede pegada al borde del visor.
-  final zoom = (math.min(zoomX, zoomY) - 1.1).clamp(3.0, 13.0);
-  return (center: center, zoom: zoom);
-}
-
-double _mercatorY(double latitude) {
-  final sine = math.sin(latitude * math.pi / 180);
-  return 0.5 - math.log((1 + sine) / (1 - sine)) / (4 * math.pi);
-}
-
-/// Coordenada del punto. Cero o ausente no cuenta como GPS.
-@visibleForTesting
-LatLng? captureLatLng(Map<String, dynamic> point) {
-  final lat =
-      _coordinate(point['lat']) ??
-      _coordinate(point['latitude']) ??
-      _nestedCoordinate(point, 'lat');
-  final lon =
-      _coordinate(point['lon']) ??
-      _coordinate(point['lng']) ??
-      _coordinate(point['longitude']) ??
-      _nestedCoordinate(point, 'lon') ??
-      _nestedCoordinate(point, 'lng');
-  if (lat == null || lon == null || lat == 0 || lon == 0) return null;
-  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
-  return LatLng(lat, lon);
-}
-
-double? _nestedCoordinate(Map<String, dynamic> point, String key) {
-  for (final nest in ['location', 'dga', 'geo']) {
-    final value = point[nest];
-    if (value is Map) {
-      final parsed = _coordinate(value[key]);
-      if (parsed != null) return parsed;
-    }
-  }
-  return null;
-}
-
-double? _coordinate(dynamic value) {
-  if (value is num) return value.toDouble();
-  if (value is String) {
-    return double.tryParse(value.trim().replaceAll(',', '.'));
-  }
-  return null;
-}
-
 /// Nombre de proyecto usado para agrupar la red. Vacío si no hay.
 @visibleForTesting
 String captureProjectKey(Map<String, dynamic> point) {
@@ -3164,6 +3046,50 @@ List<(int, int)> _spanningTree(
     if (links.length == nodes.length - 1) break;
   }
   return links;
+}
+
+/// Estado vivo del servicio a partir de los puntos cargados.
+@visibleForTesting
+String captureServicePulse(List<Map<String, dynamic>> points, {DateTime? now}) {
+  if (points.isEmpty) return 'Smart Hydro · sin puntos asignados';
+  final mix = captureLinkCounts(points);
+  final clock = now ?? DateTime.now();
+  final latest = _newestReading(points);
+  final reading = latest == null
+      ? 'sin lectura'
+      : 'última lectura ${_readingAge(latest, clock)}';
+  String count(int value, String one, String many) =>
+      value == 1 ? '1 $one' : '$value $many';
+  return 'Smart Hydro · ${count(mix.connected, 'en línea', 'en línea')} · ${count(mix.warning, 'atención', 'en atención')} · ${count(mix.incident, 'incidencia', 'incidencias')} · $reading';
+}
+
+DateTime? _newestReading(List<Map<String, dynamic>> points) {
+  DateTime? best;
+  for (final point in points) {
+    final telemetry = point['latest_telemetry'];
+    if (telemetry is! Map) continue;
+    final parsed = DateTime.tryParse(
+      '${telemetry['date_time_medition']}',
+    )?.toLocal();
+    if (parsed == null) continue;
+    if (best == null || parsed.isAfter(best)) best = parsed;
+  }
+  return best;
+}
+
+String _readingAge(DateTime time, DateTime now) {
+  final delta = now.difference(time);
+  if (delta.isNegative || delta.inSeconds < 60) return 'ahora';
+  if (delta.inMinutes < 60) {
+    final minutes = delta.inMinutes;
+    return minutes <= 1 ? 'hace 1 min' : 'hace $minutes min';
+  }
+  if (delta.inHours < 24) {
+    final hours = delta.inHours;
+    return hours <= 1 ? 'hace 1 h' : 'hace $hours h';
+  }
+  if (delta.inDays == 1) return 'ayer';
+  return 'hace ${delta.inDays} días';
 }
 
 /// Línea bajo el título: cuántos puntos hay y si la vista usa GPS.

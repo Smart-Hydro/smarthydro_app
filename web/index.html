@@ -59,7 +59,11 @@
     // El slot vive en el shadow root de flt-glass-pane. El CSS de la
     // página no entra ahí, y sin este color el hueco se ve blanco.
     (function () {
-      var css = 'flt-platform-view, flt-platform-view-slot { background: #081216 !important; }';
+      var css = 'flt-platform-view, flt-platform-view-slot { background: #081216 !important; }'
+        + '.maplibregl-ctrl-attrib{background-color:rgba(11,23,27,.82)!important;border-radius:8px!important;box-shadow:none!important;max-width:70vw!important;}'
+        + '.maplibregl-ctrl-attrib-inner{color:#C5D5D4!important;font-size:10px!important;}'
+        + '.maplibregl-ctrl-attrib a,.maplibregl-ctrl-attrib a:visited{color:#8FD0E4!important;}'
+        + '.maplibregl-ctrl-attrib-button{background-color:rgba(11,23,27,.82)!important;}';
       function inject(root) {
         if (!root || root.getElementById('pv-slot-dark')) return;
         var style = document.createElement('style');

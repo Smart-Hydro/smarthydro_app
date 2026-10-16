@@ -20,7 +20,7 @@ void main() {
     expect(
       find.descendant(
         of: find
-            .ancestor(of: find.text('Avisos'), matching: find.byType(Column))
+            .ancestor(of: find.text('Eventos'), matching: find.byType(Column))
             .first,
         matching: find.text('3'),
       ),
@@ -29,7 +29,7 @@ void main() {
     expect(
       find.descendant(
         of: find
-            .ancestor(of: find.text('Más'), matching: find.byType(Column))
+            .ancestor(of: find.text('Apps'), matching: find.byType(Column))
             .first,
         matching: find.text('3'),
       ),

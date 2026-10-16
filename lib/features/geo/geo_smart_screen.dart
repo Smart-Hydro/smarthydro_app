@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:pointer_interceptor/pointer_interceptor.dart';
 
+import '../../core/brand.dart';
+import '../../shared/ui/hydro_ui.dart';
 import '../../shared/widgets/hydro_glass.dart';
 import '../dashboard/point_link.dart';
+import 'capture_coordinates.dart';
+import 'capture_location_map.dart';
 
 class GeoSmartScreen extends StatefulWidget {
   const GeoSmartScreen({
@@ -20,80 +23,63 @@ class GeoSmartScreen extends StatefulWidget {
 }
 
 class _GeoSmartScreenState extends State<GeoSmartScreen> {
-  final MapController _map = MapController();
-  bool _ready = false;
   int? _selectedId;
+  var _pulse = 0;
 
-  void _focus(LatLng location, {double zoom = 13}) {
-    if (!_ready) return;
-    _map.move(location, zoom);
+  @override
+  void initState() {
+    super.initState();
+    _selectedId = _firstLocatedId(widget.points);
   }
 
-  void _frame(List<_LocatedPoint> points) {
-    if (!_ready || points.isEmpty) return;
-    if (points.length == 1) {
-      _map.move(points.first.location, 13);
-      return;
-    }
-    _map.fitCamera(
-      CameraFit.bounds(
-        bounds: LatLngBounds.fromPoints([
-          for (final point in points) point.location,
-        ]),
-        padding: const EdgeInsets.fromLTRB(36, 36, 36, 28),
-      ),
+  @override
+  void didUpdateWidget(covariant GeoSmartScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final located = _geolocated(widget.points);
+    final still = located.any((point) => _intId(point['id']) == _selectedId);
+    if (still) return;
+    _selectedId = located.isEmpty ? null : _intId(located.first['id']);
+  }
+
+  void _choose(int? id) {
+    if (id == null) return;
+    setState(() {
+      _selectedId = id;
+      _pulse++;
+    });
+  }
+
+  void _step(int delta) {
+    final located = _geolocated(widget.points);
+    if (located.length < 2) return;
+    var index = located.indexWhere(
+      (point) => _intId(point['id']) == _selectedId,
     );
+    if (index < 0) index = 0;
+    final next = (index + delta) % located.length;
+    final safe = next < 0 ? next + located.length : next;
+    _choose(_intId(located[safe]['id']));
   }
 
   @override
   Widget build(BuildContext context) {
-    final geolocated = widget.points
-        .map((point) {
-          final lat = _coordinate(point['lat']);
-          final lon = _coordinate(point['lon']);
-          if (lat == null || lon == null || lat == 0 || lon == 0) return null;
-          return _LocatedPoint(point: point, location: LatLng(lat, lon));
-        })
-        .whereType<_LocatedPoint>()
-        .toList(growable: false);
-    final center = geolocated.isEmpty
-        ? const LatLng(-33.4489, -70.6693)
-        : LatLng(
-            geolocated
-                    .map((item) => item.location.latitude)
-                    .reduce((a, b) => a + b) /
-                geolocated.length,
-            geolocated
-                    .map((item) => item.location.longitude)
-                    .reduce((a, b) => a + b) /
-                geolocated.length,
-          );
-
+    final geolocated = _geolocated(widget.points);
     final missingGps = widget.points.length - geolocated.length;
-    _LocatedPoint? selected;
-    for (final item in geolocated) {
-      if (_intId(item.point['id']) == _selectedId) {
-        selected = item;
+    Map<String, dynamic>? chosen;
+    for (final point in geolocated) {
+      if (_intId(point['id']) == _selectedId) {
+        chosen = point;
         break;
       }
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('GEO Smart'),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: Center(
-              child: Text(
-                missingGps == 0
-                    ? '${geolocated.length} en el mapa'
-                    : '${geolocated.length} en el mapa · $missingGps sin GPS',
-              ),
-            ),
-          ),
-        ],
-      ),
+    final countLine = missingGps == 0
+        ? '${geolocated.length} en el mapa'
+        : '${geolocated.length} en el mapa · $missingGps sin GPS';
+    return HydroPage(
+      title: 'Ubicaciones',
+      maxWidth: 1280,
+      subtitle: Text(countLine, style: HydroText.subtitle),
       body: geolocated.isEmpty
           ? _NoGpsPoints(
               points: widget.points,
@@ -102,256 +88,161 @@ class _GeoSmartScreenState extends State<GeoSmartScreen> {
           : Column(
               children: [
                 Expanded(
-                  child: FlutterMap(
-                    mapController: _map,
-                    options: MapOptions(
-                      initialCenter: center,
-                      initialZoom: geolocated.length == 1 ? 12 : 5.2,
-                      minZoom: 3,
-                      maxZoom: 18,
-                      onMapReady: () {
-                        _ready = true;
-                        _frame(geolocated);
-                      },
-                    ),
+                  child: Stack(
                     children: [
-                      TileLayer(
-                        urlTemplate:
-                            'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-                        userAgentPackageName: 'cl.smarthydro.smarthydro_app',
-                        maxNativeZoom: 19,
+                      Positioned.fill(
+                        child: CaptureLocationMap(
+                          points: widget.points,
+                          selectedKey: _selectedId?.toString(),
+                          locateTick: _pulse,
+                          onSelect: (point) => _choose(_intId(point['id'])),
+                        ),
                       ),
-                      MarkerLayer(
-                        markers: [
-                          for (final item in geolocated)
-                            Marker(
-                              point: item.location,
-                              width: 54,
-                              height: 64,
-                              child: Tooltip(
-                                message:
-                                    item.point['title']?.toString() ?? 'Punto',
-                                child: GestureDetector(
-                                  onTap: () {
-                                    setState(
-                                      () => _selectedId = _intId(
-                                        item.point['id'],
-                                      ),
-                                    );
-                                    _focus(item.location);
-                                  },
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Container(
-                                        width: 38,
-                                        height: 38,
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFF102328),
-                                          shape: BoxShape.circle,
-                                          border: Border.all(
-                                            color: _linkColor(item.point),
-                                            width: 2.5,
-                                          ),
-                                          boxShadow: const [
-                                            BoxShadow(
-                                              color: Color(0x44000000),
-                                              blurRadius: 9,
-                                              offset: Offset(0, 3),
-                                            ),
-                                          ],
-                                        ),
-                                        child: Icon(
-                                          Icons.water_drop_rounded,
-                                          color: _linkColor(item.point),
-                                          size: 19,
-                                        ),
-                                      ),
-                                      Container(
-                                        width: 2,
-                                        height: 9,
-                                        color: _linkColor(item.point),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
+                      if (geolocated.length > 1) ...[
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Padding(
+                            padding: const EdgeInsets.only(left: 8),
+                            child: _StepButton(
+                              icon: Icons.chevron_left,
+                              label: 'Punto anterior',
+                              onTap: () => _step(-1),
                             ),
-                        ],
-                      ),
-                      const RichAttributionWidget(
-                        attributions: [
-                          TextSourceAttribution('© OpenStreetMap © CARTO'),
-                        ],
-                      ),
+                          ),
+                        ),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: _StepButton(
+                              icon: Icons.chevron_right,
+                              label: 'Siguiente punto',
+                              onTap: () => _step(1),
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
-                if (selected != null)
-                  _MapInfo(
-                    point: selected.point,
-                    onOpen: () => widget.onSelectPoint(selected!.point),
+                if (chosen case final point?)
+                  _PointSheet(
+                    point: point,
+                    onOpen: () => widget.onSelectPoint(point),
+                    onSee: () => setState(() => _pulse++),
                   ),
-                SizedBox(
-                  height: 86,
-                  child: ListView.separated(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 12,
-                    ),
-                    scrollDirection: Axis.horizontal,
-                    itemCount: geolocated.length,
-                    separatorBuilder: (_, _) => const SizedBox(width: 10),
-                    itemBuilder: (context, index) {
-                      final item = geolocated[index];
-                      final id = _intId(item.point['id']);
-                      return SizedBox(
-                        width: 220,
-                        child: _MapPointCard(
-                          point: item.point,
-                          selected: id != null && id == _selectedId,
-                          onOpen: () => widget.onSelectPoint(item.point),
-                          onFocus: () {
-                            setState(() => _selectedId = id);
-                            _focus(item.location);
-                          },
-                        ),
-                      );
-                    },
-                  ),
-                ),
               ],
             ),
     );
   }
 }
 
-class _LocatedPoint {
-  const _LocatedPoint({required this.point, required this.location});
-
-  final Map<String, dynamic> point;
-  final LatLng location;
-}
-
-class _MapPointCard extends StatelessWidget {
-  const _MapPointCard({
-    required this.point,
-    required this.onOpen,
-    this.onFocus,
-    this.selected = false,
-  });
+class _PointSheet extends StatelessWidget {
+  const _PointSheet({required this.point, required this.onOpen, this.onSee});
 
   final Map<String, dynamic> point;
   final VoidCallback onOpen;
-  final VoidCallback? onFocus;
-  final bool selected;
 
-  @override
-  Widget build(BuildContext context) => HydroGlass(
-    onTap: onFocus ?? onOpen,
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-    radius: 16,
-    child: Row(
-      children: [
-        Icon(Icons.water_drop_outlined, color: _linkColor(point)),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            point['title']?.toString() ?? 'Punto',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-            ),
-          ),
-        ),
-        if (onFocus != null)
-          IconButton(
-            tooltip: 'Ver captura',
-            onPressed: onOpen,
-            icon: const Icon(
-              Icons.north_east_rounded,
-              color: Color(0xFF91A8AA),
-              size: 18,
-            ),
-          ),
-      ],
-    ),
-  );
-}
-
-class _MapInfo extends StatelessWidget {
-  const _MapInfo({required this.point, required this.onOpen});
-
-  final Map<String, dynamic> point;
-  final VoidCallback onOpen;
+  /// Muestra el agua en la coordenada. Si falta, el botón abre el punto.
+  final VoidCallback? onSee;
 
   @override
   Widget build(BuildContext context) {
     final telemetry = _asMap(point['latest_telemetry']);
     final dga = _asMap(point['dga']);
-    final surface = '${dga['type_dga']}'.toUpperCase() == 'SUPERFICIAL';
+    final type = '${point['type_dga'] ?? dga['type_dga']}'.toUpperCase();
+    final surface = type == 'SUPERFICIAL';
     final flow = telemetry['flow'];
     final level = telemetry['water_table'] ?? telemetry['nivel'];
     final when = telemetry['date_time_medition'];
+    final project = point['project_name']?.toString();
+    final where = project == null || project.isEmpty || project == 'null'
+        ? null
+        : project;
+    final title = point['title']?.toString().trim();
+    final name = title == null || title.isEmpty || title == 'null'
+        ? 'Punto'
+        : title;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
       child: HydroGlass(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-        radius: 18,
+        frosted: true,
+        padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+        radius: 16,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                Icon(
-                  Icons.water_drop_rounded,
-                  color: _linkColor(point),
-                  size: 18,
-                ),
-                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    point['title']?.toString() ?? 'Punto',
+                    name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w800),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                    ),
                   ),
                 ),
-                Text(
-                  surface ? 'Agua superficial' : 'Pozo',
-                  style: const TextStyle(
-                    color: Color(0xFF9AB0B1),
-                    fontSize: 11,
+                TextButton(
+                  onPressed: onOpen,
+                  style: TextButton.styleFrom(
+                    foregroundColor: IkoluColors.cyan,
+                    visualDensity: VisualDensity.compact,
                   ),
+                  child: Text(onSee == null ? 'Ver el punto' : 'Entrar'),
                 ),
               ],
             ),
-            const SizedBox(height: 6),
-            Text(
-              '${pointLinkLabel(pointLinkOf(point))} · ${point['project_name'] ?? 'Proyecto'}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Color(0xFFB7C8C7), fontSize: 12),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Caudal ${_reading(flow, 'L/s')} · nivel ${_reading(level, 'm')}',
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
             const SizedBox(height: 2),
             Text(
-              'Última medición ${_when(when)}',
-              style: const TextStyle(color: Color(0xFF9AB0B1), fontSize: 11),
-            ),
-            const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
-                onPressed: onOpen,
-                child: const Text('Ver captura'),
+              [
+                pointLinkLabel(pointLinkOf(point)),
+                surface ? 'Superficial' : 'Pozo',
+                ?where,
+              ].join(' · '),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: _linkColor(point),
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
               ),
             ),
+            const SizedBox(height: 6),
+            Text(
+              '${_reading(flow, 'L/s')} · ${_reading(level, 'm')} · ${_when(when)}',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFFB7C8C7),
+                fontSize: 12,
+                height: 1.35,
+              ),
+            ),
+            if (onSee != null) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                height: 36,
+                child: TextButton(
+                  key: const ValueKey('ubicacion-ver-punto'),
+                  onPressed: onSee,
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFF062026),
+                    backgroundColor: IkoluColors.cyan,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Text(
+                    'Ver el punto',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -360,6 +251,52 @@ class _MapInfo extends StatelessWidget {
 }
 
 int? _intId(dynamic value) => value is int ? value : int.tryParse('$value');
+
+List<Map<String, dynamic>> _geolocated(List<Map<String, dynamic>> points) => [
+  for (final point in points)
+    if (captureLatLng(point) != null) point,
+];
+
+int? _firstLocatedId(List<Map<String, dynamic>> points) {
+  final located = _geolocated(points);
+  if (located.isEmpty) return null;
+  return _intId(located.first['id']);
+}
+
+class _StepButton extends StatelessWidget {
+  const _StepButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return PointerInterceptor(
+      child: Semantics(
+        button: true,
+        label: label,
+        child: Material(
+          color: const Color(0xFF102328),
+          shape: const CircleBorder(side: BorderSide(color: Color(0xFF2A4E58))),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: SizedBox(
+              width: 40,
+              height: 40,
+              child: Icon(icon, size: 22, color: const Color(0xFFD7E6E3)),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 Map<String, dynamic> _asMap(dynamic value) {
   if (value is Map<String, dynamic>) return value;
@@ -411,18 +348,10 @@ class _NoGpsPoints extends StatelessWidget {
         ),
         const SizedBox(height: 20),
         for (final point in points) ...[
-          _MapPointCard(point: point, onOpen: () => onSelectPoint(point)),
+          _PointSheet(point: point, onOpen: () => onSelectPoint(point)),
           const SizedBox(height: 8),
         ],
       ],
     ),
   );
-}
-
-double? _coordinate(dynamic value) {
-  if (value is num) return value.toDouble();
-  if (value is String) {
-    return double.tryParse(value.trim().replaceAll(',', '.'));
-  }
-  return null;
 }

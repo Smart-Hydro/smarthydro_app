@@ -1,11 +1,32 @@
+import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 import 'package:smarthydro_app/features/dashboard/widgets/capture_network_map.dart';
+import 'package:smarthydro_app/features/geo/capture_location_map.dart';
 
 void main() {
+  test('agrupa puntos que caen dentro de 80 px', () {
+    final close = clusterByPixel(const [
+      Offset(0, 0),
+      Offset(40, 10),
+      Offset(300, 40),
+    ]);
+    expect(close, hasLength(2));
+    expect(close.first, [0, 1]);
+    expect(close.last, [2]);
+
+    expect(clusterByPixel(const [Offset(0, 0), Offset(10, 0)], radius: 0), [
+      [0],
+      [1],
+    ]);
+    expect(clusterByPixel(const []), isEmpty);
+  });
+
   test('lee coordenadas y descarta el cero', () {
     expect(
       captureLatLng({'lat': -33.45, 'lon': -70.66}),
@@ -20,10 +41,7 @@ void main() {
   });
 
   test('layoutPointWindows con 0 no emite rects', () {
-    expect(
-      layoutPointWindows(area: const Size(1200, 800), count: 0),
-      isEmpty,
-    );
+    expect(layoutPointWindows(area: const Size(1200, 800), count: 0), isEmpty);
   });
 
   test('layoutPointWindows un panel abajo a la izquierda', () {
@@ -40,10 +58,7 @@ void main() {
   });
 
   test('layoutPointWindows tres paneles caben en una fila', () {
-    final rects = layoutPointWindows(
-      area: const Size(1200, 800),
-      count: 3,
-    );
+    final rects = layoutPointWindows(area: const Size(1200, 800), count: 3);
     expect(rects, hasLength(3));
     expect(rects[0].top, rects[1].top);
     expect(rects[1].top, rects[2].top);
@@ -942,10 +957,7 @@ void main() {
             body: SizedBox(
               width: 390,
               height: 640,
-              child: _map(
-                points: [point],
-                onPointSelected: (_) {},
-              ),
+              child: _map(points: [point], onPointSelected: (_) {}),
             ),
           ),
         ),
@@ -991,8 +1003,14 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 280));
 
-    expect(find.byKey(const ValueKey('capture-point-window-1')), findsOneWidget);
-    expect(find.byKey(const ValueKey('capture-point-window-2')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('capture-point-window-1')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('capture-point-window-2')),
+      findsOneWidget,
+    );
     expect(find.byKey(const ValueKey('capture-view-records')), findsNothing);
     final w1 = tester.getRect(
       find.byKey(const ValueKey('capture-point-window-1')),
@@ -1021,7 +1039,10 @@ void main() {
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('capture-node-1')));
     await tester.pump(const Duration(milliseconds: 280));
-    expect(find.byKey(const ValueKey('capture-point-window-1')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('capture-point-window-1')),
+      findsOneWidget,
+    );
     await tester.tap(find.byKey(const ValueKey('capture-node-1')));
     await tester.pump(const Duration(milliseconds: 280));
     expect(find.byKey(const ValueKey('capture-point-window-1')), findsNothing);
@@ -1054,7 +1075,10 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 280));
     expect(find.byKey(const ValueKey('capture-point-window-1')), findsNothing);
-    expect(find.byKey(const ValueKey('capture-point-window-2')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('capture-point-window-2')),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -1085,7 +1109,10 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 280));
     expect(find.byKey(const ValueKey('capture-point-window-1')), findsNothing);
-    expect(find.byKey(const ValueKey('capture-point-window-2')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('capture-point-window-2')),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -1131,6 +1158,164 @@ void main() {
     await tester.pump(const Duration(milliseconds: 280));
     expect(find.text('En esta vista'), findsNothing);
     expect(find.text('Entrar'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('ver ubicaciones abre el mapa Leaflet de los puntos', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 420,
+            height: 640,
+            child: _map(
+              locationTiles: _QuietTiles(),
+              points: [
+                _point(
+                  id: 7,
+                  title: 'Pozo Norte',
+                  project: 'Fundo',
+                  lat: -33.45,
+                  lon: -70.66,
+                ),
+                _point(id: 9, title: 'Sin GPS', project: 'Fundo'),
+              ],
+              onPointSelected: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Esquema de telemetría'), findsOneWidget);
+    expect(find.byKey(const ValueKey('capture-node-7')), findsOneWidget);
+    expect(find.byType(CaptureLocationMap), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('capture-location-toggle')));
+    await tester.pump();
+
+    expect(find.text('Ubicaciones'), findsOneWidget);
+    expect(find.byType(CaptureLocationMap), findsOneWidget);
+    expect(find.byType(FlutterMap), findsOneWidget);
+    expect(find.text('© Esri © OpenStreetMap'), findsOneWidget);
+    expect(find.text('1 punto sin coordenadas'), findsOneWidget);
+    expect(find.byKey(const ValueKey('capture-node-7')), findsNothing);
+    expect(find.byKey(const ValueKey('capture-location-7')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('capture-location-7')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 280));
+    expect(find.text('Entrar'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('capture-location-toggle')));
+    await tester.pump();
+    expect(find.text('Esquema de telemetría'), findsOneWidget);
+    expect(find.byKey(const ValueKey('capture-node-7')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('puntos cercanos se agrupan y al tocar se separan', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 420,
+            height: 640,
+            child: _map(
+              locationTiles: _QuietTiles(),
+              points: [
+                _point(
+                  id: 7,
+                  title: 'Pozo Norte',
+                  project: 'Fundo',
+                  lat: -33.450,
+                  lon: -70.660,
+                ),
+                _point(
+                  id: 8,
+                  title: 'Pozo Vecino',
+                  project: 'Fundo',
+                  lat: -33.451,
+                  lon: -70.661,
+                ),
+              ],
+              onPointSelected: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('capture-location-toggle')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('2'), findsOneWidget);
+    expect(find.byKey(const ValueKey('capture-location-7')), findsNothing);
+    expect(find.byKey(const ValueKey('capture-location-8')), findsNothing);
+
+    await tester.tap(find.text('2'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('2'), findsNothing);
+    expect(find.byKey(const ValueKey('capture-location-7')), findsOneWidget);
+    expect(find.byKey(const ValueKey('capture-location-8')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('puntos lejos siguen como logger', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 420,
+            height: 640,
+            child: _map(
+              locationTiles: _QuietTiles(),
+              points: [
+                _point(
+                  id: 7,
+                  title: 'Pozo Norte',
+                  project: 'Fundo',
+                  lat: -33.45,
+                  lon: -70.66,
+                ),
+                _point(
+                  id: 8,
+                  title: 'Canal Sur',
+                  project: 'Fundo',
+                  lat: -41.47,
+                  lon: -72.94,
+                  surface: true,
+                ),
+              ],
+              onPointSelected: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('capture-location-toggle')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('capture-location-7')), findsOneWidget);
+    expect(find.byKey(const ValueKey('capture-location-8')), findsOneWidget);
+    expect(
+      find.byWidgetPredicate((widget) {
+        final key = widget.key;
+        return key is ValueKey<String> &&
+            key.value.startsWith('capture-cluster-');
+      }),
+      findsNothing,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -1453,9 +1638,7 @@ Widget _wideApp({required Widget child}) {
         child: nested!,
       );
     },
-    home: Scaffold(
-      body: SizedBox(width: 1200, height: 800, child: child),
-    ),
+    home: Scaffold(body: SizedBox(width: 1200, height: 800, child: child)),
   );
 }
 
@@ -1469,6 +1652,7 @@ CaptureNetworkMap _map({
   double bottomInset = 0,
   double topInset = 0,
   double openBottomClearance = 8,
+  TileProvider? locationTiles,
 }) {
   return CaptureNetworkMap(
     points: points,
@@ -1480,7 +1664,19 @@ CaptureNetworkMap _map({
     topInset: topInset,
     openBottomClearance: openBottomClearance,
     checkApiHealth: () async => true,
+    locationTiles: locationTiles,
   );
+}
+
+final Uint8List _quietPng = base64Decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=',
+);
+
+class _QuietTiles extends TileProvider {
+  @override
+  ImageProvider getImage(TileCoordinates coordinates, TileLayer options) {
+    return MemoryImage(_quietPng);
+  }
 }
 
 Map<String, dynamic> _point({

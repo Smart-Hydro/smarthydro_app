@@ -12,12 +12,12 @@ class LiquidDestination {
 
 const liquidDestinations = <LiquidDestination>[
   LiquidDestination(icon: Icons.sensors_rounded, label: 'IoT'),
-  LiquidDestination(icon: Icons.notifications_none_rounded, label: 'Avisos'),
-  LiquidDestination(icon: Icons.apps_rounded, label: 'Más'),
+  LiquidDestination(icon: Icons.terminal_rounded, label: 'Eventos'),
+  LiquidDestination(icon: Icons.apps_rounded, label: 'Apps'),
   LiquidDestination(icon: Icons.person_outline_rounded, label: 'Perfil'),
 ];
 
-/// Avisos es el segundo destino. El conteo de no leídos va en ese ítem.
+/// Eventos es el segundo destino. El conteo de no leídos va en ese ítem.
 const liquidAvisosIndex = 1;
 
 /// Perfil es el último destino del menú.

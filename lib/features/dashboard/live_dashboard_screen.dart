@@ -21,6 +21,8 @@ import '../../shared/navigation/hydro_page_route.dart';
 import '../../shared/ui/hydro_ui.dart';
 import '../../shared/widgets/hydro_glass.dart';
 import '../../shared/widgets/liquid_nav.dart';
+import '../assistant/quick_ask.dart';
+import 'avisos_inbox.dart';
 import 'capture_stage.dart';
 import 'point_link.dart';
 import 'point_history_sheet.dart';
@@ -51,7 +53,6 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
   List<Map<String, dynamic>> _compliance = const [];
   Map<String, dynamic> _eventsSummary = const {};
   List<Map<String, dynamic>> _systemEvents = const [];
-  String? _ticketError;
   String? _eventsError;
   bool _loadingNotifications = false;
   bool _notificationRequestInFlight = false;
@@ -173,7 +174,6 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
     _notificationRequestInFlight = true;
     setState(() {
       _loadingNotifications = true;
-      _ticketError = null;
       _eventsError = null;
     });
     try {
@@ -187,7 +187,7 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
             .then<Object?>((value) => value)
             .catchError((Object error) => error),
         _api
-            .systemEvents(widget.session.token)
+            .systemEvents(widget.session.token, pageSize: 100)
             .then<Object?>((value) => value)
             .catchError((Object error) => error),
       ]);
@@ -196,8 +196,6 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
         final tickets = results[0];
         if (tickets is Map<String, dynamic>) {
           _ticketNotifications = tickets;
-        } else {
-          _ticketError = _messageFrom(tickets);
         }
         final summary = results[1];
         if (summary is Map<String, dynamic>) {
@@ -219,21 +217,6 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
   String _messageFrom(Object? error) => error is SmartHydroApiException
       ? error.message
       : 'No se pudo cargar esta sección.';
-
-  Future<void> _markAsRead(Map<String, dynamic> notification) async {
-    final id = notification['id'];
-    final numericId = id is int ? id : int.tryParse('$id');
-    if (numericId == null || notification['is_read'] == true) return;
-    try {
-      await _api.markTicketNotificationsRead(widget.session.token, [numericId]);
-      await _loadNotifications();
-    } on SmartHydroApiException catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
-    }
-  }
 
   Future<void> _toggleEmailNotifications(bool enabled) async {
     setState(() => _savingEmailPreference = true);
@@ -304,8 +287,8 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Home: mapa edge-to-edge (sin SafeArea que deje franja).
-          // Otras tabs: SafeArea + header normal.
+          // Home: mapa edge-to-edge, con la barra de pregunta arriba.
+          // El resto: sin cabecera, y un robot para preguntar.
           if (isHome)
             Positioned.fill(child: switcher)
           else
@@ -319,15 +302,20 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
                       onSelect: _selectTab,
                     ),
                   Expanded(
-                    child: Column(
+                    child: Stack(
                       children: [
-                        _AppHeader(
-                          userName: widget.session.displayName,
-                          unreadCount: unreadCount,
-                          onNotifications: () => _selectTab(liquidAvisosIndex),
-                          onProfile: () => _selectTab(liquidProfileIndex),
+                        Positioned.fill(child: switcher),
+                        Positioned(
+                          right: 12,
+                          bottom: 12,
+                          child: QuickAsk(
+                            peek: true,
+                            n1Api: ref.read(n1ApiProvider),
+                            token: widget.session.token,
+                            email: widget.session.email,
+                            pointIds: _pointIds(_points),
+                          ),
                         ),
-                        Expanded(child: switcher),
                       ],
                     ),
                   ),
@@ -364,6 +352,12 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
                 openTickets: _openTickets,
                 compliance: _compliance,
                 bottomInset: wide ? 12 : 88,
+                askBar: QuickAsk(
+                  n1Api: ref.read(n1ApiProvider),
+                  token: widget.session.token,
+                  email: widget.session.email,
+                  pointIds: _pointIds(_points),
+                ),
                 onRefresh: _loadDashboard,
                 onOpenSupport: _openSupport,
                 onRequestSupport: _requestSupportFor,
@@ -372,16 +366,12 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
               );
       case 1:
         return _NotificationsTab(
-          tickets: _ticketNotifications,
           summary: _eventsSummary,
           events: _systemEvents,
           loading: _loadingNotifications,
-          ticketError: _ticketError,
           eventsError: _eventsError,
           onRefresh: _loadNotifications,
-          onMarkRead: _markAsRead,
           onOpenPoint: _openPointById,
-          onEvent: _presentEvent,
         );
       case 2:
         return _MoreTab(
@@ -535,160 +525,6 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
       );
     }
   }
-
-  Future<void> _presentEvent(Map<String, dynamic> event) async {
-    final point = _map(event['point']);
-    final pointId = _int(point['id'], _int(event['point_id'], -1));
-    final hasPoint = pointId > 0;
-    final label = _eventTypeLabel(event['event_type']?.toString());
-    final severity = (event['severity'] as String? ?? 'INFO').toUpperCase();
-    final title = event['title']?.toString().trim();
-    final message = event['message']?.toString() ?? '';
-    final when = _formatTimestamp(event['created'] ?? event['created_at']);
-    final pointName =
-        point['display_name'] ?? point['title'] ?? point['name'] ?? 'Punto';
-    final created = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      backgroundColor: const Color(0xFF102328),
-      constraints: const BoxConstraints(maxWidth: 640),
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  (title == null || title.isEmpty) ? label : title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 18,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '$label · $pointName · $when',
-                  style: const TextStyle(
-                    color: Color(0xFF9AB0B1),
-                    fontSize: 12,
-                  ),
-                ),
-                if (message.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Text(message, style: const TextStyle(height: 1.4)),
-                ],
-                const SizedBox(height: 18),
-                FilledButton(
-                  onPressed: hasPoint
-                      ? () => Navigator.pop(context, 'point')
-                      : null,
-                  child: const Text('Ver punto'),
-                ),
-                const SizedBox(height: 8),
-                OutlinedButton(
-                  onPressed: hasPoint
-                      ? () => Navigator.pop(context, 'ticket')
-                      : null,
-                  child: const Text('Crear solicitud'),
-                ),
-                if (!hasPoint) ...[
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Este evento no trae un punto, así que no se puede abrir ni referenciar una solicitud.',
-                    style: TextStyle(color: Color(0xFF9AB0B1), fontSize: 12),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        );
-      },
-    );
-    if (!mounted || created == null) return;
-    if (created == 'point') {
-      _openPointById(pointId);
-      return;
-    }
-    final priority = switch (severity) {
-      'CRITICAL' || 'ALERT' => 'ALTA',
-      'WARNING' => 'MEDIA',
-      _ => 'BAJA',
-    };
-    final subject = (title == null || title.isEmpty) ? label : title;
-    final description = [
-      'Evento #${event['id'] ?? '—'}',
-      'Tipo: $label',
-      'Severidad: $severity',
-      'Fecha: $when',
-      'Punto: $pointName',
-      if (message.isNotEmpty) '',
-      if (message.isNotEmpty) message,
-    ].join('\n');
-    await showSupportTicketSheet(
-      context,
-      api: _api,
-      token: widget.session.token,
-      points: _points,
-      initialTitle: subject,
-      initialDescription: description,
-      initialPointId: pointId,
-      initialPriority: priority,
-      lockPoint: true,
-    );
-  }
-}
-
-class _AppHeader extends StatelessWidget {
-  const _AppHeader({
-    required this.userName,
-    required this.unreadCount,
-    required this.onNotifications,
-    required this.onProfile,
-  });
-
-  final String userName;
-  final int unreadCount;
-  final VoidCallback onNotifications;
-  final VoidCallback onProfile;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 6, 20, 6),
-      child: Row(
-        children: [
-          const _BrandCompact(),
-          const Spacer(),
-          IconButton(
-            tooltip: 'Ver avisos',
-            onPressed: onNotifications,
-            icon: Badge(
-              isLabelVisible: unreadCount > 0,
-              label: Text(unreadCount > 99 ? '99+' : '$unreadCount'),
-              child: const Icon(Icons.notifications_none_rounded),
-            ),
-          ),
-          const SizedBox(width: 4),
-          InkWell(
-            borderRadius: BorderRadius.circular(24),
-            onTap: onProfile,
-            child: CircleAvatar(
-              radius: 18,
-              backgroundColor: const Color(0xFF24454A),
-              child: Text(
-                userName.isEmpty
-                    ? 'SH'
-                    : userName.substring(0, 1).toUpperCase(),
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _DashboardTab extends StatefulWidget {
@@ -697,6 +533,7 @@ class _DashboardTab extends StatefulWidget {
     required this.openTickets,
     required this.compliance,
     required this.bottomInset,
+    required this.askBar,
     required this.onRefresh,
     required this.onOpenSupport,
     required this.onRequestSupport,
@@ -708,6 +545,7 @@ class _DashboardTab extends StatefulWidget {
   final List<Map<String, dynamic>> openTickets;
   final List<Map<String, dynamic>> compliance;
   final double bottomInset;
+  final Widget askBar;
   final Future<void> Function() onRefresh;
   final VoidCallback onOpenSupport;
   final ValueChanged<Map<String, dynamic>> onRequestSupport;
@@ -770,6 +608,7 @@ class _DashboardTabState extends State<_DashboardTab> {
           compliance: widget.compliance,
           onPointSelected: widget.onSelectPoint,
           onRequestSupport: widget.onRequestSupport,
+          askBar: widget.askBar,
           topInset: topSafe + 8,
           bottomInset: widget.bottomInset + (toSummary == null ? 0 : 56),
           // La ficha abierta queda 10 px sobre Resumen. En ancho no hay chip.
@@ -861,11 +700,7 @@ class _DashboardTabState extends State<_DashboardTab> {
 
 /// Franja peek del resumen en móvil: invita a abrir el panel completo.
 class _ResumenPeek extends StatefulWidget {
-  const _ResumenPeek({
-    super.key,
-    required this.points,
-    required this.onCommit,
-  });
+  const _ResumenPeek({super.key, required this.points, required this.onCommit});
 
   /// Alto de respaldo hasta medir la franja.
   static const double height = 52;
@@ -2378,130 +2213,31 @@ String _complianceLabel(DgaInfo info) {
 
 class _NotificationsTab extends StatelessWidget {
   const _NotificationsTab({
-    required this.tickets,
     required this.summary,
     required this.events,
     required this.loading,
-    required this.ticketError,
     required this.eventsError,
     required this.onRefresh,
-    required this.onMarkRead,
     required this.onOpenPoint,
-    required this.onEvent,
   });
 
-  final Map<String, dynamic> tickets;
   final Map<String, dynamic> summary;
   final List<Map<String, dynamic>> events;
   final bool loading;
-  final String? ticketError;
   final String? eventsError;
-  final VoidCallback onRefresh;
-  final ValueChanged<Map<String, dynamic>> onMarkRead;
+  final Future<void> Function() onRefresh;
   final ValueChanged<dynamic> onOpenPoint;
-  final ValueChanged<Map<String, dynamic>> onEvent;
 
   @override
   Widget build(BuildContext context) {
-    final results = tickets['results'];
-    final notifications = results is List
-        ? results
-              .whereType<Map>()
-              .map((item) => Map<String, dynamic>.from(item))
-              .toList()
-        : <Map<String, dynamic>>[];
-
-    final grouped = <String, List<Map<String, dynamic>>>{};
-    for (final event in events) {
-      final stamp = event['created'] ?? event['created_at'];
-      final parsed = DateTime.tryParse(stamp?.toString() ?? '')?.toLocal();
-      final key = parsed == null
-          ? 'Sin fecha'
-          : '${parsed.day.toString().padLeft(2, '0')}/${parsed.month.toString().padLeft(2, '0')}';
-      grouped.putIfAbsent(key, () => []).add(event);
-    }
-
-    return RefreshIndicator(
-      onRefresh: () async => onRefresh(),
-      child: HydroFrame(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: Text(
-                      '${_int(summary['total_events'])} incidencias en ${_int(summary['period_days'], 7)} días · ${_int(tickets['unread_count'])} avisos de soporte sin leer',
-                      style: const TextStyle(color: Color(0xFF9AB0B1)),
-                    ),
-                  ),
-                ),
-                IconButton(
-                  onPressed: onRefresh,
-                  tooltip: 'Actualizar avisos',
-                  icon: const Icon(Icons.refresh_rounded),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            _IncidentBoard(summary: summary),
-            const SizedBox(height: 22),
-            const _SectionTitle(title: 'Soporte y tickets'),
-            if (ticketError != null)
-              _InlineError(message: ticketError!, onRetry: onRefresh)
-            else if (notifications.isEmpty && loading)
-              const _BoneRows(count: 2)
-            else if (notifications.isEmpty)
-              const _EmptyState(
-                icon: Icons.mark_email_read_outlined,
-                title: 'No tienes notificaciones de tickets',
-                message:
-                    'Los comentarios y cambios en tus solicitudes aparecerán aquí.',
-              )
-            else
-              for (final notification in notifications) ...[
-                _TicketNotificationCard(
-                  notification: notification,
-                  onMarkRead: () => onMarkRead(notification),
-                ),
-                const SizedBox(height: 9),
-              ],
-            const SizedBox(height: 24),
-            const _SectionTitle(title: 'Eventos de sistema'),
-            if (eventsError != null)
-              _InlineError(message: eventsError!, onRetry: onRefresh)
-            else if (events.isEmpty && loading)
-              const _BoneRows(count: 4)
-            else if (events.isEmpty)
-              const _EmptyState(
-                icon: Icons.sensors_outlined,
-                title: 'No hay eventos recientes',
-                message:
-                    'Las desconexiones y eventos de tus puntos aparecerán aquí.',
-              )
-            else
-              for (final entry in grouped.entries) ...[
-                Padding(
-                  padding: const EdgeInsets.only(top: 8, bottom: 8),
-                  child: Text(
-                    entry.key,
-                    style: const TextStyle(
-                      color: Color(0xFF9AB0B1),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                for (final event in entry.value) ...[
-                  _SystemEventCard(event: event, onTap: () => onEvent(event)),
-                  const SizedBox(height: 12),
-                ],
-              ],
-          ],
-        ),
+    return HydroFrame(
+      child: AvisosInbox(
+        summary: summary,
+        events: events,
+        loading: loading,
+        eventsError: eventsError,
+        onRefresh: onRefresh,
+        onOpenPoint: (id) => onOpenPoint(id),
       ),
     );
   }
@@ -2526,83 +2262,198 @@ class _MoreTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cards = <Widget>[
-      _ActionCard(
-        icon: Icons.map_outlined,
-        title: 'GEO Smart',
-        subtitle: 'Ubicación y estado de tus puntos con GPS',
+    const apps = <_AppSpec>[
+      _AppSpec(
+        icon: Icons.public_rounded,
+        title: 'Ubicaciones',
+        subtitle: 'Mapa de los puntos',
         color: IkoluColors.cyan,
-        onTap: onOpenGeo,
       ),
-      _ActionCard(
+      _AppSpec(
         icon: Icons.query_stats_rounded,
         title: 'Análisis',
-        subtitle: 'Rendimiento y errores de cada punto',
-        color: IkoluColors.cyan,
-        onTap: onOpenAnalysis,
+        subtitle: 'Cómo va cada punto',
+        color: IkoluColors.info,
       ),
-      _ActionCard(
+      _AppSpec(
         icon: Icons.balance_rounded,
-        title: 'DGA / SMA',
-        subtitle: 'Cumplimiento, límites autorizados y mediciones',
-        color: IkoluColors.cyan,
-        onTap: onOpenCompliance,
+        title: 'Cumplimiento',
+        subtitle: 'Límites y mediciones',
+        color: IkoluColors.connected,
       ),
-      _ActionCard(
+      _AppSpec(
         icon: Icons.smart_toy_outlined,
         title: 'Asistente',
-        subtitle: 'Consulta a SmartHydro N1: estado, reportes y tickets',
-        color: IkoluColors.cyan,
-        onTap: onOpenAssistant,
+        subtitle: 'Pregunta a N1',
+        color: IkoluColors.cyanSoft,
       ),
-      _ActionCard(
+      _AppSpec(
         icon: Icons.support_agent_rounded,
         title: 'Soporte',
-        subtitle: 'Crear y seguir solicitudes para tus puntos',
-        color: IkoluColors.cyan,
-        onTap: onOpenSupport,
+        subtitle: 'Solicitudes',
+        color: IkoluColors.warning,
       ),
-      _ActionCard(
+      _AppSpec(
         icon: Icons.table_view_outlined,
-        title: 'Descarga de registros',
-        subtitle: 'Consulta y comparte datos de telemetría en CSV',
-        color: IkoluColors.cyan,
-        onTap: onOpenReports,
+        title: 'Registros',
+        subtitle: 'Telemetría en CSV',
+        color: Color(0xFFC5D5D4),
       ),
+    ];
+    final open = <VoidCallback>[
+      onOpenGeo,
+      onOpenAnalysis,
+      onOpenCompliance,
+      onOpenAssistant,
+      onOpenSupport,
+      onOpenReports,
     ];
     return HydroFrame(
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final two = constraints.maxWidth >= 720;
-          final children = <Widget>[];
-          if (!two) {
-            for (var i = 0; i < cards.length; i++) {
-              children.add(cards[i]);
-              if (i != cards.length - 1) {
-                children.add(const SizedBox(height: 10));
-              }
-            }
-          } else {
-            for (var i = 0; i < cards.length; i += 2) {
-              final next = i + 1 < cards.length ? cards[i + 1] : null;
-              children.add(
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: cards[i]),
-                    const SizedBox(width: 10),
-                    Expanded(child: next ?? const SizedBox.shrink()),
-                  ],
+          final columns = constraints.maxWidth >= 900
+              ? 4
+              : constraints.maxWidth >= 560
+              ? 3
+              : 2;
+          return CustomScrollView(
+            slivers: [
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(22, 8, 22, 4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Apps',
+                        style: TextStyle(
+                          color: Color(0xFFE8F2F1),
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.4,
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        'Las herramientas de tu red',
+                        style: TextStyle(
+                          color: Color(0xFF9AB0B1),
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              );
-              children.add(const SizedBox(height: 10));
-            }
-          }
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-            children: children,
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 18, 16, 32),
+                sliver: SliverGrid(
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: columns,
+                    mainAxisSpacing: 8,
+                    crossAxisSpacing: 8,
+                    childAspectRatio: 0.92,
+                  ),
+                  delegate: SliverChildBuilderDelegate((context, index) {
+                    return _AppTile(spec: apps[index], onTap: open[index]);
+                  }, childCount: apps.length),
+                ),
+              ),
+            ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _AppSpec {
+  const _AppSpec({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color color;
+}
+
+class _AppTile extends StatelessWidget {
+  const _AppTile({required this.spec, required this.onTap});
+
+  final _AppSpec spec;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        splashColor: spec.color.withValues(alpha: 0.12),
+        highlightColor: spec.color.withValues(alpha: 0.06),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 10, 8, 8),
+          child: Column(
+            children: [
+              Container(
+                width: 68,
+                height: 68,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      spec.color.withValues(alpha: 0.95),
+                      spec.color.withValues(alpha: 0.42),
+                    ],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: spec.color.withValues(alpha: 0.28),
+                      blurRadius: 16,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: Icon(
+                  spec.icon,
+                  color: const Color(0xFF071416),
+                  size: 30,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                spec.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 13,
+                  letterSpacing: -0.2,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                spec.subtitle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Color(0xFF9AB0B1),
+                  fontSize: 11,
+                  height: 1.25,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -3051,7 +2902,6 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
           token: widget.token,
           pointId: _int(widget.point['id']),
           pointTitle: widget.point['title']?.toString() ?? 'Punto',
-          points: [widget.point],
         ),
       ),
     );
@@ -3308,7 +3158,7 @@ class _PointGlassDock extends StatelessWidget {
                 ),
                 Expanded(
                   child: _DockTile(
-                    icon: Icons.sensors_outlined,
+                    icon: Icons.terminal_rounded,
                     label: 'Sistema',
                     onTap: onSystem,
                   ),
@@ -3576,418 +3426,14 @@ class _ReplayScrubber extends StatelessWidget {
   }
 }
 
-class _TicketNotificationCard extends StatelessWidget {
-  const _TicketNotificationCard({
-    required this.notification,
-    required this.onMarkRead,
-  });
-
-  final Map<String, dynamic> notification;
-  final VoidCallback onMarkRead;
-
-  @override
-  Widget build(BuildContext context) {
-    final read = notification['is_read'] == true;
-    return _SectionCard(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            read
-                ? Icons.mark_email_read_outlined
-                : Icons.mark_email_unread_outlined,
-            color: read ? const Color(0xFF82999A) : IkoluColors.cyan,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  notification['ticket_title'] as String? ??
-                      'Actualización de soporte',
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  notification['message'] as String? ?? '',
-                  style: const TextStyle(color: Color(0xFFB5C7C5), height: 1.4),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  _formatTimestamp(notification['created']),
-                  style: const TextStyle(
-                    color: Color(0xFF81999A),
-                    fontSize: 9.5,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (!read)
-            IconButton(
-              tooltip: 'Marcar como leída',
-              onPressed: onMarkRead,
-              icon: const Icon(Icons.done_rounded),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SystemEventCard extends StatelessWidget {
-  const _SystemEventCard({required this.event, required this.onTap});
-
-  final Map<String, dynamic> event;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final severity = (event['severity'] as String? ?? '').toUpperCase();
-    final color = severity == 'CRITICAL' || severity == 'ALERT'
-        ? const Color(0xFFFF847A)
-        : severity == 'WARNING'
-        ? const Color(0xFFFFC46B)
-        : const Color(0xFF69B9FF);
-    final point = _map(event['point']);
-    final pointName =
-        event['point_title'] ??
-        point['name'] ??
-        point['title'] ??
-        event['point_name'] ??
-        'Punto';
-    return _SectionCard(
-      onTap: onTap,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 8,
-            height: 8,
-            margin: const EdgeInsets.only(top: 6),
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _eventTypeLabel(event['event_type']?.toString()),
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  event['title'] as String? ?? 'Evento de sistema',
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  event['message'] as String? ?? '',
-                  style: const TextStyle(color: Color(0xFFB5C7C5), height: 1.4),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '$pointName · ${_formatTimestamp(event['created'] ?? event['created_at'])}',
-                  style: const TextStyle(
-                    color: Color(0xFF81999A),
-                    fontSize: 9.5,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const Icon(Icons.chevron_right_rounded, color: Color(0xFF91A8AA)),
-        ],
-      ),
-    );
-  }
-}
-
-class _IncidentBoard extends StatelessWidget {
-  const _IncidentBoard({required this.summary});
-
-  final Map<String, dynamic> summary;
-
-  @override
-  Widget build(BuildContext context) {
-    final severity = _map(summary['by_severity']);
-    final critical = _int(severity['CRITICAL']);
-    final warning = _int(severity['WARNING']);
-    final info = _int(severity['INFO']);
-    final timeline = summary['timeline'];
-    final days = timeline is List
-        ? timeline
-              .whereType<Map>()
-              .map((item) => Map<String, dynamic>.from(item))
-              .toList(growable: false)
-        : const <Map<String, dynamic>>[];
-    final peak = days.fold<int>(1, (maxCount, day) {
-      final count = _int(day['count']);
-      return count > maxCount ? count : maxCount;
-    });
-
-    return _SectionCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Incidencias de telemetría',
-            style: TextStyle(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'Desconexiones, errores de medición y saltos. No incluye reglas solo configuradas.',
-            style: TextStyle(
-              color: Color(0xFF9AB0B1),
-              fontSize: 11,
-              height: 1.35,
-            ),
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              _IncidentCount(
-                label: 'Críticas',
-                value: critical,
-                color: const Color(0xFFFF847A),
-              ),
-              _IncidentCount(
-                label: 'Avisos',
-                value: warning,
-                color: const Color(0xFFFFC46B),
-              ),
-              _IncidentCount(
-                label: 'Info',
-                value: info,
-                color: const Color(0xFF69B9FF),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          _SeverityTrack(critical: critical, warning: warning, info: info),
-          if (days.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            SizedBox(
-              height: 64,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  for (final day in days)
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 3),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            Expanded(
-                              child: Align(
-                                alignment: Alignment.bottomCenter,
-                                child: FractionallySizedBox(
-                                  heightFactor: (_int(day['count']) / peak)
-                                      .clamp(0.08, 1),
-                                  widthFactor: 1,
-                                  child: const DecoratedBox(
-                                    decoration: BoxDecoration(
-                                      color: IkoluColors.cyan,
-                                      borderRadius: BorderRadius.vertical(
-                                        top: Radius.circular(4),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _shortDay(day['date']),
-                              style: const TextStyle(
-                                color: Color(0xFF81999A),
-                                fontSize: 8,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _IncidentCount extends StatelessWidget {
-  const _IncidentCount({
-    required this.label,
-    required this.value,
-    required this.color,
-  });
-
-  final String label;
-  final int value;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) => Expanded(
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          '$value',
-          style: TextStyle(
-            color: color,
-            fontSize: 22,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        Text(
-          label,
-          style: const TextStyle(color: Color(0xFF9AB0B1), fontSize: 11),
-        ),
-      ],
-    ),
-  );
-}
-
-class _SeverityTrack extends StatelessWidget {
-  const _SeverityTrack({
-    required this.critical,
-    required this.warning,
-    required this.info,
-  });
-
-  final int critical;
-  final int warning;
-  final int info;
-
-  @override
-  Widget build(BuildContext context) {
-    final total = critical + warning + info;
-    if (total == 0) {
-      return const Text(
-        'Sin incidencias en el período.',
-        style: TextStyle(color: Color(0xFF9AB0B1), fontSize: 12),
-      );
-    }
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: SizedBox(
-        height: 8,
-        child: Row(
-          children: [
-            if (critical > 0)
-              Expanded(
-                flex: critical,
-                child: const ColoredBox(color: Color(0xFFFF847A)),
-              ),
-            if (warning > 0)
-              Expanded(
-                flex: warning,
-                child: const ColoredBox(color: Color(0xFFFFC46B)),
-              ),
-            if (info > 0)
-              Expanded(
-                flex: info,
-                child: const ColoredBox(color: Color(0xFF69B9FF)),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-String _eventTypeLabel(String? type) => switch (type) {
-  'DISCONNECTION' => 'Desconexión',
-  'RECONNECTION' => 'Reconexión',
-  'MEASUREMENT_ERROR' => 'Error de medición',
-  'COUNTER_RESET' => 'Reinicio de contador',
-  'MASSIVE_JUMP_BLOCKED' => 'Salto bloqueado',
-  'TOKEN_REFRESH' => 'Token',
-  'API_ERROR' => 'Error de API',
-  _ => 'Evento',
-};
-
-String _shortDay(dynamic value) {
-  final text = value?.toString() ?? '';
-  if (text.length >= 10) return text.substring(8, 10);
-  return text;
-}
-
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle({required this.title});
-
-  final String title;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 10),
-    child: Text(
-      title,
-      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
-    ),
-  );
-}
-
-class _ActionCard extends StatelessWidget {
-  const _ActionCard({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.color,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final Color color;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => _SectionCard(
-    onTap: onTap,
-    child: Row(
-      children: [
-        Icon(icon, color: color),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: const TextStyle(color: Color(0xFF9AB0B1), fontSize: 11),
-              ),
-            ],
-          ),
-        ),
-        const Icon(Icons.chevron_right_rounded, color: Color(0xFF91A8AA)),
-      ],
-    ),
-  );
-}
-
 class _SectionCard extends StatelessWidget {
-  const _SectionCard({required this.child, this.onTap});
+  const _SectionCard({required this.child});
 
   final Widget child;
-  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return HydroGlass(onTap: onTap, child: child);
+    return HydroGlass(child: child);
   }
 }
 
@@ -4043,19 +3489,6 @@ class _InlineError extends StatelessWidget {
   );
 }
 
-class _BoneRows extends StatelessWidget {
-  const _BoneRows({required this.count});
-
-  final int count;
-
-  @override
-  Widget build(BuildContext context) => HydroShimmer(
-    child: Column(
-      children: [for (var i = 0; i < count; i++) HydroBoneRow(seed: i)],
-    ),
-  );
-}
-
 /// Reserva el mismo hueco que el mapa: el visor arriba y el pase al resumen abajo.
 class _HomeLoading extends StatelessWidget {
   const _HomeLoading();
@@ -4088,13 +3521,6 @@ class _ErrorState extends StatelessWidget {
   );
 }
 
-class _BrandCompact extends StatelessWidget {
-  const _BrandCompact();
-
-  @override
-  Widget build(BuildContext context) => const IkoluBrand(size: 26);
-}
-
 String? _str(dynamic value) {
   if (value == null) return null;
   final text = '$value'.trim();
@@ -4106,6 +3532,16 @@ double? _optionalNumber(dynamic value) {
   if (value == null) return null;
   if (value is num) return value.toDouble();
   return double.tryParse('$value');
+}
+
+List<int> _pointIds(List<Map<String, dynamic>> points) {
+  final ids = <int>[];
+  for (final point in points) {
+    final raw = point['id'];
+    final id = raw is int ? raw : int.tryParse('$raw');
+    if (id != null && id > 0) ids.add(id);
+  }
+  return ids;
 }
 
 int _int(dynamic value, [int fallback = 0]) {
