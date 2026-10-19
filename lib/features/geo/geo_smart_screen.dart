@@ -13,6 +13,7 @@ class GeoSmartScreen extends StatefulWidget {
     required this.points,
     required this.onSelectPoint,
     this.showBack = true,
+    this.loadPublicPoints,
     super.key,
   });
 
@@ -22,13 +23,60 @@ class GeoSmartScreen extends StatefulWidget {
   /// En el shell de escritorio el rail reemplaza a Volver.
   final bool showBack;
 
+  /// Capa pública del observatorio. Sin ella no aparece el botón.
+  final Future<List<Map<String, dynamic>>> Function()? loadPublicPoints;
+
   @override
   State<GeoSmartScreen> createState() => _GeoSmartScreenState();
 }
 
+/// La capa pública es la misma para todos y cambia poco: se reutiliza entre
+/// aperturas de Ubicaciones.
+({DateTime at, List<Map<String, dynamic>> points})? _publicCache;
+const _publicTtl = Duration(minutes: 10);
+
 class _GeoSmartScreenState extends State<GeoSmartScreen> {
   int? _selectedId;
   var _pulse = 0;
+  var _publicOn = false;
+  var _publicLoading = false;
+  List<Map<String, dynamic>> _public = const [];
+
+  Future<void> _togglePublic() async {
+    if (_publicOn) {
+      setState(() => _publicOn = false);
+      return;
+    }
+    final cached = _publicCache;
+    if (cached != null && DateTime.now().difference(cached.at) < _publicTtl) {
+      setState(() {
+        _public = cached.points;
+        _publicOn = true;
+      });
+      return;
+    }
+    final load = widget.loadPublicPoints;
+    if (load == null || _publicLoading) return;
+    setState(() => _publicLoading = true);
+    try {
+      final points = await load();
+      _publicCache = (at: DateTime.now(), points: points);
+      if (!mounted) return;
+      setState(() {
+        _public = points;
+        _publicOn = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text('No se pudo cargar la capa pública. Intenta de nuevo.'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _publicLoading = false);
+    }
+  }
 
   @override
   void initState() {
@@ -99,9 +147,23 @@ class _GeoSmartScreenState extends State<GeoSmartScreen> {
                           points: widget.points,
                           selectedKey: _selectedId?.toString(),
                           locateTick: _pulse,
+                          publicPoints: _publicOn ? _public : const [],
                           onSelect: (point) => _choose(_intId(point['id'])),
                         ),
                       ),
+                      if (widget.loadPublicPoints != null)
+                        Align(
+                          alignment: Alignment.topRight,
+                          child: Padding(
+                            padding: const EdgeInsets.all(10),
+                            child: _PublicLayerToggle(
+                              on: _publicOn,
+                              loading: _publicLoading,
+                              count: _public.length,
+                              onTap: _togglePublic,
+                            ),
+                          ),
+                        ),
                       if (geolocated.length > 1) ...[
                         Align(
                           alignment: Alignment.centerLeft,
@@ -265,6 +327,77 @@ int? _firstLocatedId(List<Map<String, dynamic>> points) {
   final located = _geolocated(points);
   if (located.isEmpty) return null;
   return _intId(located.first['id']);
+}
+
+/// Enciende la capa pública del observatorio sobre el mapa.
+class _PublicLayerToggle extends StatelessWidget {
+  const _PublicLayerToggle({
+    required this.on,
+    required this.loading,
+    required this.count,
+    required this.onTap,
+  });
+
+  final bool on;
+  final bool loading;
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = on && count > 0
+        ? 'Observatorio DGA · $count'
+        : 'Observatorio DGA';
+    return Semantics(
+      button: true,
+      toggled: on,
+      label: 'Capa pública del observatorio DGA',
+      child: Material(
+        key: const ValueKey('ubicacion-capa-publica'),
+        color: on ? const Color(0xFF14363B) : const Color(0xE6102328),
+        shape: StadiumBorder(
+          side: BorderSide(
+            color: on ? IkoluColors.cyan : const Color(0xFF2A4E58),
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: loading ? null : onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 40),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (loading)
+                    const SizedBox.square(
+                      dimension: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  else
+                    Icon(
+                      on ? Icons.layers_rounded : Icons.layers_outlined,
+                      size: 16,
+                      color: on ? IkoluColors.cyan : const Color(0xFFD7E6E3),
+                    ),
+                  const SizedBox(width: 8),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: on ? IkoluColors.cyan : const Color(0xFFD7E6E3),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _StepButton extends StatelessWidget {

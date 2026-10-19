@@ -84,6 +84,19 @@ class SmartHydroApi {
     }
   }
 
+  /// Capa pública del observatorio (`GET /api/ik/observatory/public/`):
+  /// códigos DGA con coordenadas de todo Chile. Sin auth ni datos privados.
+  Future<List<Map<String, dynamic>>> observatoryPublicPoints() async {
+    try {
+      final response = await _dio.get<dynamic>('/api/ik/observatory/public/');
+      final points = _map(response.data)['points'];
+      if (points is! List) return const [];
+      return points.map(_map).toList(growable: false);
+    } on DioException catch (error) {
+      throw SmartHydroApiException(_messageFor(error));
+    }
+  }
+
   Future<SmartHydroSession> login({
     required String email,
     required String password,

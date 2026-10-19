@@ -1996,6 +1996,119 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('el inicio abre en el mapa, sin esquema ni botón para volver', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 420,
+            height: 640,
+            child: _map(
+              mapOnly: true,
+              locationTiles: _QuietTiles(),
+              points: [
+                _point(
+                  id: 7,
+                  title: 'Pozo Norte',
+                  project: 'Fundo',
+                  lat: -33.45,
+                  lon: -70.66,
+                ),
+              ],
+              onPointSelected: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(CaptureLocationMap), findsOneWidget);
+    expect(find.byKey(const ValueKey('capture-node-7')), findsNothing);
+    expect(find.byKey(const ValueKey('capture-location-toggle')), findsNothing);
+    expect(find.byKey(const ValueKey('capture-new-point')), findsOneWidget);
+    expect(find.byKey(const ValueKey('capture-zoom-in')), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('capture-location-7')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 280));
+    expect(find.text('Ver'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('en escritorio el mapa del inicio también abre la ficha', (
+    tester,
+  ) async {
+    _useDesktopSurface(tester);
+    await tester.pumpWidget(
+      _wideApp(
+        child: _map(
+          mapOnly: true,
+          locationTiles: _QuietTiles(),
+          points: [
+            _point(
+              id: 7,
+              title: 'Pozo Norte',
+              project: 'Fundo',
+              lat: -33.45,
+              lon: -70.66,
+            ),
+          ],
+          onPointSelected: (_) {},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('capture-location-7')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(const ValueKey('capture-board-brief')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('la capa pública se dibuja sin repetir los puntos propios', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 420,
+            height: 640,
+            child: CaptureLocationMap(
+              tileProvider: _QuietTiles(),
+              points: [
+                _point(
+                  id: 7,
+                  title: 'Pozo Norte',
+                  project: 'Fundo',
+                  lat: -33.45,
+                  lon: -70.66,
+                ),
+              ],
+              publicPoints: const [
+                {'id': 7, 'lat': -33.45, 'lon': -70.66, 'code': 'OB-1'},
+                {
+                  'id': 50,
+                  'lat': -33.5,
+                  'lon': -70.7,
+                  'code': 'OB-2',
+                  'type_dga': 'SUPERFICIAL',
+                },
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    final layer = tester.widget<CircleLayer>(find.byType(CircleLayer));
+    expect(layer.circles, hasLength(1));
+    expect(find.byKey(const ValueKey('capture-location-7')), findsOneWidget);
+  });
+
   testWidgets('puntos cercanos se agrupan y al tocar se separan', (
     tester,
   ) async {
@@ -2788,8 +2901,10 @@ CaptureNetworkMap _map({
   TileProvider? locationTiles,
   Widget? askBar,
   Widget? seatedWell,
+  bool mapOnly = false,
 }) {
   return CaptureNetworkMap(
+    mapOnly: mapOnly,
     points: points,
     onPointSelected: onPointSelected,
     openTickets: openTickets,

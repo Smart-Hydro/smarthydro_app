@@ -522,7 +522,11 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
   void _openGeo() {
     Navigator.of(context).push<void>(
       hydroPageRoute(
-        GeoSmartScreen(points: _points, onSelectPoint: _openPoint),
+        GeoSmartScreen(
+          points: _points,
+          onSelectPoint: _openPoint,
+          loadPublicPoints: _api.observatoryPublicPoints,
+        ),
       ),
     );
   }
@@ -611,6 +615,7 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
           points: _points,
           onSelectPoint: _openPoint,
           showBack: false,
+          loadPublicPoints: _api.observatoryPublicPoints,
         );
       case _ShellTool.analisis:
         return AnalysisScreen(
@@ -814,10 +819,11 @@ class _DashboardTabState extends State<_DashboardTab> {
       children: [
         // El painter del mapa pinta TODO el rect; solo el contenido
         // (puntos/tags) respeta safe top + bottom nav + rail desktop.
-        // El mapa late siempre: su RepaintBoundary deja quietos el rail y el
-        // panel lateral.
+        // Arrastrar o hacer zoom en el mapa no repinta el rail ni el panel
+        // lateral.
         RepaintBoundary(
           child: CaptureNetworkMap(
+            mapOnly: true,
             points: widget.points,
             openTickets: widget.openTickets,
             compliance: widget.compliance,

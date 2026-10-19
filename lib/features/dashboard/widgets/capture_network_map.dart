@@ -94,11 +94,16 @@ class CaptureNetworkMap extends StatelessWidget {
     this.userId,
     this.onConfigured,
     this.seatedWell,
+    this.mapOnly = false,
     super.key,
   });
 
   final List<Map<String, dynamic>> points;
   final ValueChanged<Map<String, dynamic>> onPointSelected;
+
+  /// El inicio es el mapa de ubicaciones, como el observatorio: sin esquema
+  /// ni botón para volver a él, y sin el agua animada detrás.
+  final bool mapOnly;
 
   /// Tickets abiertos que el inicio ya cargó. La ficha deja solo el soporte del punto.
   final List<Map<String, dynamic>> openTickets;
@@ -162,6 +167,7 @@ class CaptureNetworkMap extends StatelessWidget {
       userId: userId,
       onConfigured: onConfigured,
       seatedWell: seatedWell,
+      mapOnly: mapOnly,
     );
   }
 }
@@ -184,10 +190,12 @@ class _WaterView extends StatefulWidget {
     this.userId,
     this.onConfigured,
     this.seatedWell,
+    this.mapOnly = false,
   });
 
   final List<Map<String, dynamic>> points;
   final ValueChanged<Map<String, dynamic>> onOpen;
+  final bool mapOnly;
   final List<Map<String, dynamic>> openTickets;
   final List<Map<String, dynamic>> compliance;
   final ValueChanged<Map<String, dynamic>>? onRequestSupport;
@@ -270,9 +278,14 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
     return capturePointKey(widget.points[index]);
   }
 
+  /// El reloj mueve el agua y el zoom del esquema. Sin esquema a la vista no
+  /// corre.
+  bool get _tickerWanted => widget.seatedWell == null && !widget.mapOnly;
+
   @override
   void initState() {
     super.initState();
+    _showLocations = widget.mapOnly;
     _ticker = createTicker((elapsed) {
       _seconds.value = elapsed.inMicroseconds / 1e6;
       final previous = _lastTick;
@@ -281,7 +294,7 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
         _easeZoom((elapsed - previous).inMicroseconds / 1e6);
       }
     });
-    if (widget.seatedWell == null) _ticker!.start();
+    if (_tickerWanted) _ticker!.start();
     _refreshApiHealth();
   }
 
@@ -306,8 +319,9 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
       _panTarget = _shownPan;
       _swell = 0;
       _hubHoverShown = _hubHover ? 1 : 0;
-    } else if (widget.seatedWell != null) {
+    } else if (!_tickerWanted) {
       _ticker?.stop();
+      if (widget.mapOnly) _assemble.value = 1;
     } else {
       if (_ticker != null && !_ticker!.isActive) _ticker!.start();
       if (!_assemble.isAnimating && _assemble.value == 0) {
@@ -332,7 +346,7 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
       _selected = null;
     }
     if ((widget.seatedWell != null) == (oldWidget.seatedWell != null)) return;
-    if (widget.seatedWell != null || !_motion) {
+    if (!_tickerWanted || !_motion) {
       _ticker?.stop();
     } else if (_ticker != null && !_ticker!.isActive) {
       _ticker!.start();
@@ -967,7 +981,7 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                   onPanUpdate: (delta) {
                     if (_boardPan) _panBy(delta);
                   },
-                  child: waterLayer,
+                  child: widget.mapOnly ? const SizedBox.expand() : waterLayer,
                 ),
                 if (viewingScheme)
                   _SchemeZoom(
@@ -1038,6 +1052,34 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                       ),
                     ),
                   ),
+                if (_showLocations)
+                  Positioned(
+                    // Como el observatorio, el mapa va de borde a borde y el
+                    // encuadre deja libres el título, el rail y la barra.
+                    left: widget.mapOnly ? 0 : contentLeft,
+                    right: 0,
+                    top: widget.mapOnly ? 0 : contentTop,
+                    bottom: widget.mapOnly ? 0 : fieldBottom,
+                    child: CaptureLocationMap(
+                      points: widget.points,
+                      selectedKey: _locationSelectionKey(),
+                      tileProvider: widget.locationTiles,
+                      fitPadding: widget.mapOnly
+                          ? EdgeInsets.fromLTRB(
+                              contentLeft + 36,
+                              contentTop + 28,
+                              36,
+                              fieldBottom + captureStatsBand + 36,
+                            )
+                          : null,
+                      onSelect: (point) {
+                        final index = widget.points.indexOf(point);
+                        if (index >= 0) _select(index);
+                      },
+                    ),
+                  ),
+                // Después del mapa: con el mapa de borde a borde, el título
+                // y la pregunta quedan encima.
                 Positioned(
                   left: stage.left,
                   right: size.width - stage.right,
@@ -1051,22 +1093,6 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                     ),
                   ),
                 ),
-                if (_showLocations)
-                  Positioned(
-                    left: contentLeft,
-                    right: 0,
-                    top: contentTop,
-                    bottom: fieldBottom,
-                    child: CaptureLocationMap(
-                      points: widget.points,
-                      selectedKey: _locationSelectionKey(),
-                      tileProvider: widget.locationTiles,
-                      onSelect: (point) {
-                        final index = widget.points.indexOf(point);
-                        if (index >= 0) _select(index);
-                      },
-                    ),
-                  ),
                 if (viewingScheme && pages > 1)
                   Positioned(
                     left: stage.left,
@@ -1141,6 +1167,21 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                       ),
                     ),
                   ),
+                if (focus != null && !viewingScheme && wide)
+                  Positioned(
+                    key: const ValueKey('capture-board-brief'),
+                    right: captureEdgePad,
+                    bottom: fieldBottom + captureStatsBand + 6,
+                    width: captureBriefWidth,
+                    height: captureBriefHeight,
+                    child: _BriefPop(
+                      reveal: _seat,
+                      motion: _motion,
+                      side: CaptureBriefSide.above,
+                      aim: 0.5,
+                      child: _briefFor(focus),
+                    ),
+                  ),
                 if (focus != null && !wide)
                   Positioned(
                     left: captureEdgePad,
@@ -1160,7 +1201,7 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                       ),
                     ),
                   ),
-                if (viewingScheme || widget.points.isNotEmpty)
+                if (viewingScheme || widget.points.isNotEmpty || widget.mapOnly)
                   Positioned(
                     left: stage.left,
                     right: size.width - stage.right,
@@ -1182,7 +1223,7 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                           ),
                           const SizedBox(width: 8),
                         ],
-                        if (widget.points.isNotEmpty)
+                        if (widget.points.isNotEmpty && !widget.mapOnly)
                           _SchemeMode(
                             map: _showLocations,
                             onPressed: () => setState(() {
@@ -1198,7 +1239,9 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                             enabled: _zoomTarget < captureSchemeZoomMax - 0.001,
                             onTap: () => _setZoomTarget(_zoomTarget + 0.25),
                           ),
-                          const SizedBox(width: 8),
+                        ],
+                        if (viewingScheme || widget.mapOnly) ...[
+                          if (viewingScheme) const SizedBox(width: 8),
                           _ZoomStep(
                             key: const ValueKey('capture-new-point'),
                             icon: Icons.add_location_alt_outlined,
