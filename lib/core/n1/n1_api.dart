@@ -14,21 +14,26 @@ class N1Api {
   N1Api({required N1Config config, Dio? dio, bool? embedTokenInBody})
     : _config = config,
       _embedTokenInBody = embedTokenInBody ?? kIsWeb,
-      _dio =
-          dio ??
-          Dio(
-            BaseOptions(
-              connectTimeout: const Duration(seconds: 20),
-              receiveTimeout: const Duration(seconds: 90),
-              headers: const {'Accept': 'application/json'},
-              // Apps Script doPost responde 302 → googleusercontent.com/macros/echo.
-              // En nativo no re-POSTeammos el echo: GET a mano. En web el
-              // navegador sigue el 302 (CORS no expone Location).
-              followRedirects: true,
-              maxRedirects: 5,
-              validateStatus: (code) => code != null && code < 500,
-            ),
-          );
+      _dio = dio ?? _createDio(embedTokenInBody ?? kIsWeb);
+
+  static Dio _createDio(bool embedTokenInBody) {
+    return Dio(
+      BaseOptions(
+        // En web, connectTimeout>0 hace que Dio registre xhr.upload y el
+        // navegador dispare OPTIONS. Apps Script no manda CORS en OPTIONS.
+        connectTimeout: embedTokenInBody
+            ? Duration.zero
+            : const Duration(seconds: 20),
+        receiveTimeout: const Duration(seconds: 90),
+        headers: embedTokenInBody
+            ? const <String, dynamic>{}
+            : const {'Accept': 'application/json'},
+        followRedirects: true,
+        maxRedirects: 5,
+        validateStatus: (code) => code != null && code < 500,
+      ),
+    );
+  }
 
   final N1Config _config;
   final Dio _dio;
@@ -224,20 +229,22 @@ class N1Api {
       _base,
       data: _embedTokenInBody ? jsonEncode(body) : body,
       options: Options(
-        headers: {
-          'Accept': 'application/json',
-          if (_embedTokenInBody)
-            'Content-Type': 'text/plain;charset=utf-8'
-          else ...{
-            'Content-Type': 'application/json',
-            'Authorization': 'Token $token',
-          },
-        },
+        headers: _embedTokenInBody
+            ? const <String, dynamic>{}
+            : {
+                'Accept': 'application/json',
+                'Authorization': 'Token $token',
+              },
         contentType: _embedTokenInBody
             ? 'text/plain;charset=utf-8'
             : Headers.jsonContentType,
         followRedirects: _embedTokenInBody,
         maxRedirects: 5,
+        connectTimeout: _embedTokenInBody ? Duration.zero : null,
+        sendTimeout: _embedTokenInBody ? Duration.zero : null,
+        extra: _embedTokenInBody
+            ? const <String, dynamic>{'withCredentials': false}
+            : null,
         validateStatus: (code) => code != null && code < 500,
       ),
     );

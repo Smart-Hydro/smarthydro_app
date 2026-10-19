@@ -260,8 +260,12 @@ void main() {
 
     test('en web el token va en el cuerpo, sin Authorization', () async {
       late RequestOptions seen;
-      final dio = Dio()
-        ..httpClientAdapter = _Adapter((options) async {
+      final dio = Dio(
+        BaseOptions(
+          connectTimeout: const Duration(seconds: 20),
+          headers: const {'Accept': 'application/json'},
+        ),
+      )..httpClientAdapter = _Adapter((options) async {
           seen = options;
           return _json({'ok': true, 'text': 'ok', 'via': 'token'});
         });
@@ -280,6 +284,14 @@ void main() {
       expect(seen.headers['Authorization'], isNull);
       expect(seen.contentType, contains('text/plain'));
       expect(seen.followRedirects, isTrue);
+      // Dio web registra xhr.upload si hay connectTimeout: eso no es
+      // "simple request" y Apps Script no responde CORS al OPTIONS.
+      expect(seen.connectTimeout, Duration.zero);
+      expect(
+        seen.sendTimeout == null || seen.sendTimeout == Duration.zero,
+        isTrue,
+      );
+      expect(seen.extra['withCredentials'], isFalse);
       final raw = seen.data;
       expect(raw, isA<String>());
       final body = jsonDecode(raw as String) as Map<String, dynamic>;

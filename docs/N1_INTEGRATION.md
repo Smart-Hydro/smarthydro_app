@@ -46,7 +46,9 @@ flutter build web --dart-define=N1_WEB_APP_URL=…
 
 ## Apps Script redirects
 
-`doPost` responde `302` a `script.googleusercontent.com/macros/echo`. El cliente (`N1Api`) hace POST sin seguir redirects y luego **GET** del `Location` para leer el JSON. Re-POSTear el echo suele devolver HTML.
+`doPost` responde `302` a `script.googleusercontent.com/macros/echo`. En nativo el cliente hace POST sin seguir redirects y luego **GET** del `Location`. Re-POSTear el echo suele devolver HTML (405 sin CORS).
+
+En web (GitHub Pages) el POST es una petición CORS *simple*: `text/plain`, token en el JSON, sin `Authorization` y sin `connectTimeout` (Dio registraría `xhr.upload` y el navegador mandaría OPTIONS, que Apps Script no responde con CORS). El navegador sigue el 302 como GET al echo.
 
 Smoke (health + capabilities GET + ping unauthorized):
 
