@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'n1_config.dart';
 import 'n1_models.dart';
@@ -10,20 +11,19 @@ import 'n1_models.dart';
 /// Contrato: `docs/INTEGRATION_FLUTTER.md` en smarthydro-n1 (AppApi.gs).
 /// Ops: ping | capabilities | ask | report | list_files | create_ticket
 class N1Api {
-  N1Api({required N1Config config, Dio? dio})
+  N1Api({required N1Config config, Dio? dio, bool? embedTokenInBody})
     : _config = config,
+      _embedTokenInBody = embedTokenInBody ?? kIsWeb,
       _dio =
           dio ??
           Dio(
             BaseOptions(
               connectTimeout: const Duration(seconds: 20),
               receiveTimeout: const Duration(seconds: 90),
-              headers: const {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-              },
+              headers: const {'Accept': 'application/json'},
               // Apps Script doPost responde 302 → googleusercontent.com/macros/echo.
-              // Dio no debe re-POSTear el echo: lo resolvemos a mano con GET.
+              // En nativo no re-POSTeammos el echo: GET a mano. En web el
+              // navegador sigue el 302 (CORS no expone Location).
               followRedirects: true,
               maxRedirects: 5,
               validateStatus: (code) => code != null && code < 500,
@@ -32,6 +32,10 @@ class N1Api {
 
   final N1Config _config;
   final Dio _dio;
+
+  /// En web el token va en el JSON: `Authorization` dispara preflight y
+  /// Apps Script no responde CORS en OPTIONS.
+  final bool _embedTokenInBody;
 
   bool get isConfigured => _config.isConfigured;
 
@@ -185,10 +189,7 @@ class N1Api {
       'email': email,
     };
     try {
-      final response = await _postAppsScript(
-        payload: payload,
-        token: token,
-      );
+      final response = await _postAppsScript(payload: payload, token: token);
       final data = _map(response.data);
       final result = N1Response.fromJson(data);
       if (!result.ok) {
@@ -209,19 +210,38 @@ class N1Api {
 
   /// POST a `/exec` y, si Apps Script devuelve 302/303, GET del `Location`
   /// (echo JSON). Evita re-POST al echo, que suele devolver HTML.
+  ///
+  /// En web: `text/plain` + `token` en el cuerpo. AppApi.gs ya lee
+  /// `env.token`. Así no hay preflight CORS desde GitHub Pages.
   Future<Response<dynamic>> _postAppsScript({
     required Map<String, dynamic> payload,
     required String token,
   }) async {
+    final body = _embedTokenInBody
+        ? <String, dynamic>{...payload, 'token': token}
+        : payload;
     final response = await _dio.post<dynamic>(
       _base,
-      data: payload,
+      data: _embedTokenInBody ? jsonEncode(body) : body,
       options: Options(
-        headers: {'Authorization': 'Token $token'},
-        followRedirects: false,
+        headers: {
+          'Accept': 'application/json',
+          if (_embedTokenInBody)
+            'Content-Type': 'text/plain;charset=utf-8'
+          else ...{
+            'Content-Type': 'application/json',
+            'Authorization': 'Token $token',
+          },
+        },
+        contentType: _embedTokenInBody
+            ? 'text/plain;charset=utf-8'
+            : Headers.jsonContentType,
+        followRedirects: _embedTokenInBody,
+        maxRedirects: 5,
         validateStatus: (code) => code != null && code < 500,
       ),
     );
+    if (_embedTokenInBody) return response;
     final status = response.statusCode ?? 0;
     if (status != 301 && status != 302 && status != 303 && status != 307) {
       return response;

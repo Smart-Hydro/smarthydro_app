@@ -258,6 +258,36 @@ void main() {
       );
     });
 
+    test('en web el token va en el cuerpo, sin Authorization', () async {
+      late RequestOptions seen;
+      final dio = Dio()
+        ..httpClientAdapter = _Adapter((options) async {
+          seen = options;
+          return _json({'ok': true, 'text': 'ok', 'via': 'token'});
+        });
+      final api = N1Api(
+        config: const N1Config(
+          webAppUrl: 'https://script.google.com/macros/s/test/exec',
+        ),
+        dio: dio,
+        embedTokenInBody: true,
+      );
+      await api.ask(
+        token: 'tok-web',
+        requester: 'cliente@empresa.cl',
+        text: 'hola',
+      );
+      expect(seen.headers['Authorization'], isNull);
+      expect(seen.contentType, contains('text/plain'));
+      expect(seen.followRedirects, isTrue);
+      final raw = seen.data;
+      expect(raw, isA<String>());
+      final body = jsonDecode(raw as String) as Map<String, dynamic>;
+      expect(body['token'], 'tok-web');
+      expect(body['op'], 'ask');
+      expect(body['requester'], 'cliente@empresa.cl');
+    });
+
     test('POST 302 → GET Location (Apps Script echo)', () async {
       final calls = <RequestOptions>[];
       dio.httpClientAdapter = _Adapter((options) async {
@@ -283,18 +313,17 @@ void main() {
       await expectLater(
         () => api.ping(token: 'bad', requester: 'a@b.cl'),
         throwsA(
-          isA<N1ApiException>().having(
-            (e) => e.code,
-            'code',
-            'unauthorized',
-          ),
+          isA<N1ApiException>().having((e) => e.code, 'code', 'unauthorized'),
         ),
       );
       expect(calls, hasLength(2));
       expect(calls[0].method, 'POST');
       expect(calls[0].followRedirects, isFalse);
       expect(calls[1].method, 'GET');
-      expect(calls[1].uri.toString(), contains('googleusercontent.com/macros/echo'));
+      expect(
+        calls[1].uri.toString(),
+        contains('googleusercontent.com/macros/echo'),
+      );
     });
 
     test('sin N1_WEB_APP_URL falla con no_config', () async {
