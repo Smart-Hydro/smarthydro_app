@@ -14,6 +14,7 @@ class PointSystemScreen extends StatefulWidget {
     required this.token,
     required this.pointId,
     required this.pointTitle,
+    this.embedded = false,
     super.key,
   });
 
@@ -21,6 +22,9 @@ class PointSystemScreen extends StatefulWidget {
   final String token;
   final int pointId;
   final String pointTitle;
+
+  /// Paleta sobre el pozo: sin HydroPage ni Volver.
+  final bool embedded;
 
   @override
   State<PointSystemScreen> createState() => _PointSystemScreenState();
@@ -99,6 +103,11 @@ class _PointSystemScreenState extends State<PointSystemScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final pane = HydroSwap(
+      state: _loading ? 'loading' : (_error == null ? 'ready' : 'error'),
+      child: _body(),
+    );
+    if (widget.embedded) return pane;
     return HydroPage(
       title: 'Sistema',
       subtitle: Text(
@@ -107,10 +116,7 @@ class _PointSystemScreenState extends State<PointSystemScreen> {
         overflow: TextOverflow.ellipsis,
         style: HydroText.subtitle,
       ),
-      body: HydroSwap(
-        state: _loading ? 'loading' : (_error == null ? 'ready' : 'error'),
-        child: _body(),
-      ),
+      body: pane,
     );
   }
 

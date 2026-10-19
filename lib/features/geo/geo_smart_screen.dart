@@ -12,11 +12,15 @@ class GeoSmartScreen extends StatefulWidget {
   const GeoSmartScreen({
     required this.points,
     required this.onSelectPoint,
+    this.showBack = true,
     super.key,
   });
 
   final List<Map<String, dynamic>> points;
   final ValueChanged<Map<String, dynamic>> onSelectPoint;
+
+  /// En el shell de escritorio el rail reemplaza a Volver.
+  final bool showBack;
 
   @override
   State<GeoSmartScreen> createState() => _GeoSmartScreenState();
@@ -78,7 +82,7 @@ class _GeoSmartScreenState extends State<GeoSmartScreen> {
         : '${geolocated.length} en el mapa · $missingGps sin GPS';
     return HydroPage(
       title: 'Ubicaciones',
-      maxWidth: 1280,
+      showBack: widget.showBack,
       subtitle: Text(countLine, style: HydroText.subtitle),
       body: geolocated.isEmpty
           ? _NoGpsPoints(

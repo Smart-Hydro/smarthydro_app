@@ -80,11 +80,25 @@ Paleta de producto (alineada a la app):
 
 ---
 
+## Staging
+
+La rama `staging` publica la PWA en GitHub Pages para que el equipo revise mientras se arma producción:
+
+**https://felipebarraza6.github.io/smarthydro_app/**
+
+Cada push a `staging` corre tests y despliega. N1 va vivo (Web App `/exec` de prod). El login usa `https://api.smarthydro.app`; el API tiene que permitir el origen `https://felipebarraza6.github.io`.
+
+Publicar un cambio rápido desde la rama de trabajo:
+
+```bash
+git push origin mapa-dashboard-map:staging
+```
+
 ## Requisitos
 
 - Flutter SDK estable con soporte Android y web
 - Android Studio o Android SDK para builds Android
-- Acceso a Core API (CORS local permite `http://localhost:3000` y `http://localhost:3001` para web; otros puertos u orígenes como `127.0.0.1` quedan bloqueados)
+- Acceso a Core API (CORS local permite `http://localhost:3000` y `http://localhost:3001` para web; otros puertos u orígenes como `127.0.0.1` quedan bloqueados). Staging: `https://felipebarraza6.github.io`.
 
 ---
 

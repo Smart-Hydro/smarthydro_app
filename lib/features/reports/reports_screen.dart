@@ -22,12 +22,20 @@ class ReportsScreen extends StatefulWidget {
     required this.api,
     required this.token,
     required this.points,
+    this.showBack = true,
+    this.embedded = false,
     super.key,
   });
 
   final SmartHydroApi api;
   final String token;
   final List<Map<String, dynamic>> points;
+
+  /// En el shell de escritorio el rail reemplaza a Volver.
+  final bool showBack;
+
+  /// Paleta sobre el pozo: sin HydroPage ni Volver.
+  final bool embedded;
 
   @override
   State<ReportsScreen> createState() => _ReportsScreenState();
@@ -120,7 +128,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   Future<void> _choosePeriod(_Period p) async {
     if (p == _Period.custom) {
-      final selected = await showDateRangePicker(
+      final selected = await showHydroDateRange(
         context: context,
         firstDate: DateTime(2015),
         lastDate: DateTime.now(),
@@ -218,9 +226,31 @@ class _ReportsScreenState extends State<ReportsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
+  Widget _refreshButton() => IconButton(
+    tooltip: 'Actualizar registros',
+    onPressed: _busy != null ? null : () => _load(),
+    icon: const Icon(Icons.refresh_rounded),
+  );
+
   @override
-  Widget build(BuildContext context) => HydroPage(
+  Widget build(BuildContext context) {
+    if (widget.embedded) {
+      return Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 0),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: _refreshButton(),
+            ),
+          ),
+          Expanded(child: _body()),
+        ],
+      );
+    }
+    return HydroPage(
     title: 'Registros',
+    showBack: widget.showBack,
     subtitle: widget.points.length > 1
         ? PopupMenuButton<int>(
             tooltip: 'Cambiar punto',
@@ -273,13 +303,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
             overflow: TextOverflow.ellipsis,
             style: HydroText.subtitle,
           ),
-    trailing: IconButton(
-      tooltip: 'Actualizar registros',
-      onPressed: _busy != null ? null : () => _load(),
-      icon: const Icon(Icons.refresh_rounded),
-    ),
+    trailing: _refreshButton(),
     body: _body(),
   );
+  }
 
   Widget _body() {
     if (_pointId == null) {

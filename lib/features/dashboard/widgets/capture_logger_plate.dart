@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../../../core/brand.dart';
 import '../point_link.dart';
-import '../point_meta.dart';
 
 /// Placa del logger, la misma del esquema del inicio.
 ///
@@ -30,13 +29,17 @@ class CaptureLoggerPlate extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = _linkColor(point);
     final surface = _isSurface(point);
-    final compliance = _hasCompliance(point);
     final link = pointLinkOf(point);
     final kind = surface ? 'superficial' : 'pozo';
-    final mark = compliance ? ', con cumplimiento' : '';
+    final title = _title(point);
 
-    Widget plate(double glow) {
+    Widget plate(double glow, double seconds) {
       final edge = selected ? 0.78 + 0.18 * glow : 0.22 + 0.28 * glow;
+      final antenna = captureLoggerAntennaGlow(
+        seconds,
+        motion: clock != null,
+        link: link,
+      );
       return DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
@@ -54,45 +57,52 @@ class CaptureLoggerPlate extends StatelessWidget {
           ),
         ),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(4, 0, 6, 0),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 16,
-                height: 16,
-                child: CustomPaint(
-                  painter: _BeaconPainter(
-                    color: color,
-                    selected: selected,
-                    surface: surface,
+          padding: const EdgeInsets.fromLTRB(3, 2, 4, 2),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              const beaconW = captureLoggerBeaconRow;
+              final inner = math.max(8.0, constraints.maxWidth - beaconW - 3);
+              final textRoom = math.max(8.0, constraints.maxHeight);
+              final fit = captureLoggerNameFit(
+                title,
+                inner,
+                maxHeight: textRoom,
+                maxLines: 2,
+              );
+              return Row(
+                children: [
+                  SizedBox(
+                    width: beaconW,
+                    height: constraints.maxHeight,
+                    child: CustomPaint(
+                      painter: _BeaconPainter(
+                        color: color,
+                        selected: selected,
+                        surface: surface,
+                        antenna: antenna,
+                        link: link,
+                      ),
+                    ),
                   ),
-                ),
-              ),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  _title(point),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: captureLoggerNameStyle,
-                ),
-              ),
-              const SizedBox(width: 4),
-              if (compliance) ...[
-                Icon(
-                  Icons.verified_outlined,
-                  size: 12,
-                  color: _complianceMarkColor(_complianceLevel(point)),
-                ),
-                const SizedBox(width: 3),
-              ],
-              _LinkLamp(
-                color: color,
-                live: clock != null && link == PointLink.connected,
-                clock: clock,
-              ),
-            ],
+                  const SizedBox(width: 3),
+                  Expanded(
+                    child: Text(
+                      title,
+                      maxLines: fit.maxLines,
+                      overflow: fit.ellipsis
+                          ? TextOverflow.ellipsis
+                          : TextOverflow.clip,
+                      softWrap: true,
+                      textAlign: TextAlign.center,
+                      style: captureLoggerNameStyle.copyWith(
+                        fontSize: fit.fontSize,
+                        height: 1.05,
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
       );
@@ -102,18 +112,18 @@ class CaptureLoggerPlate extends StatelessWidget {
       button: true,
       selected: selected,
       container: true,
-      label: '${_title(point)}, $kind, ${pointLinkLabel(link)}$mark',
+      label: '${_title(point)}, $kind, ${pointLinkLabel(link)}',
       child: GestureDetector(
         key: tapKey,
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
         child: clock == null
-            ? plate(0.45)
+            ? plate(0.45, 0)
             : ValueListenableBuilder<double>(
                 valueListenable: clock!,
                 builder: (context, seconds, _) {
                   final glow = 0.5 + 0.5 * math.sin(seconds * 1.7);
-                  return plate(glow);
+                  return plate(glow, seconds);
                 },
               ),
       ),
@@ -127,6 +137,38 @@ const captureLoggerPlateHeight = 32.0;
 
 /// Dibujo del logger, sin marco. Es la marca del punto en el mapa.
 const captureLoggerMarkSize = 28.0;
+
+/// El mismo logger de la placa, solo el dibujo. La ficha lo usa igual.
+class CaptureLoggerGlyph extends StatelessWidget {
+  const CaptureLoggerGlyph({
+    required this.color,
+    required this.surface,
+    required this.link,
+    this.selected = false,
+    this.antenna = 0.85,
+    super.key,
+  });
+
+  final Color color;
+  final bool surface;
+  final PointLink link;
+  final bool selected;
+  final double antenna;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      painter: _BeaconPainter(
+        color: color,
+        selected: selected,
+        surface: surface,
+        antenna: antenna,
+        link: link,
+      ),
+      child: const SizedBox.expand(),
+    );
+  }
+}
 
 class CaptureLoggerMark extends StatelessWidget {
   const CaptureLoggerMark({
@@ -175,59 +217,101 @@ const captureLoggerNameStyle = TextStyle(
   height: 1.05,
 );
 
-class _LinkLamp extends StatelessWidget {
-  const _LinkLamp({
-    required this.color,
-    required this.live,
-    required this.clock,
-  });
+/// Ancho de la antena dentro de la placa compacta. El nombre va al lado.
+const captureLoggerBeaconRow = 14.0;
 
-  final Color color;
-  final bool live;
-  final ValueNotifier<double>? clock;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!live || clock == null) return _dot(1);
-    return ValueListenableBuilder<double>(
-      valueListenable: clock!,
-      builder: (context, seconds, _) {
-        final wave = math.sin(seconds * 5);
-        return _dot(0.25 + 0.75 * (0.5 + 0.5 * wave));
-      },
-    );
+/// Brillo de la pelotita de la antena.
+/// Solo el conectado late. Gap e incidencia quedan marcados y quietos.
+double captureLoggerAntennaGlow(
+  double seconds, {
+  required bool motion,
+  PointLink link = PointLink.gap,
+}) {
+  if (link == PointLink.connected) {
+    if (!motion) return 0.85;
+    final wave = 0.5 + 0.5 * math.sin(seconds * math.pi * 2 / 1.5);
+    return 0.25 + 0.75 * wave;
   }
-
-  Widget _dot(double opacity) {
-    return Container(
-      width: 7,
-      height: 7,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: color.withValues(alpha: opacity),
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.55 * opacity),
-            blurRadius: 3,
-          ),
-        ],
-      ),
-    );
-  }
+  if (link == PointLink.incident) return 1;
+  return 0.62;
 }
+
+/// Cómo entra el nombre en el ancho (y alto) libre de su lugar.
+/// Baja el cuerpo y parte líneas antes de recortar.
+({double fontSize, int maxLines, double textHeight, bool ellipsis})
+captureLoggerNameFit(
+  String title,
+  double maxWidth, {
+  double maxHeight = 28,
+  int maxLines = 2,
+}) {
+  final text = title.trim().isEmpty ? 'Punto' : title.trim();
+  final width = math.max(8.0, maxWidth);
+  final lineCap = maxLines.clamp(1, 2);
+  const sizes = [11.5, 10.5, 9.5, 9.0, 8.5];
+  final lineCounts = [for (var lines = 1; lines <= lineCap; lines++) lines];
+  for (final size in sizes) {
+    for (final lines in lineCounts) {
+      final painter = TextPainter(
+        text: TextSpan(text: text, style: _nameStyle(size)),
+        maxLines: lines,
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: width);
+      final fits =
+          !painter.didExceedMaxLines &&
+          painter.width <= width + 0.5 &&
+          painter.height <= maxHeight + 0.5;
+      final height = painter.height;
+      painter.dispose();
+      if (fits) {
+        return (
+          fontSize: size,
+          maxLines: lines,
+          textHeight: math.max(height, size),
+          ellipsis: false,
+        );
+      }
+    }
+  }
+  final fallbackLines = maxLines.clamp(1, 2);
+  final fallback = TextPainter(
+    text: TextSpan(text: text, style: _nameStyle(8.5)),
+    maxLines: fallbackLines,
+    textDirection: TextDirection.ltr,
+  )..layout(maxWidth: width);
+  final height = math.min(fallback.height, maxHeight);
+  fallback.dispose();
+  return (
+    fontSize: 8.5,
+    maxLines: fallbackLines,
+    textHeight: height,
+    ellipsis: true,
+  );
+}
+
+TextStyle _nameStyle(double size) =>
+    captureLoggerNameStyle.copyWith(fontSize: size, height: 1.05);
 
 class _BeaconPainter extends CustomPainter {
   _BeaconPainter({
     required this.color,
     required this.selected,
     required this.surface,
+    this.antenna = 0,
+    this.link = PointLink.connected,
   });
 
   final Color color;
   final bool selected;
   final bool surface;
+  final PointLink link;
+
+  /// 0 apaga la pelotita. 1 la deja encendida.
+  final double antenna;
 
   static const _hole = Color(0xFF0B1418);
+  static const _metal = Color(0xFFD5E4E2);
+  static const _gap = Color(0xFFFF847A);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -236,12 +320,15 @@ class _BeaconPainter extends CustomPainter {
       ..strokeWidth = selected ? 1.45 : 1.15
       ..color = selected
           ? color.withValues(alpha: 0.92)
-          : const Color(0xFFD5E4E2).withValues(alpha: 0.82);
+          : _metal.withValues(alpha: 0.82);
+    final glow = antenna.clamp(0.0, 1.0).toDouble();
+    final steady = link != PointLink.connected;
+    final tipColor = link == PointLink.gap ? _gap : color;
     if (surface) {
-      final side = math.min(size.width, size.height) * 0.62;
+      final side = math.min(size.width * 0.72, size.height * 0.52);
       final cell = RRect.fromRectAndRadius(
         Rect.fromCenter(
-          center: size.center(Offset.zero),
+          center: Offset(size.width / 2, size.height * 0.66),
           width: side,
           height: side,
         ),
@@ -250,36 +337,70 @@ class _BeaconPainter extends CustomPainter {
       canvas.drawRRect(cell, Paint()..color = _hole);
       canvas.drawRRect(cell, stroke);
       canvas.drawLine(
-        size.center(const Offset(-4, 0)),
-        size.center(const Offset(4, 0)),
+        Offset(cell.left + 2, cell.center.dy),
+        Offset(cell.right - 2, cell.center.dy),
         stroke..strokeWidth = 1,
+      );
+      _antenna(
+        canvas,
+        Offset(size.width / 2, 3.2),
+        cell.top,
+        tipColor,
+        glow,
+        steady,
       );
       return;
     }
-    final mouth = Offset(size.width / 2, size.height * 0.64);
+    final mouth = Offset(size.width / 2, size.height * 0.68);
     final housing = RRect.fromRectAndRadius(
       Rect.fromCenter(
         center: mouth,
         width: size.width * 0.78,
-        height: size.height * 0.34,
+        height: size.height * 0.30,
       ),
       const Radius.circular(2),
     );
     canvas.drawRRect(housing, Paint()..color = const Color(0xFF1A282E));
     canvas.drawRRect(housing, stroke);
-    final tip = Offset(mouth.dx, size.height * 0.08);
+    final tip = Offset(mouth.dx, 3.2);
+    _antenna(
+      canvas,
+      tip,
+      mouth.dy - size.height * 0.14,
+      tipColor,
+      glow,
+      steady,
+    );
+  }
+
+  void _antenna(
+    Canvas canvas,
+    Offset tip,
+    double mastEnd,
+    Color tipColor,
+    double glow,
+    bool steady,
+  ) {
     canvas.drawLine(
-      Offset(mouth.dx, mouth.dy - size.height * 0.16),
+      Offset(tip.dx, mastEnd),
       tip,
       Paint()
-        ..color = const Color(0xFFD5E4E2)
-        ..strokeWidth = 1.1,
+        ..color = _metal
+        ..strokeWidth = 1.15,
     );
-    canvas.drawCircle(tip, 1.7, Paint()..color = const Color(0xFFD5E4E2));
+    final radius = steady ? 2.05 : 1.7 + glow * 0.65;
+    if (!steady && glow > 0.2) {
+      canvas.drawCircle(
+        tip,
+        radius + 1.5,
+        Paint()..color = tipColor.withValues(alpha: 0.16 * glow),
+      );
+    }
     canvas.drawCircle(
-      mouth.translate(size.width * 0.18, 0),
-      1.15,
-      Paint()..color = const Color(0xFF9CC8C2),
+      tip,
+      radius,
+      Paint()
+        ..color = tipColor.withValues(alpha: steady ? 0.95 : 0.3 + 0.7 * glow),
     );
   }
 
@@ -287,7 +408,9 @@ class _BeaconPainter extends CustomPainter {
   bool shouldRepaint(covariant _BeaconPainter oldDelegate) =>
       oldDelegate.color != color ||
       oldDelegate.selected != selected ||
-      oldDelegate.surface != surface;
+      oldDelegate.surface != surface ||
+      oldDelegate.link != link ||
+      oldDelegate.antenna != antenna;
 }
 
 String _title(Map<String, dynamic> point) {
@@ -309,27 +432,3 @@ bool _isSurface(Map<String, dynamic> point) {
   }
   return '${point['type_dga']}'.toUpperCase() == 'SUPERFICIAL';
 }
-
-bool _hasCompliance(Map<String, dynamic> point) {
-  final nested = point['dga'];
-  if (nested is Map) {
-    final info = DgaInfo.tryParse(Map<String, dynamic>.from(nested));
-    if (info != null) return true;
-  }
-  return DgaInfo.tryParse(point) != null;
-}
-
-String? _complianceLevel(Map<String, dynamic> point) {
-  final raw = point['compliance_warning'];
-  if (raw is! Map) return null;
-  final level = raw['level']?.toString();
-  if (level == null || level.isEmpty || level == 'null') return null;
-  return level;
-}
-
-Color _complianceMarkColor(String? level) => switch (level) {
-  'critical' => IkoluColors.incident,
-  'warning' => IkoluColors.warning,
-  'safe' => IkoluColors.connected,
-  _ => const Color(0xFF9CC8C2),
-};

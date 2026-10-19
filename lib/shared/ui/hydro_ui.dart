@@ -53,6 +53,46 @@ abstract final class HydroMotion {
       MediaQuery.maybeDisableAnimationsOf(context) ?? false ? Duration.zero : d;
 }
 
+/// Calendario de rango: en escritorio es un modal chico; en el teléfono
+/// sigue ocupando la pantalla para que se pueda tocar.
+Future<DateTimeRange?> showHydroDateRange({
+  required BuildContext context,
+  required DateTime firstDate,
+  required DateTime lastDate,
+  DateTimeRange? initialDateRange,
+  String? helpText,
+  String? saveText,
+}) {
+  final compact = MediaQuery.sizeOf(context).width >= 720;
+  const panel = Size(400, 520);
+  return showDateRangePicker(
+    context: context,
+    firstDate: firstDate,
+    lastDate: lastDate,
+    initialDateRange: initialDateRange,
+    helpText: helpText,
+    saveText: saveText,
+    barrierColor: Colors.black.withValues(alpha: compact ? 0.34 : 0.54),
+    barrierDismissible: true,
+    builder: (context, child) {
+      if (child == null) return const SizedBox.shrink();
+      if (!compact) return child;
+      return Center(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(22),
+          child: ConstrainedBox(
+            constraints: BoxConstraints.tight(panel),
+            child: MediaQuery(
+              data: MediaQuery.of(context).copyWith(size: panel),
+              child: child,
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
 /// Fondo con halo superior y columna centrada; cabecera con volver.
 class HydroPage extends StatelessWidget {
   const HydroPage({
@@ -60,6 +100,10 @@ class HydroPage extends StatelessWidget {
     required this.body,
     this.subtitle,
     this.trailing,
+    this.onBack,
+    this.showBack = true,
+    this.titleLeading,
+    this.floatingActionButton,
     this.maxWidth = 760,
     super.key,
   });
@@ -67,8 +111,16 @@ class HydroPage extends StatelessWidget {
   final String title;
   final Widget? subtitle;
   final Widget? trailing;
+  final Widget? titleLeading;
+  final Widget? floatingActionButton;
   final Widget body;
   final double maxWidth;
+
+  /// Si viene, Volver no hace pop.
+  final VoidCallback? onBack;
+
+  /// En el shell de escritorio va en false: el rail sigue a la vista.
+  final bool showBack;
 
   @override
   Widget build(BuildContext context) {
@@ -76,6 +128,7 @@ class HydroPage extends StatelessWidget {
     final cap = wide ? math.max(maxWidth, 1080.0) : maxWidth;
     return Scaffold(
       backgroundColor: Colors.transparent,
+      floatingActionButton: floatingActionButton,
       body: SafeArea(
         child: Align(
           alignment: Alignment.topCenter,
@@ -87,6 +140,9 @@ class HydroPage extends StatelessWidget {
                   title: title,
                   subtitle: subtitle,
                   trailing: trailing,
+                  titleLeading: titleLeading,
+                  onBack: onBack,
+                  showBack: showBack,
                 ),
                 Expanded(child: body),
               ],
@@ -103,38 +159,64 @@ class HydroHeader extends StatelessWidget {
     required this.title,
     this.subtitle,
     this.trailing,
+    this.titleLeading,
+    this.onBack,
+    this.showBack = true,
     super.key,
   });
 
   final String title;
   final Widget? subtitle;
   final Widget? trailing;
+  final Widget? titleLeading;
+  final VoidCallback? onBack;
+  final bool showBack;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(8, 8, 12, 4),
-    child: Row(
-      children: [
-        const HydroBackButton(),
-        const SizedBox(width: 4),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: HydroText.title,
+  Widget build(BuildContext context) {
+    final hasTitle = title.isNotEmpty;
+    if (!showBack &&
+        !hasTitle &&
+        subtitle == null &&
+        trailing == null &&
+        titleLeading == null) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: EdgeInsets.fromLTRB(showBack ? 8 : 20, 8, 12, 4),
+      child: Row(
+        children: [
+          if (showBack) ...[
+            HydroBackButton(onPressed: onBack),
+            const SizedBox(width: 4),
+          ],
+          if (titleLeading != null) ...[
+            titleLeading!,
+            const SizedBox(width: 10),
+          ],
+          if (hasTitle || subtitle != null)
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (hasTitle)
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: HydroText.title,
+                    ),
+                  ?subtitle,
+                ],
               ),
-              ?subtitle,
-            ],
-          ),
-        ),
-        ?trailing,
-      ],
-    ),
-  );
+            )
+          else
+            const Spacer(),
+          ?trailing,
+        ],
+      ),
+    );
+  }
 }
 
 /// Vidrio claro: sin borde ni color, solo un velo luminoso y una sombra.

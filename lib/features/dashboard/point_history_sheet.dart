@@ -193,6 +193,8 @@ class PointHistorySheet extends StatefulWidget {
     this.hasLevel = true,
     this.hasTotal = true,
     this.onReplayDay,
+    this.onClose,
+    this.bare = false,
     super.key,
   });
 
@@ -202,6 +204,10 @@ class PointHistorySheet extends StatefulWidget {
   final bool hasLevel;
   final bool hasTotal;
   final ValueChanged<DateTime>? onReplayDay;
+  final VoidCallback? onClose;
+
+  /// Sin marco ni título: va dentro de [PointToolSheet].
+  final bool bare;
 
   @override
   State<PointHistorySheet> createState() => _PointHistorySheetState();
@@ -302,6 +308,36 @@ class _PointHistorySheetState extends State<PointHistorySheet>
 
   @override
   Widget build(BuildContext context) {
+    if (widget.bare) {
+      return Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 12, 8),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: HydroTabs<int>(
+                values: const [7, 14, 30],
+                selected: _days,
+                label: (v) => '${v}d',
+                onChanged: (value) {
+                  if (value == _days) return;
+                  setState(() => _days = value);
+                  _fetch();
+                },
+              ),
+            ),
+          ),
+          Flexible(
+            child: HydroSwap(
+              state: _loading
+                  ? 'loading'
+                  : (_error == null ? 'ready' : 'error'),
+              child: _body(),
+            ),
+          ),
+        ],
+      );
+    }
     final media = MediaQuery.of(context);
     return Align(
       alignment: Alignment.bottomCenter,
@@ -402,7 +438,8 @@ class _PointHistorySheetState extends State<PointHistorySheet>
               ),
               IconButton(
                 tooltip: 'Cerrar',
-                onPressed: () => Navigator.of(context).maybePop(),
+                onPressed:
+                    widget.onClose ?? () => Navigator.of(context).maybePop(),
                 icon: const Icon(
                   Icons.close_rounded,
                   color: HydroTone.faint,
@@ -502,7 +539,8 @@ class _PointHistorySheetState extends State<PointHistorySheet>
                 onReplay: widget.onReplayDay == null || !selected.hasData
                     ? null
                     : () {
-                        Navigator.of(context).maybePop();
+                        (widget.onClose ??
+                            () => Navigator.of(context).maybePop())();
                         widget.onReplayDay!(selected.date);
                       },
               ),

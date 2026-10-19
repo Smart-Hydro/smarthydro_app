@@ -2,6 +2,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import '../../core/brand.dart';
+import 'hydro_glyph.dart';
 import 'workstation_backdrop.dart';
 
 class LiquidDestination {
@@ -99,6 +100,11 @@ const liquidAppsIndex = 2;
 
 /// Perfil es el último destino del menú.
 const liquidProfileIndex = 3;
+
+/// En escritorio todas las apps del rail se quedan en el shell.
+/// Así el menú y la animación de sus iconos no se desmontan.
+bool liquidAppStaysInShell({required bool wide, required int index}) =>
+    wide && index >= 0 && index < liquidDesktopApps.length;
 
 /// Ancho del rail desktop: 6 celdas de la grilla workstation.
 const liquidNavRailWidth = workstationGridStep * 6;
@@ -212,6 +218,7 @@ class LiquidNavRail extends StatelessWidget {
     required this.unreadCount,
     required this.onSelect,
     required this.onOpenApp,
+    this.selectedAppIndex,
     super.key,
   });
 
@@ -219,6 +226,10 @@ class LiquidNavRail extends StatelessWidget {
   final int unreadCount;
   final ValueChanged<int> onSelect;
   final ValueChanged<int> onOpenApp;
+
+  /// Atajo bajo el divisor. Si viene, los destinos (IoT / Eventos / Apps /
+  /// Perfil) se apagan y el punto marca esa app.
+  final int? selectedAppIndex;
 
   static const _minDestSlot = workstationGridStep * 3.5;
   static const _minAppSlot = workstationGridStep * 3.5;
@@ -247,9 +258,7 @@ class LiquidNavRail extends StatelessWidget {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(24),
                 color: const Color(0xFFF4FBFA).withValues(alpha: 0.12),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.08),
-                ),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
                 boxShadow: [
                   BoxShadow(
                     color: const Color(0xFF001217).withValues(alpha: 0.28),
@@ -292,15 +301,13 @@ class LiquidNavRail extends StatelessWidget {
                   }
 
                   final destBlock = destSlot * destCount;
-                  final leftForApps =
-                      maxH - destBlock - liquidNavRailDivider;
+                  final leftForApps = maxH - destBlock - liquidNavRailDivider;
                   final showAllApps =
                       leftForApps >= liquidNavRailAppSlot * appCount - 0.5 ||
                       leftForApps >= appSlot * appCount - 0.5;
                   var visibleApps = 0;
                   var showMore = false;
-                  if (showAllApps &&
-                      leftForApps >= appSlot * appCount - 0.5) {
+                  if (showAllApps && leftForApps >= appSlot * appCount - 0.5) {
                     visibleApps = appCount;
                     appSlot = (leftForApps / appCount).clamp(
                       _minAppSlot,
@@ -342,17 +349,18 @@ class LiquidNavRail extends StatelessWidget {
                           height: destBlock,
                           child: Stack(
                             children: [
-                              AnimatedPositioned(
-                                duration: reduce
-                                    ? Duration.zero
-                                    : const Duration(milliseconds: 460),
-                                curve: Curves.easeOutCubic,
-                                top: destSlot * selectedIndex + 6,
-                                left: 10,
-                                right: 10,
-                                height: destSlot - 12,
-                                child: const _LiquidBlob(),
-                              ),
+                              if (selectedAppIndex == null)
+                                AnimatedPositioned(
+                                  duration: reduce
+                                      ? Duration.zero
+                                      : const Duration(milliseconds: 460),
+                                  curve: Curves.easeOutCubic,
+                                  top: destSlot * selectedIndex + 6,
+                                  left: 10,
+                                  right: 10,
+                                  height: destSlot - 12,
+                                  child: const _LiquidBlob(),
+                                ),
                               Column(
                                 children: [
                                   for (
@@ -365,7 +373,9 @@ class LiquidNavRail extends StatelessWidget {
                                       width: liquidNavRailWidth,
                                       child: _LiquidHit(
                                         destination: liquidDestinations[index],
-                                        selected: index == selectedIndex,
+                                        selected:
+                                            selectedAppIndex == null &&
+                                            index == selectedIndex,
                                         badge: index == liquidAvisosIndex
                                             ? unreadCount
                                             : 0,
@@ -400,17 +410,19 @@ class LiquidNavRail extends StatelessWidget {
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              for (
-                                var index = 0;
-                                index < visibleApps;
-                                index++
-                              )
+                              for (var index = 0; index < visibleApps; index++)
                                 SizedBox(
                                   height: appSlot,
                                   width: liquidNavRailWidth,
                                   child: _RailAppHit(
                                     app: liquidDesktopApps[index],
+                                    kind: hydroGlyphKindAt(index),
+                                    selected: selectedAppIndex == index,
                                     onTap: () => onOpenApp(index),
+                                    glyphSize: (appSlot * 0.56).clamp(
+                                      28.0,
+                                      44.0,
+                                    ),
                                     compact: appSlot < liquidNavRailAppSlot,
                                   ),
                                 ),
@@ -551,19 +563,26 @@ class _RailMoreHit extends StatelessWidget {
 class _RailAppHit extends StatelessWidget {
   const _RailAppHit({
     required this.app,
+    required this.kind,
     required this.onTap,
+    required this.glyphSize,
+    this.selected = false,
     this.compact = false,
   });
 
   final LiquidAppShortcut app;
+  final HydroGlyphKind kind;
   final VoidCallback onTap;
+  final double glyphSize;
+  final bool selected;
   final bool compact;
 
   @override
   Widget build(BuildContext context) {
-    final muted = app.comingSoon;
-    final box = compact ? 32.0 : 40.0;
-    final icon = compact ? 18.0 : 22.0;
+    final muted = app.comingSoon && !selected;
+    final labelColor = selected
+        ? const Color(0xFFEFFFFA)
+        : const Color(0xFFB7C9C8);
     return Opacity(
       opacity: muted ? 0.72 : 1,
       child: InkWell(
@@ -571,49 +590,42 @@ class _RailAppHit extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         child: Padding(
           padding: EdgeInsets.symmetric(
-            horizontal: 10,
-            vertical: compact ? 2 : 4,
+            horizontal: 6,
+            vertical: compact ? 1 : 2,
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Container(
-                width: box,
-                height: box,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(compact ? 14 : 16),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Color.lerp(app.color, Colors.white, 0.22)!,
-                      app.color.withValues(alpha: 0.88),
-                    ],
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: app.color.withValues(alpha: 0.28),
-                      blurRadius: compact ? 6 : 10,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: Icon(
-                  app.icon,
-                  color: const Color(0xFFF4FFFC),
-                  size: icon,
-                ),
+              HydroGlyph(
+                kind: kind,
+                color: app.color,
+                size: glyphSize,
+                keyPrefix: 'rail-glyph',
               ),
-              SizedBox(height: compact ? 2 : 4),
+              if (selected)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Container(
+                    key: const ValueKey('liquid-nav-rail-app-dot'),
+                    width: 4,
+                    height: 4,
+                    decoration: const BoxDecoration(
+                      color: IkoluColors.cyan,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                )
+              else
+                SizedBox(height: compact ? 1 : 2),
               Text(
                 app.label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: const Color(0xFFB7C9C8),
+                  color: labelColor,
                   fontSize: compact ? 8 : 9,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
                   letterSpacing: -0.2,
                 ),
               ),

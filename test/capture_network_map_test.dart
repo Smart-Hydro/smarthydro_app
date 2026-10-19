@@ -2,10 +2,12 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart' hide Path;
+import 'package:smarthydro_app/features/dashboard/point_link.dart';
 import 'package:smarthydro_app/features/dashboard/widgets/capture_network_map.dart';
 import 'package:smarthydro_app/features/geo/capture_location_map.dart';
 
@@ -92,9 +94,10 @@ void main() {
   test('el logger calza en la cuadrícula y cabe el nombre', () {
     final narrow = captureLoggerWidthFor('P4');
     final wide = captureLoggerWidthFor('Pozo Norte largo');
-    final marked = captureLoggerWidthFor('P4', compliance: true);
     expect(wide, greaterThan(narrow));
-    expect(marked, greaterThan(narrow));
+    final fit = captureLoggerNameFit('Pozo Norte largo', 96);
+    expect(fit.ellipsis, isFalse);
+    expect(fit.fontSize, greaterThanOrEqualTo(9));
     expect(captureGridSpan(narrow) % captureBoardStep, 0);
     final rects = placeNodeLabels(
       const [Offset(180, 280), Offset(190, 284), Offset(40, 40)],
@@ -176,7 +179,12 @@ void main() {
   });
 
   test('con muchos loggers la red se achica para seguir cabiendo', () {
-    final few = placeCaptureScheme(4, const Size(900, 700), top: 40, bottom: 40);
+    final few = placeCaptureScheme(
+      4,
+      const Size(900, 700),
+      top: 40,
+      bottom: 40,
+    );
     final many = placeCaptureScheme(
       16,
       const Size(900, 700),
@@ -193,13 +201,13 @@ void main() {
     const size = Size(1200, 800);
     const contentTop = 84.0;
     final scheme = placeCaptureScheme(3, size, top: contentTop, bottom: 8);
-    final bounds = Rect.fromLTRB(0, contentTop, size.width - 8, size.height - 8);
-    final minimap = Rect.fromLTWH(
-      size.width - 16 - 148,
-      contentTop + 8,
-      148,
-      96,
+    final bounds = Rect.fromLTRB(
+      0,
+      contentTop,
+      size.width - 8,
+      size.height - 8,
     );
+    final minimap = Rect.fromLTWH(size.width - 16 - 36, contentTop + 8, 36, 36);
     final frames = placeOpenWindowFrames(
       count: 2,
       bounds: bounds,
@@ -207,8 +215,8 @@ void main() {
     );
     expect(frames, hasLength(2));
     for (final frame in frames) {
-      expect(frame.width, greaterThan(320));
-      expect(frame.height, greaterThan(360));
+      expect(frame.width, greaterThan(300));
+      expect(frame.height, inInclusiveRange(200, 250));
       expect(frame.left, greaterThanOrEqualTo(bounds.left));
       expect(frame.top, greaterThanOrEqualTo(bounds.top));
       expect(frame.right, lessThanOrEqualTo(bounds.right + 0.1));
@@ -233,7 +241,12 @@ void main() {
       bottom: 8,
       left: left,
     );
-    final bounds = Rect.fromLTRB(left, contentTop, size.width - 8, size.height - 8);
+    final bounds = Rect.fromLTRB(
+      left,
+      contentTop,
+      size.width - 8,
+      size.height - 8,
+    );
     final frames = placeOpenWindowFrames(
       count: 1,
       bounds: bounds,
@@ -244,7 +257,7 @@ void main() {
     expect(frame.left, greaterThanOrEqualTo(bounds.left));
     expect(frame.right, lessThanOrEqualTo(bounds.right + 0.1));
     expect(frame.bottom, lessThanOrEqualTo(bounds.bottom - 12));
-    expect(frame.height, greaterThan(360));
+    expect(frame.height, inInclusiveRange(200, 250));
     expect(frame.overlaps(scheme.hub), isFalse);
     for (final plate in scheme.plates) {
       expect(frame.overlaps(plate), isFalse, reason: 'tapa $plate');
@@ -348,7 +361,7 @@ void main() {
     const longName = 'Estación de bombeo Santa Macarena Norte';
     final wide = captureLoggerWidthFor(longName);
     expect(wide, greaterThan(narrow));
-    expect(wide, greaterThan(220));
+    expect(wide, greaterThan(160));
     expect(captureCenterShift(slack: 96), closeTo(48, 0.01));
     expect(captureCenterShift(slack: 10), 0);
     expect(captureCenterShift(slack: -96), closeTo(-48, 0.01));
@@ -393,6 +406,136 @@ void main() {
       (leftGap - rightGap).abs(),
       lessThanOrEqualTo(captureBoardStep + 0.01),
     );
+  });
+
+  test('la ficha prioriza total, caudal y nivel', () {
+    expect(captureWorkCode({'code_dga': 'OB-1'}), 'OB-1');
+    expect(
+      captureWorkCode({
+        'dga': {'code_dga': 'X1'},
+      }),
+      'X1',
+    );
+    expect(captureWorkCode({'title': 'Pozo'}), isNull);
+    expect(
+      captureBriefChannels({
+        'variables': [
+          {'type_variable': 'CAUDAL'},
+          {'type_variable': 'TOTALIZADO_MODBUS'},
+          {'type_variable': 'NIVEL'},
+        ],
+      }).metric,
+      CaptureBriefMetric.total,
+    );
+    expect(
+      captureBriefChannels({
+        'variables': [
+          {'type_variable': 'NIVEL'},
+          {'type_variable': 'CAUDAL'},
+        ],
+      }).metric,
+      CaptureBriefMetric.flow,
+    );
+    expect(
+      captureBriefChannels({
+        'variables': [
+          {'type_variable': 'NIVEL'},
+        ],
+      }).metric,
+      CaptureBriefMetric.level,
+    );
+    expect(
+      captureBriefChannels({
+        'variables': [
+          {'type_variable': 'TEMPERATURA'},
+        ],
+      }).metric,
+      isNull,
+    );
+    expect(
+      captureBriefChannels({
+        'latest_telemetry': {'flow': 1, 'total': 9},
+      }).metric,
+      CaptureBriefMetric.total,
+    );
+
+    final rows = captureBriefRows([
+      {
+        'date_time': '2026-10-18T10:00:00',
+        'flow': 1,
+        'nivel': 4,
+        'total_diff': 2,
+        'created': '2026-10-18T10:01:00',
+        'date_time_last_logger': '2026-10-18T09:59:00',
+      },
+      {
+        'date_time': '2026-10-18T11:00:00',
+        'flow': 3,
+        'nivel': 6,
+        'total_diff': 4,
+        'created': '2026-10-18T11:01:30',
+        'date_time_last_logger': '2026-10-18T10:59:00',
+      },
+    ]);
+    final now = DateTime(2026, 10, 18, 12);
+    final day = captureBriefDay(
+      {
+        'variables': [
+          {'type_variable': 'TOTALIZADO'},
+          {'type_variable': 'CAUDAL'},
+          {'type_variable': 'NIVEL'},
+        ],
+      },
+      rows,
+      now: now,
+    );
+    expect(day.metric, CaptureBriefMetric.total);
+    expect(day.line, [2, 4]);
+    expect(day.volume, 6);
+    expect(day.flowAvg, 2);
+    expect(day.levelAvg, 5);
+    expect(captureBriefTodayLabel(day), 'Consumo de hoy');
+    expect(captureBriefAverageLine(day), 'Caudal 2.00 L/s · Nivel 5.00 m');
+    final clocks = captureBriefClocks(rows);
+    expect(clocks.logger, '18/10 10:59');
+    expect(clocks.arrived, '18/10 11:01');
+
+    final levelOnly = captureBriefDay(
+      {
+        'variables': [
+          {'type_variable': 'NIVEL'},
+        ],
+      },
+      rows,
+      now: now,
+    );
+    expect(levelOnly.metric, CaptureBriefMetric.level);
+    expect(levelOnly.line, [4, 6]);
+    expect(levelOnly.flowAvg, isNull);
+    expect(levelOnly.volume, isNull);
+    expect(captureBriefTodayLabel(levelOnly), 'Nivel medio de hoy');
+    expect(captureBriefAverageLine(levelOnly), isNull);
+
+    final none = captureBriefDay(
+      {
+        'variables': [
+          {'type_variable': 'TEMPERATURA'},
+        ],
+      },
+      rows,
+      now: now,
+    );
+    expect(none.line, isEmpty);
+    expect(none.focus, isNull);
+    expect(captureBriefAverageLine(none), isNull);
+
+    final connected = captureBriefClocks(
+      captureBriefRows([
+        {'date_time': '2026-10-18T11:00:00', 'created': '2026-10-18T11:02:00'},
+      ]),
+    );
+    expect(connected.logger, '18/10 11:02');
+    expect(connected.arrived, isNull);
   });
 
   test('la tag de variable solo usa datos reales', () {
@@ -446,6 +589,207 @@ void main() {
       }
     }
     expect(_orthogonalPolylinesCross(links), isFalse);
+  });
+
+  test('los enlaces de arriba y abajo llegan a puertos distintos', () {
+    final scheme = placeCaptureScheme(
+      12,
+      const Size(980, 720),
+      top: 40,
+      bottom: 40,
+    );
+    final links = captureHubLinks(scheme.plates, scheme.hub);
+    expect(links, hasLength(12));
+    final ends = [for (final link in links) link.last];
+    for (var i = 0; i < ends.length; i++) {
+      for (var j = i + 1; j < ends.length; j++) {
+        expect(
+          (ends[i] - ends[j]).distance,
+          greaterThan(1.5),
+          reason: 'puerto $i y $j coinciden',
+        );
+      }
+    }
+    for (final link in links) {
+      for (var i = 0; i < link.length - 1; i++) {
+        final sameAxis =
+            link[i].dx == link[i + 1].dx || link[i].dy == link[i + 1].dy;
+        expect(sameAxis, isTrue);
+      }
+    }
+    expect(_orthogonalPolylinesCross(links), isFalse);
+  });
+
+  test('el cubo del núcleo es isométrico y cabe en la card', () {
+    const size = Size(72, 48);
+    final frame = captureHubCubeFrame(size);
+    expect(frame.center, size.center(Offset.zero));
+    final dx = frame.edge * math.sqrt(3) / 2;
+    final right = Offset(dx, -frame.edge / 2);
+    final left = Offset(-dx, -frame.edge / 2);
+    final down = Offset(0, frame.edge);
+    expect(right.distance, closeTo(frame.edge, 0.01));
+    expect(left.distance, closeTo(frame.edge, 0.01));
+    expect(down.distance, closeTo(frame.edge, 0.01));
+    expect(dx * 2, lessThanOrEqualTo(size.width));
+    expect(frame.edge * 2, lessThanOrEqualTo(size.height));
+    final top = frame.center + right + left;
+    final bottom = frame.center + down;
+    expect(top.dx, closeTo(frame.center.dx, 0.01));
+    expect(bottom.dx, closeTo(frame.center.dx, 0.01));
+    expect((frame.center - top).dy, closeTo(frame.edge, 0.01));
+    expect((bottom - frame.center).dy, closeTo(frame.edge, 0.01));
+  });
+
+  test('solo la antena conectada late', () {
+    final gap = captureLoggerAntennaGlow(0.2, motion: true);
+    expect(captureLoggerAntennaGlow(1.1, motion: true), gap);
+    expect(captureLoggerAntennaGlow(0.4, motion: false), gap);
+    expect(gap, greaterThan(0.4));
+    final live = captureLoggerAntennaGlow(
+      0,
+      motion: true,
+      link: PointLink.connected,
+    );
+    final lit = captureLoggerAntennaGlow(
+      0.375,
+      motion: true,
+      link: PointLink.connected,
+    );
+    expect((live - lit).abs(), greaterThan(0.2));
+    expect(
+      captureLoggerAntennaGlow(0.2, motion: false, link: PointLink.connected),
+      captureLoggerAntennaGlow(1.1, motion: false, link: PointLink.connected),
+    );
+    expect(
+      captureLoggerAntennaGlow(0.2, motion: true, link: PointLink.incident),
+      captureLoggerAntennaGlow(1.1, motion: true, link: PointLink.incident),
+    );
+  });
+
+  test('las placas del logger no crecen con el nombre', () {
+    const name = 'Estación de bombeo Santa Macarena Norte';
+    final box = captureLoggerBoxFor(
+      [name, 'Pozo 2', 'Canal Sur', 'Norte'],
+      count: 8,
+      viewWidth: 290,
+      viewHeight: 480,
+    );
+    expect(box, isNotNull);
+    expect(box!.width, capturePlateWidth);
+    expect(box.height, capturePlateHeight);
+    final scheme = placeCaptureScheme(
+      4,
+      const Size(900, 700),
+      top: 80,
+      bottom: 40,
+      labels: [name, 'Pozo 2', 'Canal Sur', 'Norte'],
+    );
+    expect(scheme.plates, hasLength(4));
+    for (final plate in scheme.plates) {
+      expect(plate.overlaps(scheme.hub), isFalse);
+      expect(plate.width, lessThanOrEqualTo(capturePlateWidth + 0.1));
+      expect(plate.height, lessThanOrEqualTo(capturePlateHeight + 0.1));
+    }
+    final fit = captureLoggerNameFit('Norte', 48, maxHeight: 28, maxLines: 2);
+    expect(fit.ellipsis, isFalse);
+    expect(fit.maxLines, lessThanOrEqualTo(2));
+  });
+
+  test('el cubo activo se hincha y el apagado parpadea', () {
+    final calm = captureHubEnergy(online: true, seconds: 0, motion: false);
+    expect(calm.swell, 1);
+    expect(calm.power, 1);
+    final low = captureHubEnergy(online: true, seconds: 0, motion: true);
+    final high = captureHubEnergy(online: true, seconds: 0.9, motion: true);
+    expect(low.power, 1);
+    expect(high.power, 1);
+    expect((low.swell - high.swell).abs(), greaterThan(0.2));
+    final offA = captureHubEnergy(online: false, seconds: 0.3375, motion: true);
+    final offB = captureHubEnergy(online: false, seconds: 1.0125, motion: true);
+    expect(offA.swell, 0);
+    expect(offB.swell, 0);
+    expect((offA.power - offB.power).abs(), greaterThan(0.15));
+    final still = captureHubEnergy(online: false, seconds: 0.2, motion: false);
+    expect(
+      captureHubEnergy(online: false, seconds: 1.4, motion: false).power,
+      still.power,
+    );
+    expect(calm.jets, 0);
+    expect(offA.jets, 0);
+    final leaving = captureHubEnergy(online: true, seconds: 0, motion: true);
+    final grown = captureHubEnergy(
+      online: true,
+      seconds: math.pi / 2 / 1.7,
+      motion: true,
+    );
+    final returning = captureHubEnergy(
+      online: true,
+      seconds: math.pi / 1.7,
+      motion: true,
+    );
+    expect(leaving.jets, greaterThan(0.85));
+    expect(returning.jets, greaterThan(0.85));
+    expect(grown.jets, lessThan(0.08));
+  });
+
+  test('el agua del enlace va del logger hacia el cubo', () {
+    final near = captureHubwardDashes(const [
+      Offset(0, 0),
+      Offset(100, 0),
+    ], travel: 2);
+    final far = captureHubwardDashes(const [
+      Offset(0, 0),
+      Offset(100, 0),
+    ], travel: 8);
+    expect(near, isNotEmpty);
+    expect(far, isNotEmpty);
+    expect(near.first.$1.dx, lessThan(15));
+    expect(far.first.$1.dx, greaterThan(near.first.$1.dx));
+    expect(far.first.$2.dx, greaterThan(far.first.$1.dx));
+    final bent = captureHubwardDashes(const [
+      Offset(0, 40),
+      Offset(40, 40),
+      Offset(40, 0),
+    ], travel: 2);
+    expect(bent.first.$1.dy, closeTo(40, 0.2));
+    expect(bent.first.$1.dx, lessThan(8));
+  });
+
+  test('un punto en gap no usa el color de conectado', () {
+    expect(captureLinkFlows(PointLink.connected), isTrue);
+    expect(captureLinkFlows(PointLink.gap), isFalse);
+    expect(captureLinkFlows(PointLink.incident), isFalse);
+    expect(captureSchemeLinkColor(PointLink.gap), const Color(0xFFFF847A));
+    expect(
+      captureSchemeLinkColor(PointLink.gap),
+      isNot(captureSchemeLinkColor(PointLink.connected)),
+    );
+    expect(
+      captureSchemeLinkColor(PointLink.incident),
+      isNot(captureSchemeLinkColor(PointLink.connected)),
+    );
+  });
+
+  testWidgets('un solo punto no muestra el minimapa', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 390,
+            height: 640,
+            child: _map(
+              points: [_point(id: 1, title: 'Solo', project: 'Fundo')],
+              onPointSelected: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.byKey(const ValueKey('capture-minimap')), findsNothing);
+    expect(find.byKey(const ValueKey('capture-hub')), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   test('el cumplimiento solo aparece con ficha DGA', () {
@@ -571,6 +915,163 @@ void main() {
       )?['compliance_warning'],
       {'level': 'safe'},
     );
+  });
+
+  test('la ficha sale al lado del punto y no tapa el resto', () {
+    final stage = Rect.fromLTWH(32, 84, 1136, 664);
+    final hub = Rect.fromCenter(
+      center: const Offset(600, 416),
+      width: 80,
+      height: 80,
+    );
+    final north = Rect.fromCenter(
+      center: const Offset(600, 328),
+      width: 80,
+      height: 32,
+    );
+    final east = Rect.fromCenter(
+      center: const Offset(712, 416),
+      width: 80,
+      height: 32,
+    );
+    final west = Rect.fromCenter(
+      center: const Offset(488, 416),
+      width: 80,
+      height: 32,
+    );
+    final fromNorth = captureBriefSlot(
+      plate: north,
+      bounds: stage,
+      obstacles: [hub.inflate(8), east.inflate(4), west.inflate(4)],
+    );
+    expect(fromNorth.side, CaptureBriefSide.right);
+    expect(fromNorth.rect.overlaps(north), isFalse);
+    expect(fromNorth.rect.overlaps(west), isFalse);
+    expect(fromNorth.rect.width, captureBriefWidth);
+    expect(fromNorth.rect.height, captureBriefHeight);
+
+    final fromEast = captureBriefSlot(
+      plate: east,
+      bounds: stage,
+      obstacles: [hub.inflate(8), north.inflate(4), west.inflate(4)],
+    );
+    expect(fromEast.side, CaptureBriefSide.right);
+    expect(fromEast.rect.left, greaterThan(east.right));
+    expect(fromEast.rect.overlaps(north), isFalse);
+    expect(fromEast.rect.overlaps(hub), isFalse);
+
+    final screen = captureSchemeScreenRect(
+      content: const Rect.fromLTWH(100, 100, 80, 32),
+      anchor: const Offset(200, 200),
+      pan: const Offset(10, 0),
+      zoom: 2,
+    );
+    expect(screen.left, 10);
+    expect(screen.top, 0);
+    expect(screen.right, 170);
+    expect(screen.bottom, 64);
+  });
+
+  test('la ficha de un punto lejano sigue pegada y apunta a ese logger', () {
+    final stage = Rect.fromLTWH(32, 84, 1136, 664);
+    final hub = Rect.fromCenter(
+      center: const Offset(600, 416),
+      width: 80,
+      height: 80,
+    );
+    final south = Rect.fromCenter(
+      center: const Offset(600, 710),
+      width: 80,
+      height: 32,
+    );
+    final corner = Rect.fromCenter(
+      center: const Offset(1100, 120),
+      width: 80,
+      height: 32,
+    );
+    final scheme = placeCaptureScheme(
+      24,
+      const Size(1200, 800),
+      top: 84,
+      bottom: 52,
+    );
+
+    void expectAimed(
+      ({Rect rect, CaptureBriefSide side, double aim}) slot,
+      Rect plate,
+    ) {
+      const gap = 10.0;
+      expect(slot.rect.width, closeTo(captureBriefWidth, 0.01));
+      expect(slot.rect.height, closeTo(captureBriefHeight, 0.01));
+      expect(slot.rect.overlaps(plate), isFalse);
+      expect(slot.rect.left, greaterThanOrEqualTo(stage.left - 0.5));
+      expect(slot.rect.top, greaterThanOrEqualTo(stage.top - 0.5));
+      expect(slot.rect.right, lessThanOrEqualTo(stage.right + 0.5));
+      expect(slot.rect.bottom, lessThanOrEqualTo(stage.bottom + 0.5));
+      late final double along;
+      late final double target;
+      late final double start;
+      late final double span;
+      switch (slot.side) {
+        case CaptureBriefSide.right:
+          expect(slot.rect.left, closeTo(plate.right + gap, 0.6));
+          along = slot.rect.top + slot.aim * slot.rect.height;
+          target = plate.center.dy;
+          start = slot.rect.top;
+          span = slot.rect.height;
+        case CaptureBriefSide.left:
+          expect(slot.rect.right, closeTo(plate.left - gap, 0.6));
+          along = slot.rect.top + slot.aim * slot.rect.height;
+          target = plate.center.dy;
+          start = slot.rect.top;
+          span = slot.rect.height;
+        case CaptureBriefSide.below:
+          expect(slot.rect.top, closeTo(plate.bottom + gap, 0.6));
+          along = slot.rect.left + slot.aim * slot.rect.width;
+          target = plate.center.dx;
+          start = slot.rect.left;
+          span = slot.rect.width;
+        case CaptureBriefSide.above:
+          expect(slot.rect.bottom, closeTo(plate.top - gap, 0.6));
+          along = slot.rect.left + slot.aim * slot.rect.width;
+          target = plate.center.dx;
+          start = slot.rect.left;
+          span = slot.rect.width;
+      }
+      final guarded = target.clamp(start + span * 0.12, start + span * 0.88);
+      expect(along, closeTo(guarded, 0.6));
+    }
+
+    final fromSouth = captureBriefSlot(
+      plate: south,
+      bounds: stage,
+      obstacles: [hub.inflate(8)],
+    );
+    expectAimed(fromSouth, south);
+    expect(fromSouth.rect.overlaps(hub), isFalse);
+
+    final fromCorner = captureBriefSlot(
+      plate: corner,
+      bounds: stage,
+      obstacles: [hub.inflate(8)],
+    );
+    expect(fromCorner.side, CaptureBriefSide.left);
+    expectAimed(fromCorner, corner);
+    expect(fromCorner.rect.bottom, lessThan(400));
+
+    for (var index = 0; index < scheme.plates.length; index++) {
+      final plate = scheme.plates[index];
+      final slot = captureBriefSlot(
+        plate: plate,
+        bounds: stage,
+        obstacles: [
+          scheme.hub.inflate(8),
+          for (var other = 0; other < scheme.plates.length; other++)
+            if (other != index) scheme.plates[other].inflate(4),
+        ],
+      );
+      expectAimed(slot, plate);
+    }
   });
 
   test('el logger dice frecuencia, próxima medición y variables', () {
@@ -906,7 +1407,9 @@ void main() {
     expect(find.text('Pozo Norte'), findsWidgets);
     expect(find.text('Canal Sur'), findsWidgets);
     expect(find.text('Pozo Este'), findsWidgets);
-    expect(find.text('Conectado'), findsWidgets);
+    expect(find.text('Conectado'), findsNothing);
+    expect(find.text('Advertencia'), findsNothing);
+    expect(find.text('Incidencia'), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('capture-node-1')));
     await tester.pump();
@@ -914,7 +1417,7 @@ void main() {
     expect(opened, isNull);
     expect(find.text('En esta vista'), findsNothing);
     expect(find.text('1 punto'), findsNothing);
-    expect(find.text('Entrar'), findsOneWidget);
+    expect(find.text('Ver'), findsOneWidget);
     expect(find.text('Logger'), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('capture-quick-ver')));
@@ -1025,24 +1528,33 @@ void main() {
           .first,
     );
     expect(other.opacity, 0.38);
-    expect(find.text('Pozo'), findsOneWidget);
+    expect(find.byKey(const ValueKey('capture-focus-logger')), findsOneWidget);
     expect(find.text('Nettra'), findsOneWidget);
     expect(find.text('15 min'), findsOneWidget);
     expect(find.text('Dentro del límite'), findsOneWidget);
     expect(find.textContaining('1.20 L/s'), findsOneWidget);
-    expect(find.text('Caudal · ai1'), findsOneWidget);
-    expect(find.text('Soporte'), findsOneWidget);
+    expect(find.text('Caudal · ai1'), findsNothing);
+    expect(find.text('Soporte'), findsNothing);
     expect(find.text('Sensor mudo · abierto'), findsOneWidget);
     expect(find.textContaining('Alerta interna'), findsNothing);
     expect(find.textContaining('Caída de enlace'), findsNothing);
     expect(find.textContaining('Otro fundo'), findsNothing);
-    expect(find.text('Siguiente medición'), findsOneWidget);
-    expect(find.text('Pedir soporte'), findsOneWidget);
-    expect(find.text('Entrar'), findsOneWidget);
+    expect(find.text('Siguiente medición'), findsNothing);
+    expect(find.text('Pedir soporte'), findsNothing);
+    expect(find.textContaining('· Conectado'), findsNothing);
+    expect(find.text('Conectado'), findsOneWidget);
+    expect(find.text('OB-1'), findsOneWidget);
+    expect(find.byIcon(Icons.view_in_ar_rounded), findsOneWidget);
+    expect(find.text('Ver'), findsOneWidget);
+    expect(find.text('Configurar'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('capture-config-section-point')),
+      findsOneWidget,
+    );
 
-    await tester.tap(find.byKey(const ValueKey('capture-quick-support')));
+    await tester.tap(find.byKey(const ValueKey('capture-quick-ver')));
     await tester.pump();
-    expect(support?['title'], 'Pozo Norte');
+    expect(support, isNull);
     expect(tester.takeException(), isNull);
   });
 
@@ -1078,54 +1590,49 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets(
-    'la ficha del punto es alta, con estado al lado y caja de logger',
-    (tester) async {
-      final point = {
-        'id': 4,
-        'title': 'Pozo Norte',
-        'project_name': 'Fundo',
-        'type_dga': 'SUBTERRANEO',
-        'provider': 'nettra',
-        'frecuency': 15,
-        'latest_telemetry': {
-          'date_time_medition': '2026-10-14T15:00:00Z',
-          'days_not_connection': 0,
-          'flow': 1.2,
-        },
-      };
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: SizedBox(
-              width: 390,
-              height: 640,
-              child: _map(points: [point], onPointSelected: (_) {}),
-            ),
-          ),
-        ),
-      );
-      await tester.pump();
-      await tester.tap(find.byKey(const ValueKey('capture-node-4')));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 280));
-
-      final panel = tester.getRect(
-        find.byKey(const ValueKey('capture-view-records')),
-      );
-      expect(panel.height, greaterThanOrEqualTo(220));
-      expect(find.textContaining('Pozo Norte · Conectado'), findsOneWidget);
-      expect(
-        find.byKey(const ValueKey('capture-focus-logger')),
-        findsOneWidget,
-      );
-      expect(tester.takeException(), isNull);
-    },
-  );
-
-  testWidgets('en web abre varias ventanas compactas en mosaico', (
+  testWidgets('la ficha del punto es alta y trae la caja del logger', (
     tester,
   ) async {
+    final point = {
+      'id': 4,
+      'title': 'Pozo Norte',
+      'project_name': 'Fundo',
+      'type_dga': 'SUBTERRANEO',
+      'provider': 'nettra',
+      'frecuency': 15,
+      'latest_telemetry': {
+        'date_time_medition': '2026-10-14T15:00:00Z',
+        'days_not_connection': 0,
+        'flow': 1.2,
+      },
+    };
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 390,
+            height: 640,
+            child: _map(points: [point], onPointSelected: (_) {}),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('capture-node-4')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 280));
+
+    final panel = tester.getRect(
+      find.byKey(const ValueKey('capture-view-records')),
+    );
+    expect(panel.height, inInclusiveRange(200, 320));
+    expect(find.text('Pozo Norte'), findsWidgets);
+    expect(find.textContaining('· Conectado'), findsNothing);
+    expect(find.byKey(const ValueKey('capture-focus-logger')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('en web abre un solo resumen de tamaño fijo', (tester) async {
     _useDesktopSurface(tester);
     await tester.pumpWidget(
       _wideApp(
@@ -1142,81 +1649,46 @@ void main() {
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('capture-node-1')));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 280));
+    await tester.pump(const Duration(milliseconds: 420));
+    await tester.tap(find.byKey(const ValueKey('capture-brief-close')));
+    await tester.pump();
     await tester.tap(find.byKey(const ValueKey('capture-node-2')));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 280));
+    await tester.pump(const Duration(milliseconds: 420));
 
-    expect(
-      find.byKey(const ValueKey('capture-point-window-1')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey('capture-point-window-2')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const ValueKey('capture-board-brief')), findsOneWidget);
     expect(find.byKey(const ValueKey('capture-view-records')), findsNothing);
-    final w1 = tester.getRect(
-      find.byKey(const ValueKey('capture-point-window-1')),
+    expect(find.byKey(const ValueKey('capture-point-window-1')), findsNothing);
+    expect(find.byKey(const ValueKey('capture-point-window-2')), findsNothing);
+    expect(find.text('Escritorio 1 / 2'), findsNothing);
+    expect(find.byIcon(Icons.drag_indicator_rounded), findsNothing);
+    final brief = tester.getRect(
+      find.byKey(const ValueKey('capture-board-brief')),
     );
-    final w2 = tester.getRect(
-      find.byKey(const ValueKey('capture-point-window-2')),
+    expect(brief.width, captureBriefWidth);
+    expect(brief.height, captureBriefHeight);
+    expect(brief.top, greaterThanOrEqualTo(0));
+    expect(brief.bottom, lessThanOrEqualTo(800));
+    final node = tester.getRect(find.byKey(const ValueKey('capture-node-2')));
+    expect(brief.overlaps(node), isFalse);
+    expect((brief.center - node.center).distance, lessThan(360));
+    final card = find.descendant(
+      of: find.byKey(const ValueKey('capture-board-brief')),
+      matching: find.text('Canal Sur'),
     );
-    expect(w1.width, lessThanOrEqualTo(400));
-    expect(w2.width, lessThanOrEqualTo(400));
-    expect(w1.height, greaterThan(360));
-    expect(w1.top, greaterThanOrEqualTo(0));
-    expect(w1.bottom, lessThanOrEqualTo(800));
-    expect(find.textContaining('Pozo Norte · Conectado'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('en web la ventana se mueve y se redimensiona', (tester) async {
-    _useDesktopSurface(tester);
-    await tester.pumpWidget(
-      _wideApp(
-        child: _map(
-          points: [
-            _point(id: 1, title: 'Pozo Norte', project: 'Fundo'),
-          ],
-          onPointSelected: (_) {},
-        ),
+    expect(card, findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('capture-board-brief')),
+        matching: find.text('Pozo Norte'),
       ),
+      findsNothing,
     );
-    await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('capture-node-1')));
-    await tester.pump(const Duration(milliseconds: 280));
-
-    final before = tester.getRect(
-      find.byKey(const ValueKey('capture-point-window-1')),
-    );
-    await tester.drag(
-      find.byKey(const ValueKey('capture-window-drag-1')),
-      const Offset(-48, 30),
-    );
-    await tester.pump();
-    final moved = tester.getRect(
-      find.byKey(const ValueKey('capture-point-window-1')),
-    );
-    expect(moved.left, lessThan(before.left - 20));
-    expect(moved.top, greaterThan(before.top + 12));
-
-    await tester.drag(
-      find.byKey(const ValueKey('capture-window-resize-1')),
-      const Offset(30, 20),
-    );
-    await tester.pump();
-    final resized = tester.getRect(
-      find.byKey(const ValueKey('capture-point-window-1')),
-    );
-    expect(resized.width, greaterThan(moved.width + 10));
-    expect(resized.height, greaterThan(moved.height + 8));
-    expect(resized.right, lessThanOrEqualTo(1200));
-    expect(resized.bottom, lessThanOrEqualTo(800));
+    expect(find.textContaining('· Conectado'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('en web la ventana persiste si pincho fuera o el mismo punto', (
+  testWidgets('la ficha densa de escritorio cabe sin desbordar', (
     tester,
   ) async {
     _useDesktopSurface(tester);
@@ -1224,112 +1696,188 @@ void main() {
       _wideApp(
         child: _map(
           points: [
-            _point(id: 1, title: 'Pozo Norte', project: 'Fundo'),
+            {
+              'id': 6,
+              'title': 'P6',
+              'project_name': 'Fundo',
+              'type_dga': 'SUBTERRANEO',
+              'provider': 'nettra',
+              'frecuency': 15,
+              'send_dga': true,
+              'code_dga': 'OB-1603-392',
+              'variables': [
+                {'type_variable': 'CAUDAL'},
+                {'type_variable': 'NIVEL'},
+                {'type_variable': 'TOTALIZADO'},
+              ],
+              'latest_telemetry': {
+                'date_time_medition': '2026-10-18T15:00:00Z',
+                'days_not_connection': 0,
+                'flow': 46.5,
+                'water_table': 53.0,
+                'total': 276,
+              },
+            },
             _point(id: 2, title: 'Canal Sur', project: 'Fundo'),
+          ],
+          openTickets: const [
+            {
+              'id': 1,
+              'title': 'Sensor mudo',
+              'status': 'ABIERTO',
+              'origin': 'CLIENTE',
+              'point_id': 6,
+            },
+          ],
+          compliance: const [
+            {
+              'point_id': 6,
+              'compliance_warning': {'level': 'safe'},
+            },
           ],
           onPointSelected: (_) {},
         ),
       ),
     );
     await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('capture-node-1')));
-    await tester.pump(const Duration(milliseconds: 280));
-    final opened = tester.getRect(
-      find.byKey(const ValueKey('capture-point-window-1')),
-    );
-    await tester.drag(
-      find.byKey(const ValueKey('capture-window-drag-1')),
-      const Offset(-48, 30),
-    );
+    await tester.tap(find.byKey(const ValueKey('capture-node-6')));
     await tester.pump();
-    final placed = tester.getRect(
-      find.byKey(const ValueKey('capture-point-window-1')),
-    );
+    await tester.pump(const Duration(milliseconds: 420));
 
-    await tester.tapAt(const Offset(48, 160));
-    await tester.pump(const Duration(milliseconds: 280));
-    await tester.tap(find.byKey(const ValueKey('capture-node-1')));
-    await tester.pump(const Duration(milliseconds: 280));
-
+    final brief = find.byKey(const ValueKey('capture-board-brief'));
+    expect(brief, findsOneWidget);
+    expect(tester.getSize(brief).height, captureBriefHeight);
     expect(
-      find.byKey(const ValueKey('capture-point-window-1')),
+      find.descendant(of: brief, matching: find.text('Punto')),
       findsOneWidget,
     );
-    final kept = tester.getRect(
-      find.byKey(const ValueKey('capture-point-window-1')),
+    expect(
+      find.descendant(of: brief, matching: find.text('Telemetría')),
+      findsOneWidget,
     );
-    expect(kept.left, closeTo(placed.left, 1));
-    expect(kept.top, closeTo(placed.top, 1));
-    expect(kept.left, lessThan(opened.left - 20));
+    expect(
+      find.descendant(of: brief, matching: find.text('DGA')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: brief, matching: find.text('Física')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: brief, matching: find.text('Esquema')),
+      findsOneWidget,
+    );
+    expect(find.text('Ver'), findsOneWidget);
+    expect(find.text('Consumo de hoy'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('en web la X cierra solo esa ventana', (tester) async {
+  testWidgets('el pozo sentado deja la pregunta y oculta la red', (
+    tester,
+  ) async {
     _useDesktopSurface(tester);
     await tester.pumpWidget(
       _wideApp(
         child: _map(
-          points: [
-            _point(id: 1, title: 'Pozo Norte', project: 'Fundo'),
-            _point(id: 2, title: 'Canal Sur', project: 'Fundo'),
-          ],
+          points: [_point(id: 1, title: 'Pozo Norte', project: 'Fundo')],
+          onPointSelected: (_) {},
+          askBar: const Text('Pregunta rápida'),
+          seatedWell: const Text('Pozo sentado'),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 280));
+
+    expect(find.text('Pregunta rápida'), findsOneWidget);
+    expect(find.text('Pozo sentado'), findsOneWidget);
+    expect(find.byKey(const ValueKey('capture-node-1')), findsNothing);
+    expect(find.byKey(const ValueKey('capture-config-open')), findsNothing);
+    expect(find.text('Esquema de telemetría'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('la configuración esconde DGA hasta activarlo', (tester) async {
+    _useDesktopSurface(tester);
+    await tester.pumpWidget(
+      _wideApp(
+        child: _map(
+          points: [_point(id: 1, title: 'Pozo Norte', project: 'Fundo')],
           onPointSelected: (_) {},
         ),
       ),
     );
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('capture-node-1')));
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 280));
-    await tester.tap(find.byKey(const ValueKey('capture-node-2')));
-    await tester.pump(const Duration(milliseconds: 280));
-
-    await tester.tap(
+    expect(find.byKey(const ValueKey('capture-config-card')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('capture-config-section-point')),
+      findsOneWidget,
+    );
+    expect(find.text('SMA'), findsOneWidget);
+    expect(
       find.descendant(
-        of: find.byKey(const ValueKey('capture-point-window-1')),
-        matching: find.byIcon(Icons.close_rounded),
+        of: find.byKey(const ValueKey('capture-board-brief')),
+        matching: find.text('DGA'),
       ),
+      findsNothing,
     );
-    await tester.pump(const Duration(milliseconds: 280));
-    expect(find.byKey(const ValueKey('capture-point-window-1')), findsNothing);
-    expect(
-      find.byKey(const ValueKey('capture-point-window-2')),
-      findsOneWidget,
-    );
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('si el punto desaparece se cae del mosaico', (tester) async {
-    _useDesktopSurface(tester);
-    final points = [
-      _point(id: 1, title: 'Pozo Norte', project: 'Fundo'),
-      _point(id: 2, title: 'Canal Sur', project: 'Fundo'),
-    ];
-    await tester.pumpWidget(
-      _wideApp(
-        child: _map(points: points, onPointSelected: (_) {}),
-      ),
+    await tester.tap(
+      find.byKey(const ValueKey('capture-config-section-point')),
     );
     await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('capture-node-1')));
-    await tester.pump(const Duration(milliseconds: 280));
-    await tester.tap(find.byKey(const ValueKey('capture-node-2')));
-    await tester.pump(const Duration(milliseconds: 280));
-
-    await tester.pumpWidget(
-      _wideApp(
-        child: _map(
-          points: [_point(id: 2, title: 'Canal Sur', project: 'Fundo')],
-          onPointSelected: (_) {},
-        ),
-      ),
-    );
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 280));
-    expect(find.byKey(const ValueKey('capture-point-window-1')), findsNothing);
+
+    expect(find.byKey(const ValueKey('capture-config-card')), findsOneWidget);
+    expect(find.text('Configurar punto'), findsOneWidget);
+    expect(find.byKey(const ValueKey('capture-config-code')), findsNothing);
+    expect(find.text('Código de obra'), findsNothing);
+
+    await tester.tap(find.text('Cumplimiento'));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('capture-config-dga')));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('capture-config-code')), findsOneWidget);
+    expect(find.text('Inicio de envío'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('capture-config-close')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('capture-new-point')));
+    await tester.pump();
+    expect(find.text('Nuevo punto'), findsOneWidget);
+    expect(find.byKey(const ValueKey('capture-config-code')), findsNothing);
+    final configCard = find.byKey(const ValueKey('capture-config-card'));
     expect(
-      find.byKey(const ValueKey('capture-point-window-2')),
+      find.descendant(of: configCard, matching: find.text('Punto')),
       findsOneWidget,
     );
+    expect(
+      find.descendant(of: configCard, matching: find.text('Telemetría')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: configCard, matching: find.text('Esquema')),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.descendant(of: configCard, matching: find.text('Esquema')),
+    );
+    await tester.pump();
+    expect(find.byKey(const ValueKey('capture-config-scheme')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('capture-config-add-variable')),
+      findsOneWidget,
+    );
+    expect(find.text('Tipo de variable'), findsOneWidget);
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('capture-config-save')),
+    );
+    await tester.tap(find.byKey(const ValueKey('capture-config-save')));
+    await tester.pump();
+    expect(find.text('La sesión no puede guardar este punto.'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -1374,7 +1922,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 280));
     expect(find.text('En esta vista'), findsNothing);
-    expect(find.text('Entrar'), findsOneWidget);
+    expect(find.text('Ver'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -1425,7 +1973,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('capture-location-7')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 280));
-    expect(find.text('Entrar'), findsOneWidget);
+    expect(find.text('Ver'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('capture-location-toggle')));
     await tester.pump();
@@ -1563,7 +2111,11 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.byKey(const ValueKey('capture-minimap')), findsNothing);
+    expect(find.byKey(const ValueKey('capture-minimap')), findsOneWidget);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('capture-minimap'))),
+      const Size(36, 36),
+    );
     expect(find.text('Caudal'), findsNothing);
     final node = find.byKey(const ValueKey('capture-node-1'));
     final before = tester.getTopLeft(node);
@@ -1574,7 +2126,304 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 280));
     expect((tester.getTopLeft(node) - before).distance, lessThan(0.5));
-    expect(find.text('Entrar'), findsOneWidget);
+    expect(find.text('Ver'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('el mouse sobre el cubo abre las stats sin tapar el esquema', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 760));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 390,
+            height: 760,
+            child: _map(
+              askBar: const Text('Pregunta rápida'),
+              points: [
+                _point(id: 1, title: 'Pozo Norte', project: 'Fundo'),
+                _point(id: 2, title: 'Canal Sur', project: 'Fundo', gap: true),
+              ],
+              onPointSelected: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Pregunta rápida'), findsOneWidget);
+    expect(find.text('Conectado'), findsNothing);
+    expect(find.byKey(const ValueKey('capture-stats')), findsNothing);
+    expect(find.byKey(const ValueKey('capture-hub')), findsOneWidget);
+
+    final hover = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await hover.addPointer();
+    await hover.moveTo(
+      tester.getCenter(find.byKey(const ValueKey('capture-hub'))),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+    expect(find.byKey(const ValueKey('capture-hub-card')), findsOneWidget);
+    expect(find.text('Pregunta rápida'), findsOneWidget);
+    expect(find.byKey(const ValueKey('capture-hub')), findsOneWidget);
+    expect(find.text('Estado de la red'), findsOneWidget);
+    expect(find.text('Conectado'), findsOneWidget);
+    expect(find.text('Advertencia'), findsOneWidget);
+    expect(find.text('Incidencia'), findsOneWidget);
+    expect(find.text('Disponibilidad'), findsOneWidget);
+    expect(find.text('Rendimiento'), findsOneWidget);
+
+    await hover.moveTo(const Offset(8, 8));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('capture-hub-card-close')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(const ValueKey('capture-hub-card')), findsNothing);
+    expect(find.text('Pregunta rápida'), findsOneWidget);
+    expect(find.text('Conectado'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('el zoom no abre el estado de la red', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 760));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 390,
+            height: 760,
+            child: _map(
+              points: [
+                _point(id: 1, title: 'Pozo Norte', project: 'Fundo'),
+                _point(id: 2, title: 'Canal Sur', project: 'Fundo', gap: true),
+              ],
+              onPointSelected: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final hub = find.byKey(const ValueKey('capture-hub'));
+    final hover = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await hover.addPointer();
+    await hover.moveTo(tester.getCenter(hub));
+    await tester.pump();
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: tester.getCenter(hub),
+        scrollDelta: const Offset(0, -120),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(const ValueKey('capture-hub-card')), findsNothing);
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byKey(const ValueKey('capture-hub-card')), findsNothing);
+
+    final edge = tester.getRect(hub);
+    final beside = edge.center + Offset(edge.width / 2 + 8, 0);
+    expect(edge.contains(beside), isFalse);
+    await hover.moveTo(beside);
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('capture-zoom-in')));
+    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(const ValueKey('capture-hub-card')), findsNothing);
+
+    await hover.moveTo(const Offset(8, 8));
+    await tester.pump();
+    await hover.moveTo(tester.getCenter(hub));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 320));
+    expect(find.byKey(const ValueKey('capture-hub-card')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('el cubo abre disponibilidad y rendimiento', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 800,
+            height: 700,
+            child: _map(
+              points: [
+                _point(id: 1, title: 'Pozo Norte', project: 'Fundo'),
+                _point(id: 2, title: 'Canal Sur', project: 'Fundo'),
+              ],
+              onPointSelected: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('capture-hub-card')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('capture-hub')));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('capture-hub-card')), findsOneWidget);
+    expect(find.text('Disponibilidad'), findsOneWidget);
+    expect(find.text('Rendimiento'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('capture-hub-card')),
+        matching: find.textContaining('API en línea'),
+      ),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('el estado de la red se centra en la sección', (tester) async {
+    _useDesktopSurface(tester);
+    await tester.pumpWidget(
+      _wideApp(
+        child: Row(
+          children: [
+            Expanded(
+              child: _map(
+                leftInset: 128,
+                points: [
+                  _point(id: 1, title: 'Pozo Norte', project: 'Fundo'),
+                  _point(id: 2, title: 'Canal Sur', project: 'Fundo'),
+                ],
+                onPointSelected: (_) {},
+              ),
+            ),
+            const SizedBox(width: 380),
+          ],
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final hub = tester.getCenter(find.byKey(const ValueKey('capture-hub')));
+    final zoomOut = tester.getCenter(
+      find.byKey(const ValueKey('capture-zoom-out')),
+    );
+    final zoomIn = tester.getCenter(
+      find.byKey(const ValueKey('capture-zoom-in')),
+    );
+    expect((zoomOut.dx + zoomIn.dx) / 2, closeTo(hub.dx, 8));
+    expect((hub.dx - 600).abs(), greaterThan(40));
+
+    await tester.tap(find.byKey(const ValueKey('capture-hub')));
+    await tester.pump();
+    final card = tester.getCenter(
+      find.byKey(const ValueKey('capture-hub-card')),
+    );
+    expect(card.dx, closeTo(hub.dx, 12));
+    expect(card.dy, closeTo(hub.dy, 16));
+    expect((card.dx - 600).abs(), greaterThan(40));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('acercar no mueve un logger al arrastrarlo', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 760));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 390,
+            height: 760,
+            child: _map(
+              points: [
+                _point(id: 1, title: 'Pozo Norte', project: 'Fundo'),
+                _point(id: 2, title: 'Canal Sur', project: 'Fundo'),
+              ],
+              onPointSelected: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final node = find.byKey(const ValueKey('capture-node-1'));
+    final hub = find.byKey(const ValueKey('capture-hub'));
+    final before = tester.getTopLeft(node);
+    final hubBefore = tester.getRect(hub).center;
+    await tester.tap(find.byKey(const ValueKey('capture-zoom-in')));
+    await tester.pump(const Duration(milliseconds: 90));
+    final midIn = tester.getTopLeft(node);
+    expect((midIn - before).distance, greaterThan(0.5));
+    await tester.pump(const Duration(milliseconds: 700));
+    final zoomed = tester.getTopLeft(node);
+    expect((zoomed - midIn).distance, greaterThan(0.5));
+    expect((tester.getRect(hub).center - hubBefore).distance, lessThan(1.5));
+    await tester.drag(node, const Offset(28, 16));
+    await tester.pump();
+    expect((tester.getTopLeft(node) - zoomed).distance, lessThan(0.5));
+    await tester.tap(find.byKey(const ValueKey('capture-zoom-out')));
+    await tester.pump(const Duration(milliseconds: 90));
+    final midOut = tester.getTopLeft(node);
+    expect((zoomed - midOut).distance, greaterThan(0.5));
+    expect((midOut - before).distance, greaterThan(0.5));
+    await tester.pump(const Duration(milliseconds: 700));
+    expect((tester.getTopLeft(node) - before).distance, lessThan(1.5));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('con zoom el vacío mueve la red y un logger no', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 760));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 390,
+            height: 760,
+            child: _map(
+              points: [
+                _point(id: 1, title: 'Pozo Norte', project: 'Fundo'),
+                _point(id: 2, title: 'Canal Sur', project: 'Fundo'),
+              ],
+              onPointSelected: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('capture-zoom-in')));
+    await tester.pump(const Duration(milliseconds: 700));
+
+    final node = find.byKey(const ValueKey('capture-node-1'));
+    final occupied = [
+      tester.getRect(node),
+      tester.getRect(find.byKey(const ValueKey('capture-node-2'))),
+      tester.getRect(find.byKey(const ValueKey('capture-hub'))),
+      tester.getRect(find.byKey(const ValueKey('capture-zoom-in'))),
+      tester.getRect(find.byKey(const ValueKey('capture-zoom-out'))),
+    ];
+    final map = tester.getRect(find.byType(CaptureNetworkMap));
+    Offset? empty;
+    for (var y = map.top + 150.0; y < map.bottom - 90; y += 28) {
+      for (var x = map.left + 18.0; x < map.right - 18; x += 28) {
+        final point = Offset(x, y);
+        if (occupied.every((rect) => !rect.inflate(16).contains(point))) {
+          empty = point;
+          break;
+        }
+      }
+      if (empty != null) break;
+    }
+    expect(empty, isNotNull);
+    final before = tester.getTopLeft(node);
+    await tester.dragFrom(empty!, const Offset(36, 10));
+    await tester.pump();
+    expect((tester.getTopLeft(node) - before).distance, greaterThan(4));
     expect(tester.takeException(), isNull);
   });
 
@@ -1633,7 +2482,7 @@ void main() {
     );
     final dock = clearance - 2 < 8 ? 8.0 : clearance - 2;
     expect(map.bottom - panel.bottom, greaterThanOrEqualTo(dock - 1));
-    expect(find.text('Entrar'), findsOneWidget);
+    expect(find.text('Ver'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -1675,7 +2524,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 320));
 
     expect(find.text('En esta vista'), findsNothing);
-    expect(find.text('Entrar'), findsOneWidget);
+    expect(find.text('Ver'), findsOneWidget);
     expect(find.text(highest), findsWidgets);
     expect(tester.takeException(), isNull);
   });
@@ -1789,6 +2638,50 @@ void main() {
     expect(tester.getRect(find.byKey(const ValueKey('capture-hub'))), hub);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('el nombre largo se lee y no hay tick de cumplimiento', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(900, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    const name = 'Estación de bombeo Santa Macarena Norte';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 900,
+            height: 720,
+            child: _map(
+              points: [
+                {
+                  ..._point(id: 1, title: name, project: 'Fundo'),
+                  'send_dga': true,
+                  'code_dga': 'X1',
+                },
+                _point(id: 2, title: 'Canal Sur', project: 'Fundo', gap: true),
+              ],
+              onPointSelected: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byIcon(Icons.verified_outlined), findsNothing);
+    expect(find.text('API en línea'), findsNothing);
+    expect(find.text('SMARTHYDRO'), findsOneWidget);
+    final title = find.text(name);
+    expect(title, findsWidgets);
+    final text = tester.widget<Text>(title.first);
+    expect(text.maxLines, lessThanOrEqualTo(2));
+    final card = tester.getSize(find.byKey(const ValueKey('capture-label-0')));
+    expect(card.width, lessThanOrEqualTo(capturePlateWidth + 1));
+    expect(card.height, lessThanOrEqualTo(capturePlateHeight + 1));
+    expect(tester.takeException(), isNull);
+  });
 }
 
 /// Cruce propio entre polilíneas ortogonales (no cuenta T-joints en extremos).
@@ -1876,8 +2769,11 @@ CaptureNetworkMap _map({
   ValueChanged<Map<String, dynamic>>? onRequestSupport,
   double bottomInset = 0,
   double topInset = 0,
+  double leftInset = 0,
   double openBottomClearance = 8,
   TileProvider? locationTiles,
+  Widget? askBar,
+  Widget? seatedWell,
 }) {
   return CaptureNetworkMap(
     points: points,
@@ -1887,9 +2783,12 @@ CaptureNetworkMap _map({
     onRequestSupport: onRequestSupport,
     bottomInset: bottomInset,
     topInset: topInset,
+    leftInset: leftInset,
     openBottomClearance: openBottomClearance,
     checkApiHealth: () async => true,
     locationTiles: locationTiles,
+    askBar: askBar,
+    seatedWell: seatedWell,
   );
 }
 

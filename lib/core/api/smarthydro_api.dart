@@ -106,6 +106,110 @@ class SmartHydroApi {
     return _map(response.data);
   }
 
+  Future<List<Map<String, dynamic>>> projects(String token) async {
+    final response = await _authorizedGet(
+      '/api/project_catchments/all/',
+      token,
+    );
+    final data = response.data;
+    if (data is List) return data.map(_map).toList(growable: false);
+    final nested = _map(data)['results'];
+    if (nested is List) return nested.map(_map).toList(growable: false);
+    return const [];
+  }
+
+  Future<Map<String, dynamic>> catchmentPoint(String token, int pointId) async {
+    final response = await _authorizedGet(
+      '/api/catchment_point/$pointId/',
+      token,
+    );
+    return _map(response.data);
+  }
+
+  Future<Map<String, dynamic>> createCatchmentPoint(
+    String token,
+    Map<String, dynamic> body,
+  ) async {
+    final response = await _authorizedSend(
+      'POST',
+      '/api/catchment_point/',
+      token,
+      body,
+    );
+    return _map(response.data);
+  }
+
+  Future<Map<String, dynamic>> updateCatchmentPoint(
+    String token,
+    int pointId,
+    Map<String, dynamic> body,
+  ) async {
+    final response = await _authorizedSend(
+      'PATCH',
+      '/api/catchment_point/$pointId/',
+      token,
+      body,
+    );
+    return _map(response.data);
+  }
+
+  Future<List<Map<String, dynamic>>> pointDgaConfigs(
+    String token,
+    int pointId,
+  ) async {
+    final response = await _authorizedGet(
+      '/api/dga_data_config_catchment/',
+      token,
+      queryParameters: {'point_catchment': pointId},
+    );
+    final data = response.data;
+    if (data is List) return data.map(_map).toList(growable: false);
+    final nested = _map(data)['results'];
+    if (nested is List) return nested.map(_map).toList(growable: false);
+    return const [];
+  }
+
+  Future<Map<String, dynamic>> createDgaConfig(
+    String token,
+    Map<String, dynamic> body,
+  ) async {
+    final response = await _authorizedSend(
+      'POST',
+      '/api/dga_data_config_catchment/',
+      token,
+      body,
+    );
+    return _map(response.data);
+  }
+
+  Future<Map<String, dynamic>> updateDgaConfig(
+    String token,
+    int configId,
+    Map<String, dynamic> body,
+  ) async {
+    final response = await _authorizedSend(
+      'PATCH',
+      '/api/dga_data_config_catchment/$configId/',
+      token,
+      body,
+    );
+    return _map(response.data);
+  }
+
+  Future<Map<String, dynamic>> patchPointConfig(
+    String token,
+    int pointId,
+    Map<String, dynamic> body,
+  ) async {
+    final response = await _authorizedSend(
+      'PATCH',
+      '/api/ik/point/$pointId/config/',
+      token,
+      body,
+    );
+    return _map(response.data);
+  }
+
   /// Ficha estática de la captación: d1 profundidad, d2 bomba, d3 sensor de
   /// nivel, d4 ducto de salida, d5 flujómetro y límites de procesamiento.
   Future<Map<String, dynamic>> pointConfig(String token, int pointId) async {
@@ -132,6 +236,102 @@ class SmartHydroApi {
     final list = data['variables'];
     if (list is List) return list.map(_map).toList(growable: false);
     return const [];
+  }
+
+  /// Esquemas. Sin filtro trae el catálogo; con [pointId] solo los del punto.
+  Future<List<Map<String, dynamic>>> schemes(
+    String token, {
+    int? pointId,
+  }) async {
+    final response = await _authorizedGet(
+      '/api/schemes_catchment/',
+      token,
+      queryParameters: {'points_catchment': ?pointId},
+    );
+    return _asList(response.data);
+  }
+
+  /// Esquemas ligados al punto. La lista puede venir plana o en `results`.
+  Future<List<Map<String, dynamic>>> schemesForPoint(
+    String token,
+    int pointId,
+  ) {
+    return schemes(token, pointId: pointId);
+  }
+
+  Future<Map<String, dynamic>> createScheme(
+    String token,
+    Map<String, dynamic> body,
+  ) async {
+    final response = await _authorizedSend(
+      'POST',
+      '/api/schemes_catchment/',
+      token,
+      body,
+    );
+    return _map(response.data);
+  }
+
+  Future<Map<String, dynamic>> updateScheme(
+    String token,
+    int schemeId,
+    Map<String, dynamic> body,
+  ) async {
+    final response = await _authorizedSend(
+      'PATCH',
+      '/api/schemes_catchment/$schemeId/',
+      token,
+      body,
+    );
+    return _map(response.data);
+  }
+
+  Future<List<Map<String, dynamic>>> schemeVariables(
+    String token,
+    int schemeId,
+  ) async {
+    final response = await _authorizedGet(
+      '/api/variable/',
+      token,
+      queryParameters: {'scheme_catchment': schemeId},
+    );
+    return _asList(response.data);
+  }
+
+  Future<Map<String, dynamic>> createVariable(
+    String token,
+    Map<String, dynamic> body,
+  ) async {
+    final response = await _authorizedSend(
+      'POST',
+      '/api/variable/',
+      token,
+      body,
+    );
+    return _map(response.data);
+  }
+
+  Future<Map<String, dynamic>> updateVariable(
+    String token,
+    int variableId,
+    Map<String, dynamic> body,
+  ) async {
+    final response = await _authorizedSend(
+      'PATCH',
+      '/api/variable/$variableId/',
+      token,
+      body,
+    );
+    return _map(response.data);
+  }
+
+  Future<void> deleteVariable(String token, int variableId) async {
+    await _authorizedSend(
+      'DELETE',
+      '/api/variable/$variableId/',
+      token,
+      const {},
+    );
   }
 
   Future<List<Map<String, dynamic>>> pointCalendar(
@@ -525,6 +725,23 @@ class SmartHydroApi {
   static const xlsxMime =
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
+  Future<Response<dynamic>> _authorizedSend(
+    String method,
+    String path,
+    String token,
+    Map<String, dynamic> body,
+  ) async {
+    try {
+      return await _dio.request<dynamic>(
+        path,
+        data: body,
+        options: _authOptions(token).copyWith(method: method),
+      );
+    } on DioException catch (error) {
+      throw SmartHydroApiException(_messageFor(error));
+    }
+  }
+
   Future<Response<dynamic>> _authorizedGet(
     String path,
     String token, {
@@ -543,6 +760,13 @@ class SmartHydroApi {
 
   Options _authOptions(String token) =>
       Options(headers: {'Authorization': 'Token $token'});
+
+  static List<Map<String, dynamic>> _asList(dynamic data) {
+    if (data is List) return data.map(_map).toList(growable: false);
+    final nested = _map(data)['results'];
+    if (nested is List) return nested.map(_map).toList(growable: false);
+    return const [];
+  }
 
   static Map<String, dynamic> _map(dynamic value) {
     if (value is Map<String, dynamic>) return value;

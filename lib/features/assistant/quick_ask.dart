@@ -187,14 +187,19 @@ class _QuickAskState extends State<QuickAsk> {
           ),
           if (_answer != null) ...[
             const SizedBox(height: 4),
-            Text(
-              _answer!,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: _failed ? IkoluColors.incident : const Color(0xFFD5E4E2),
-                fontSize: 13,
-                height: 1.35,
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 220),
+              child: SingleChildScrollView(
+                child: Text(
+                  _answer!,
+                  style: TextStyle(
+                    color: _failed
+                        ? IkoluColors.incident
+                        : const Color(0xFFD5E4E2),
+                    fontSize: 13,
+                    height: 1.35,
+                  ),
+                ),
               ),
             ),
           ],
@@ -229,24 +234,8 @@ class _BuddyPeek extends StatelessWidget {
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 220),
             curve: Curves.easeOutCubic,
-            width: size + 14,
-            height: size + 14,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [
-                  IkoluColors.cyan.withValues(alpha: open ? 0.28 : 0.38),
-                  const Color(0x00102328),
-                ],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: IkoluColors.cyan.withValues(alpha: 0.28),
-                  blurRadius: open ? 12 : 18,
-                  spreadRadius: open ? 0 : 1,
-                ),
-              ],
-            ),
+            width: size,
+            height: size,
             alignment: Alignment.center,
             child: N1Buddy(
               key: const ValueKey('n1-quick-buddy'),

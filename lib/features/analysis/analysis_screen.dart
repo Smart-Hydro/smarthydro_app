@@ -17,12 +17,20 @@ class AnalysisScreen extends StatefulWidget {
     required this.api,
     required this.token,
     required this.points,
+    this.showBack = true,
+    this.embedded = false,
     super.key,
   });
 
   final SmartHydroApi api;
   final String token;
   final List<Map<String, dynamic>> points;
+
+  /// En el shell de escritorio el rail reemplaza a Volver.
+  final bool showBack;
+
+  /// Paleta sobre el pozo: sin HydroPage ni Volver.
+  final bool embedded;
 
   @override
   State<AnalysisScreen> createState() => _AnalysisScreenState();
@@ -152,11 +160,49 @@ class _AnalysisScreenState extends State<AnalysisScreen>
     }
   }
 
+  Widget _toolbar() => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      IconButton(
+        tooltip: 'Actualizar análisis',
+        onPressed: _loading ? null : _load,
+        icon: const Icon(Icons.refresh_rounded),
+      ),
+      HydroTabs<int>(
+        values: const [7, 14, 30],
+        selected: _days,
+        label: (v) => '${v}d',
+        onChanged: (v) {
+          if (v == _days) return;
+          setState(() => _days = v);
+          _load();
+        },
+      ),
+    ],
+  );
+
+  Widget _pane() => HydroSwap(
+    state: _loading ? 'loading' : (_error == null ? 'ready' : 'error'),
+    child: _body(),
+  );
+
   @override
   Widget build(BuildContext context) {
     final point = _point;
+    if (widget.embedded) {
+      return Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 12, 4),
+            child: Align(alignment: Alignment.centerRight, child: _toolbar()),
+          ),
+          Expanded(child: _pane()),
+        ],
+      );
+    }
     return HydroPage(
       title: 'Análisis',
+      showBack: widget.showBack,
       subtitle: widget.points.length > 1
           ? _PointPicker(
               points: widget.points,
@@ -174,30 +220,8 @@ class _AnalysisScreenState extends State<AnalysisScreen>
               overflow: TextOverflow.ellipsis,
               style: HydroText.subtitle,
             ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            tooltip: 'Actualizar análisis',
-            onPressed: _loading ? null : _load,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-          HydroTabs<int>(
-            values: const [7, 14, 30],
-            selected: _days,
-            label: (v) => '${v}d',
-            onChanged: (v) {
-              if (v == _days) return;
-              setState(() => _days = v);
-              _load();
-            },
-          ),
-        ],
-      ),
-      body: HydroSwap(
-        state: _loading ? 'loading' : (_error == null ? 'ready' : 'error'),
-        child: _body(),
-      ),
+      trailing: _toolbar(),
+      body: _pane(),
     );
   }
 
@@ -245,159 +269,259 @@ class _AnalysisScreenState extends State<AnalysisScreen>
       );
     }
 
-    var section = 0;
-    Widget reveal(Widget child) =>
-        HydroReveal(animation: _reveal, index: section++, child: child);
     final hasFlowSeries = a.hourlyFlow != null;
     final hasLevelSeries =
         _variables.hasLevel && a.samples.any((s) => s.level != null);
     final kpis = _kpis(a);
-
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+    final health = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        reveal(
-          _Health(
-            analysis: a,
-            selected: _explained == 'Puntaje',
-            onTap: () => setState(
-              () => _explained = _explained == 'Puntaje' ? null : 'Puntaje',
-            ),
+        _Health(
+          analysis: a,
+          selected: _explained == 'Puntaje',
+          onTap: () => setState(
+            () => _explained = _explained == 'Puntaje' ? null : 'Puntaje',
           ),
         ),
-        reveal(
-          _Explanation(
-            data: _explained == 'Puntaje' ? _scoreData(a) : null,
-            onClose: () => setState(() => _explained = null),
-          ),
-        ),
-        const SizedBox(height: 26),
-        reveal(
-          HydroSectionTitle(
-            title: 'Hallazgos',
-            trailing: a.findings.isEmpty
-                ? null
-                : '${a.findings.length} en el período',
-          ),
-        ),
-        const SizedBox(height: 6),
-        if (a.findings.isEmpty)
-          reveal(
-            const _FindingRow(
-              finding: AnalysisFinding(
-                level: FindingLevel.ok,
-                title: 'Sin anomalías en el período',
-                detail:
-                    'Transmisión, sensores y totalizador se comportaron '
-                    'como se espera.',
-              ),
-            ),
-          )
-        else
-          for (final f in a.findings) reveal(_FindingRow(finding: f)),
-        if (kpis.isNotEmpty) ...[
-          const SizedBox(height: 26),
-          reveal(const HydroSectionTitle(title: 'Rendimiento')),
-          const SizedBox(height: 4),
-          reveal(
-            const HydroHint('Toca un indicador para ver cómo se calcula.'),
-          ),
-          const SizedBox(height: 12),
-          reveal(
-            Wrap(
-              spacing: 18,
-              runSpacing: 10,
-              children: [
-                for (final k in kpis)
-                  _Kpi(
-                    data: k,
-                    selected: _explained == k.label,
-                    onTap: () => setState(
-                      () => _explained = _explained == k.label ? null : k.label,
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          reveal(
-            _Explanation(
-              data: [
-                for (final k in kpis)
-                  if (k.label == _explained) k,
-              ].firstOrNull,
-              onClose: () => setState(() => _explained = null),
-            ),
-          ),
-        ],
-        if (hasFlowSeries || hasLevelSeries) ...[
-          const SizedBox(height: 28),
-          reveal(
-            Row(
-              children: [
-                const Expanded(
-                  child: HydroSectionTitle(title: 'Línea de tiempo'),
-                ),
-                if (hasFlowSeries && hasLevelSeries)
-                  _SeriesSwitch(
-                    level: _showLevel,
-                    onChanged: (v) => setState(() => _showLevel = v),
-                  ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 4),
-          reveal(
-            Text(
-              a.gaps.isEmpty
-                  ? 'Toca o desliza para ver cada lectura.'
-                  : 'Las franjas rojas son cortes de transmisión.',
-              style: TextStyle(
-                color: HydroTone.faint.withValues(alpha: 0.85),
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          reveal(
-            _Timeline(
-              key: ValueKey('tl-$_days-$_pointId-$_showLevel'),
-              analysis: a,
-              level: _showLevel || !hasFlowSeries,
-            ),
-          ),
-        ],
-        if (hasFlowSeries) ...[
-          const SizedBox(height: 28),
-          reveal(const HydroSectionTitle(title: 'Perfil horario')),
-          const SizedBox(height: 4),
-          reveal(
-            HydroHint(
-              '${_peakHours(a.hourlyFlow!) ?? 'Sin bombeo en el período'}. '
-              'Cada barra es el caudal promedio de esa hora, juntando todos '
-              'los días del período. Toca o desliza sobre las barras.',
-            ),
-          ),
-          const SizedBox(height: 12),
-          reveal(
-            _HourlyProfile(key: ValueKey('hp-$_days-$_pointId'), analysis: a),
-          ),
-        ],
-        const SizedBox(height: 26),
-        reveal(
-          Text(
-            'Calculado con ${formatCl(a.samples.length.toDouble(), 0)} '
-            'lecturas · una cada ${_minutes(a.interval)} · '
-            'cobertura ${(a.coverage * 100).round()} %',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: HydroTone.faint.withValues(alpha: 0.7),
-              fontSize: 10.5,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+        _Explanation(
+          data: _explained == 'Puntaje' ? _scoreData(a) : null,
+          onClose: () => setState(() => _explained = null),
         ),
       ],
+    );
+    final findingsTitle = HydroSectionTitle(
+      title: 'Hallazgos',
+      trailing: a.findings.isEmpty
+          ? null
+          : '${a.findings.length} en el período',
+    );
+    final findingRows = <Widget>[
+      if (a.findings.isEmpty)
+        const _FindingRow(
+          finding: AnalysisFinding(
+            level: FindingLevel.ok,
+            title: 'Sin anomalías en el período',
+            detail:
+                'Transmisión, sensores y totalizador se comportaron '
+                'como se espera.',
+          ),
+        )
+      else
+        for (final f in a.findings) _FindingRow(finding: f),
+    ];
+    final performance = kpis.isEmpty
+        ? null
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const HydroSectionTitle(title: 'Rendimiento'),
+              const SizedBox(height: 4),
+              const HydroHint('Toca un indicador para ver cómo se calcula.'),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 18,
+                runSpacing: 10,
+                children: [
+                  for (final k in kpis)
+                    _Kpi(
+                      data: k,
+                      selected: _explained == k.label,
+                      onTap: () => setState(
+                        () =>
+                            _explained = _explained == k.label ? null : k.label,
+                      ),
+                    ),
+                ],
+              ),
+              _Explanation(
+                data: [
+                  for (final k in kpis)
+                    if (k.label == _explained) k,
+                ].firstOrNull,
+                onClose: () => setState(() => _explained = null),
+              ),
+            ],
+          );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Desde ~720 px el contenido cabe en dos columnas. El teléfono sigue
+        // apilado: operación, hallazgos, rendimiento y la serie.
+        final wide = constraints.maxWidth >= 720;
+        var section = 0;
+        Widget reveal(Widget child) =>
+            HydroReveal(animation: _reveal, index: section++, child: child);
+
+        final seriesHint = a.gaps.isEmpty
+            ? 'Toca o desliza para ver cada lectura.'
+            : 'Las franjas rojas son cortes de transmisión.';
+        final timeline = !(hasFlowSeries || hasLevelSeries)
+            ? null
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisAlignment: wide
+                        ? MainAxisAlignment.center
+                        : MainAxisAlignment.start,
+                    children: [
+                      if (wide)
+                        Text(
+                          'Línea de tiempo',
+                          style: HydroText.section,
+                          textAlign: TextAlign.center,
+                        )
+                      else
+                        const Expanded(
+                          child: HydroSectionTitle(title: 'Línea de tiempo'),
+                        ),
+                      if (hasFlowSeries && hasLevelSeries) ...[
+                        const SizedBox(width: 8),
+                        _SeriesSwitch(
+                          level: _showLevel,
+                          onChanged: (v) => setState(() => _showLevel = v),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    seriesHint,
+                    textAlign: wide ? TextAlign.center : TextAlign.start,
+                    style: TextStyle(
+                      color: HydroTone.faint.withValues(alpha: 0.85),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  _Timeline(
+                    key: ValueKey('tl-$_days-$_pointId-$_showLevel'),
+                    analysis: a,
+                    level: _showLevel || !hasFlowSeries,
+                  ),
+                ],
+              );
+        final hourly = !hasFlowSeries
+            ? null
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Perfil horario',
+                    textAlign: wide ? TextAlign.center : TextAlign.start,
+                    style: HydroText.section,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${_peakHours(a.hourlyFlow!) ?? 'Sin bombeo en el período'}. '
+                    'Cada barra es el caudal promedio de esa hora, juntando '
+                    'todos los días del período. Toca o desliza sobre las barras.',
+                    textAlign: wide ? TextAlign.center : TextAlign.start,
+                    style: HydroText.hint,
+                  ),
+                  const SizedBox(height: 12),
+                  _HourlyProfile(
+                    key: ValueKey('hp-$_days-$_pointId'),
+                    analysis: a,
+                  ),
+                ],
+              );
+        const pad = EdgeInsets.fromLTRB(20, 8, 20, 32);
+
+        return SingleChildScrollView(
+          key: Key(wide ? 'analysis-layout-wide' : 'analysis-layout-narrow'),
+          padding: pad,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: math.max(0, constraints.maxHeight - pad.vertical),
+            ),
+            child: Column(
+              mainAxisAlignment: wide
+                  ? MainAxisAlignment.center
+                  : MainAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (constraints.maxWidth >= 720 && performance != null)
+                  reveal(
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              health,
+                              const SizedBox(height: 18),
+                              findingsTitle,
+                              const SizedBox(height: 6),
+                              ...findingRows,
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 32),
+                        Expanded(child: performance),
+                      ],
+                    ),
+                  )
+                else ...[
+                  reveal(health),
+                  const SizedBox(height: 26),
+                  reveal(findingsTitle),
+                  const SizedBox(height: 6),
+                  for (final row in findingRows) reveal(row),
+                  if (performance != null) ...[
+                    const SizedBox(height: 26),
+                    reveal(performance),
+                  ],
+                ],
+                if (wide && timeline != null && hourly != null) ...[
+                  const SizedBox(height: 28),
+                  reveal(
+                    Row(
+                      key: const Key('analysis-charts-wide'),
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(child: timeline),
+                        const SizedBox(width: 32),
+                        Expanded(child: hourly),
+                      ],
+                    ),
+                  ),
+                ] else ...[
+                  if (timeline != null) ...[
+                    const SizedBox(height: 28),
+                    reveal(timeline),
+                  ],
+                  if (hourly != null) ...[
+                    const SizedBox(height: 28),
+                    reveal(hourly),
+                  ],
+                ],
+                const SizedBox(height: 26),
+                reveal(
+                  Text(
+                    'Calculado con ${formatCl(a.samples.length.toDouble(), 0)} '
+                    'lecturas · una cada ${_minutes(a.interval)} · '
+                    'cobertura ${(a.coverage * 100).round()} %',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: HydroTone.faint.withValues(alpha: 0.7),
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 

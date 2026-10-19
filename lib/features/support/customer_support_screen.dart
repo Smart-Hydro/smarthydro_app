@@ -37,7 +37,7 @@ Future<bool?> showSupportTicketSheet(
     isScrollControlled: true,
     showDragHandle: true,
     constraints: const BoxConstraints(maxWidth: 640),
-    builder: (context) => _NewTicketSheet(
+    builder: (context) => SupportTicketSheet(
       api: api,
       token: token,
       points: points,
@@ -56,12 +56,16 @@ class CustomerSupportScreen extends StatefulWidget {
     required this.api,
     required this.token,
     required this.points,
+    this.showBack = true,
     super.key,
   });
 
   final SmartHydroApi api;
   final String token;
   final List<Map<String, dynamic>> points;
+
+  /// En el shell de escritorio el rail reemplaza a Volver.
+  final bool showBack;
 
   @override
   State<CustomerSupportScreen> createState() => _CustomerSupportScreenState();
@@ -140,10 +144,12 @@ class _CustomerSupportScreenState extends State<CustomerSupportScreen> {
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 980;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Soporte'),
-        actions: [
+    return HydroPage(
+      title: 'Soporte',
+      showBack: widget.showBack,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
           if (wide)
             TextButton.icon(
               onPressed: _createTicket,
@@ -164,10 +170,9 @@ class _CustomerSupportScreenState extends State<CustomerSupportScreen> {
               icon: const Icon(Icons.add_rounded),
               label: const Text('Nueva solicitud'),
             ),
-      body: HydroFrame(
-        child: ListView(
-          padding: EdgeInsets.fromLTRB(18, 14, 18, wide ? 32 : 92),
-          children: [
+      body: ListView(
+        padding: EdgeInsets.fromLTRB(20, 8, 20, wide ? 32 : 92),
+        children: [
             if (_loading && _tickets.isEmpty)
               const HydroSkeletonCards(height: 72)
             else if (_loading)
@@ -179,24 +184,25 @@ class _CustomerSupportScreenState extends State<CustomerSupportScreen> {
               _TicketCard(ticket: ticket, onTap: () => _openTicket(ticket)),
               const SizedBox(height: 10),
             ],
-          ],
-        ),
+        ],
       ),
     );
   }
 }
 
-class _NewTicketSheet extends StatefulWidget {
-  const _NewTicketSheet({
+class SupportTicketSheet extends StatefulWidget {
+  const SupportTicketSheet({
     required this.api,
     required this.token,
     required this.points,
-    required this.categories,
+    this.categories = const [],
     this.initialTitle,
     this.initialDescription,
     this.initialPointId,
     this.initialPriority,
     this.lockPoint = false,
+    this.onResult,
+    super.key,
   });
 
   final SmartHydroApi api;
@@ -208,12 +214,13 @@ class _NewTicketSheet extends StatefulWidget {
   final int? initialPointId;
   final String? initialPriority;
   final bool lockPoint;
+  final ValueChanged<bool>? onResult;
 
   @override
-  State<_NewTicketSheet> createState() => _NewTicketSheetState();
+  State<SupportTicketSheet> createState() => _SupportTicketSheetState();
 }
 
-class _NewTicketSheetState extends State<_NewTicketSheet> {
+class _SupportTicketSheetState extends State<SupportTicketSheet> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
@@ -222,6 +229,7 @@ class _NewTicketSheetState extends State<_NewTicketSheet> {
   String _priority = 'MEDIA';
   bool _submitting = false;
   String? _error;
+  List<Map<String, dynamic>> _categories = const [];
 
   @override
   void initState() {
@@ -236,8 +244,34 @@ class _NewTicketSheetState extends State<_NewTicketSheet> {
     _pointId = known
         ? requested
         : (widget.points.isEmpty ? null : _asInt(widget.points.first['id']));
-    if (widget.categories.isNotEmpty) {
-      _categoryId = _asInt(widget.categories.first['id']);
+    _categories = widget.categories;
+    if (_categories.isNotEmpty) {
+      _categoryId = _asInt(_categories.first['id']);
+    } else {
+      _loadCategories();
+    }
+  }
+
+  Future<void> _loadCategories() async {
+    try {
+      final categories = (await widget.api.ticketCategories(widget.token))
+          .where(
+            (category) => const {
+              'SOFTWARE',
+              'HARDWARE',
+              'COMPLIANCE',
+            }.contains('${category['category_type']}'.toUpperCase()),
+          )
+          .toList(growable: false);
+      if (!mounted) return;
+      setState(() {
+        _categories = categories;
+        if (_categoryId == null && categories.isNotEmpty) {
+          _categoryId = _asInt(categories.first['id']);
+        }
+      });
+    } on SmartHydroApiException {
+      // El formulario sigue sin categorías.
     }
   }
 
@@ -263,7 +297,12 @@ class _NewTicketSheetState extends State<_NewTicketSheet> {
         pointIds: [_pointId!],
         categoryId: _categoryId,
       );
-      if (mounted) Navigator.of(context).pop(true);
+      if (!mounted) return;
+      if (widget.onResult != null) {
+        widget.onResult!(true);
+      } else {
+        Navigator.of(context).pop(true);
+      }
     } on SmartHydroApiException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -331,7 +370,7 @@ class _NewTicketSheetState extends State<_NewTicketSheet> {
                 value: null,
                 child: Text('Sin categoría'),
               ),
-              for (final category in widget.categories)
+              for (final category in _categories)
                 DropdownMenuItem<int?>(
                   value: _asInt(category['id']),
                   child: Text(category['name']?.toString() ?? 'Categoría'),
@@ -462,8 +501,8 @@ class _TicketDetailScreenState extends State<_TicketDetailScreen> {
     final pointLabel = points is List && points.isNotEmpty
         ? _asMap(points.first)['title']?.toString() ?? 'Punto asociado'
         : 'Solicitud general';
-    return Scaffold(
-      appBar: AppBar(title: Text('Solicitud #${widget.ticket['id']}')),
+    return HydroPage(
+      title: 'Solicitud #${widget.ticket['id']}',
       body: Column(
         children: [
           if (_loading && _comments.isNotEmpty) const HydroLinearBar(),

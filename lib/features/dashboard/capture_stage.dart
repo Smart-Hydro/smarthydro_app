@@ -145,6 +145,7 @@ class CaptureStage extends StatefulWidget {
     this.totalCubicMeters,
     this.loggerInfo,
     this.topInset = 56,
+    this.clearBackdrop = false,
     super.key,
   });
 
@@ -171,6 +172,9 @@ class CaptureStage extends StatefulWidget {
 
   /// Espacio reservado arriba para controles superpuestos.
   final double topInset;
+
+  /// Sin el lienzo propio: se ve la cuadrícula que ya está detrás.
+  final bool clearBackdrop;
 
   @override
   State<CaptureStage> createState() => _CaptureStageState();
@@ -301,7 +305,7 @@ class _CaptureStageState extends State<CaptureStage>
   void didChangeDependencies() {
     super.didChangeDependencies();
     final reduce = MediaQuery.of(context).disableAnimations;
-    if (reduce) {
+    if (reduce || widget.clearBackdrop) {
       _intro.value = 1;
     } else if (_intro.isDismissed) {
       _intro.forward();
@@ -696,40 +700,43 @@ class _CaptureStageState extends State<CaptureStage>
                           final alive = widget.playing
                               ? 0.55 + _playPulse.value * 0.45
                               : _playPulse.value * 0.45;
+                          final scene = CustomPaint(
+                            painter: _CaptureStagePainter(
+                              clearBackdrop: widget.clearBackdrop,
+                              phase: _flow.value,
+                              yaw: _yaw,
+                              pitch: _pitch,
+                              layoutYaw: _baseYaw,
+                              layoutPitch: _basePitch,
+                              topInset: widget.topInset,
+                              levelMeters: _level,
+                              napaMeters: _napa,
+                              levelMotion: _levelMotion,
+                              levelMin: widget.levelMin,
+                              levelMax: widget.levelMax,
+                              textScaler: textScaler,
+                              flow: _shownFlow,
+                              isSurface: widget.isSurface,
+                              link: widget.link,
+                              profile: widget.profile,
+                              alive: alive,
+                              focus: focus,
+                              hits: _hits,
+                              travel: _travel,
+                              drift: _drift,
+                              flowMax: widget.flowMax,
+                              totalCubicMeters: widget.totalCubicMeters,
+                              zoom: _zoom,
+                              pan: _pan,
+                              intro: _intro.value,
+                              tagsShown: _tagsShown,
+                            ),
+                            child: const SizedBox.expand(),
+                          );
+                          if (widget.clearBackdrop) return scene;
                           return ColoredBox(
                             color: const Color(0xFF0A181D),
-                            child: CustomPaint(
-                              painter: _CaptureStagePainter(
-                                phase: _flow.value,
-                                yaw: _yaw,
-                                pitch: _pitch,
-                                layoutYaw: _baseYaw,
-                                layoutPitch: _basePitch,
-                                topInset: widget.topInset,
-                                levelMeters: _level,
-                                napaMeters: _napa,
-                                levelMotion: _levelMotion,
-                                levelMin: widget.levelMin,
-                                levelMax: widget.levelMax,
-                                textScaler: textScaler,
-                                flow: _shownFlow,
-                                isSurface: widget.isSurface,
-                                link: widget.link,
-                                profile: widget.profile,
-                                alive: alive,
-                                focus: focus,
-                                hits: _hits,
-                                travel: _travel,
-                                drift: _drift,
-                                flowMax: widget.flowMax,
-                                totalCubicMeters: widget.totalCubicMeters,
-                                zoom: _zoom,
-                                pan: _pan,
-                                intro: _intro.value,
-                                tagsShown: _tagsShown,
-                              ),
-                              child: const SizedBox.expand(),
-                            ),
+                            child: scene,
                           );
                         },
                       ),
@@ -1332,6 +1339,7 @@ class _CaptureStagePainter extends CustomPainter {
     this.pan = Offset.zero,
     this.intro = 1,
     this.tagsShown = 1,
+    this.clearBackdrop = false,
   });
 
   /// Progreso 0..1 de la entrada inicial de la escena.
@@ -1339,6 +1347,8 @@ class _CaptureStagePainter extends CustomPainter {
 
   /// Visibilidad 0..1 de los rótulos (el usuario puede ocultarlos).
   final double tagsShown;
+
+  final bool clearBackdrop;
 
   final double phase;
 
@@ -1404,7 +1414,10 @@ class _CaptureStagePainter extends CustomPainter {
     hits.clear();
     final backdrop = Offset.zero & size;
     // Fondo oscuro siempre: si algo falla al dibujar, no queda blanco.
-    canvas.drawRect(backdrop, Paint()..color = const Color(0xFF0A181D));
+    // Sobre la red no se pinta: la cuadrícula ya está detrás.
+    if (!clearBackdrop) {
+      canvas.drawRect(backdrop, Paint()..color = const Color(0xFF0A181D));
+    }
     final saved = canvas.getSaveCount();
     try {
       _paintScene(canvas, size, backdrop);
@@ -1419,16 +1432,30 @@ class _CaptureStagePainter extends CustomPainter {
   }
 
   void _paintScene(Canvas canvas, Size size, Rect backdrop) {
-    canvas.drawRect(
-      backdrop,
-      Paint()
-        ..shader = const RadialGradient(
-          center: Alignment(0, -0.2),
-          radius: 1.1,
-          colors: [Color(0xFF10282E), Color(0xFF0A181D), Color(0xFF060F12)],
-          stops: [0, 0.6, 1],
-        ).createShader(backdrop),
-    );
+    if (!clearBackdrop) {
+      canvas.drawRect(
+        backdrop,
+        Paint()
+          ..shader = const RadialGradient(
+            center: Alignment(0, -0.28),
+            radius: 1.18,
+            colors: [Color(0xFF16343C), Color(0xFF0C1E24), Color(0xFF061014)],
+            stops: [0, 0.55, 1],
+          ).createShader(backdrop),
+      );
+      final pool = Rect.fromCenter(
+        center: Offset(size.width * 0.5, size.height * 0.72),
+        width: size.width * 0.92,
+        height: size.height * 0.38,
+      );
+      canvas.drawOval(
+        pool,
+        Paint()
+          ..shader = const RadialGradient(
+            colors: [Color(0x3324B8A8), Color(0x0024B8A8)],
+          ).createShader(pool),
+      );
+    }
     // Entrada: el bloque sube y aparece; agua, equipos y rótulos le siguen.
     final enter = _introAt(0, 0.55);
     final layered = enter < 1;

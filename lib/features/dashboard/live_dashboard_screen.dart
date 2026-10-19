@@ -19,6 +19,7 @@ import '../reports/reports_screen.dart';
 import '../support/customer_support_screen.dart';
 import '../../shared/navigation/hydro_page_route.dart';
 import '../../shared/ui/hydro_ui.dart';
+import '../../shared/ui/point_tool_sheet.dart';
 import '../../shared/widgets/hydro_glass.dart';
 import '../../shared/widgets/liquid_nav.dart';
 import '../assistant/quick_ask.dart';
@@ -43,9 +44,22 @@ class LiveDashboardScreen extends ConsumerStatefulWidget {
       _LiveDashboardScreenState();
 }
 
+/// Apps que en escritorio viven junto al rail, sin tapar el menú.
+/// Mismo orden que [liquidDesktopApps].
+enum _ShellTool {
+  ubicaciones,
+  analisis,
+  cumplimiento,
+  asistente,
+  soporte,
+  registros,
+  informes,
+}
+
 class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
     with WidgetsBindingObserver {
   int _selectedTab = 0;
+  _ShellTool? _shellTool;
   bool _loading = true;
   String? _loadError;
   List<Map<String, dynamic>> _points = const [];
@@ -60,6 +74,9 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
   Timer? _notificationPoll;
   bool _notifyEmail = true;
   bool _savingEmailPreference = false;
+
+  /// Pozo abierto sobre la red. En web no empuja una página.
+  Map<String, dynamic>? _networkWell;
 
   SmartHydroApi get _api => ref.read(smartHydroApiProvider);
 
@@ -238,7 +255,11 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
   }
 
   void _selectTab(int index) {
-    setState(() => _selectedTab = index);
+    setState(() {
+      _shellTool = null;
+      _selectedTab = index;
+      _networkWell = null;
+    });
     if (index == 1) _loadNotifications();
   }
 
@@ -249,7 +270,8 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
     final wide = MediaQuery.sizeOf(context).width >= 980;
     final reduceMotion = MediaQuery.of(context).disableAnimations;
     final unreadCount = _ticketNotifications['unread_count'] as int? ?? 0;
-    final page = _buildSelectedPage();
+    final tool = wide ? _shellTool : null;
+    final page = tool == null ? _buildSelectedPage() : _shellToolPage(tool);
     final switcher = ClipRect(
       child: AnimatedSwitcher(
         duration: reduceMotion
@@ -274,13 +296,13 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
           );
         },
         child: KeyedSubtree(
-          key: ValueKey((_selectedTab, _loading && _selectedTab == 0)),
+          key: ValueKey(tool ?? (_selectedTab, _loading && _selectedTab == 0)),
           child: page,
         ),
       ),
     );
 
-    final isHome = _selectedTab == 0;
+    final isHome = tool == null && _selectedTab == 0;
     return Scaffold(
       backgroundColor: Colors.transparent,
       // Home: el cuerpo pasa DETRÁS del menú glass (mapa full-bleed).
@@ -299,17 +321,19 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
                 child: Stack(
                   children: [
                     Positioned.fill(child: switcher),
-                    Positioned(
-                      right: 12,
-                      bottom: 12,
-                      child: QuickAsk(
-                        peek: true,
-                        n1Api: ref.read(n1ApiProvider),
-                        token: widget.session.token,
-                        email: widget.session.email,
-                        pointIds: _pointIds(_points),
+                    if (tool != _ShellTool.ubicaciones &&
+                        tool != _ShellTool.asistente)
+                      Positioned(
+                        right: 12,
+                        bottom: 12,
+                        child: QuickAsk(
+                          peek: true,
+                          n1Api: ref.read(n1ApiProvider),
+                          token: widget.session.token,
+                          email: widget.session.email,
+                          pointIds: _pointIds(_points),
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),
@@ -324,6 +348,7 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
                 right: false,
                 child: LiquidNavRail(
                   selectedIndex: _selectedTab,
+                  selectedAppIndex: _shellTool?.index,
                   unreadCount: unreadCount,
                   onSelect: _selectTab,
                   onOpenApp: _openDesktopApp,
@@ -371,6 +396,18 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
                 onRequestSupport: _requestSupportFor,
                 onOpenCompliance: _openPointCompliance,
                 onSelectPoint: _openPoint,
+                networkWell: !wide || _networkWell == null
+                    ? null
+                    : PointDetailScreen(
+                        key: ValueKey(_int(_networkWell!['id'])),
+                        api: _api,
+                        token: widget.session.token,
+                        point: _networkWell!,
+                        onClose: _closeNetworkWell,
+                      ),
+                token: widget.session.token,
+                userId: int.tryParse('${widget.session.user['id']}'),
+                onConfigured: _loadDashboard,
               );
       case 1:
         return _NotificationsTab(
@@ -408,11 +445,21 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
   }
 
   void _openPoint(Map<String, dynamic> point) {
+    final wide = MediaQuery.sizeOf(context).width >= 980;
+    if (wide && _shellTool == null && _selectedTab == 0) {
+      setState(() => _networkWell = point);
+      return;
+    }
     Navigator.of(context).push<void>(
       hydroPageRoute(
         PointDetailScreen(api: _api, token: widget.session.token, point: point),
       ),
     );
+  }
+
+  void _closeNetworkWell() {
+    if (_networkWell == null) return;
+    setState(() => _networkWell = null);
   }
 
   void _openAssistant() {
@@ -445,7 +492,13 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
 
   void _openCompliance() {
     Navigator.of(context).push<void>(
-      hydroPageRoute(ComplianceScreen(api: _api, token: widget.session.token)),
+      hydroPageRoute(
+        ComplianceScreen(
+          api: _api,
+          token: widget.session.token,
+          seed: _compliance,
+        ),
+      ),
     );
   }
 
@@ -506,11 +559,77 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
     );
   }
 
+  Widget _shellToolPage(_ShellTool tool) {
+    switch (tool) {
+      case _ShellTool.ubicaciones:
+        return GeoSmartScreen(
+          points: _points,
+          onSelectPoint: _openPoint,
+          showBack: false,
+        );
+      case _ShellTool.analisis:
+        return AnalysisScreen(
+          api: _api,
+          token: widget.session.token,
+          points: _points,
+          showBack: false,
+        );
+      case _ShellTool.cumplimiento:
+        return ComplianceScreen(
+          api: _api,
+          token: widget.session.token,
+          showBack: false,
+          seed: _compliance,
+        );
+      case _ShellTool.asistente:
+        return AssistantScreen(
+          n1Api: ref.read(n1ApiProvider),
+          session: widget.session,
+          points: _points,
+          showBack: false,
+        );
+      case _ShellTool.soporte:
+        return CustomerSupportScreen(
+          api: _api,
+          token: widget.session.token,
+          points: _points,
+          showBack: false,
+        );
+      case _ShellTool.registros:
+        return ReportsScreen(
+          api: _api,
+          token: widget.session.token,
+          points: _points,
+          showBack: false,
+        );
+      case _ShellTool.informes:
+        return HydroPage(
+          title: 'Informes',
+          showBack: false,
+          body: const HydroMessage(
+            icon: Icons.description_outlined,
+            title: 'En preparación',
+            message:
+                'Los resúmenes para compartir siguen en preparación. '
+                'Mientras tanto, Registros descarga las lecturas del período.',
+          ),
+        );
+    }
+  }
+
   /// Índice alineado con [liquidDesktopApps].
   void _openDesktopApp(int index) {
     final app = (index >= 0 && index < liquidDesktopApps.length)
         ? liquidDesktopApps[index]
         : null;
+    final wide = MediaQuery.sizeOf(context).width >= 980;
+    if (liquidAppStaysInShell(wide: wide, index: index)) {
+      setState(() {
+        _shellTool = _ShellTool.values[index];
+        _networkWell = null;
+      });
+      return;
+    }
     if (app?.comingSoon == true) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('${app!.label}: pronto disponible.')),
@@ -574,6 +693,10 @@ class _DashboardTab extends StatefulWidget {
     required this.onRequestSupport,
     required this.onOpenCompliance,
     required this.onSelectPoint,
+    this.networkWell,
+    required this.token,
+    required this.onConfigured,
+    this.userId,
   });
 
   final List<Map<String, dynamic>> points;
@@ -586,6 +709,12 @@ class _DashboardTab extends StatefulWidget {
   final ValueChanged<Map<String, dynamic>> onRequestSupport;
   final ValueChanged<Map<String, dynamic>> onOpenCompliance;
   final ValueChanged<Map<String, dynamic>> onSelectPoint;
+
+  /// Pozo sentado sobre el mapa. Nulo cuando la red está sola.
+  final Widget? networkWell;
+  final String token;
+  final int? userId;
+  final VoidCallback onConfigured;
 
   @override
   State<_DashboardTab> createState() => _DashboardTabState();
@@ -645,6 +774,10 @@ class _DashboardTabState extends State<_DashboardTab> {
           onPointSelected: widget.onSelectPoint,
           onRequestSupport: widget.onRequestSupport,
           askBar: widget.askBar,
+          token: widget.token,
+          userId: widget.userId,
+          onConfigured: widget.onConfigured,
+          seatedWell: wide ? widget.networkWell : null,
           topInset: topSafe + 8,
           leftInset: wide ? liquidNavRailExtent : 0,
           bottomInset: widget.bottomInset + (toSummary == null ? 0 : 56),
@@ -2285,6 +2418,7 @@ class PointDetailScreen extends StatefulWidget {
     required this.api,
     required this.token,
     required this.point,
+    this.onClose,
     super.key,
   });
 
@@ -2292,17 +2426,25 @@ class PointDetailScreen extends StatefulWidget {
   final String token;
   final Map<String, dynamic> point;
 
+  /// Si viene, Volver cierra esta vista sin salir de la red.
+  final VoidCallback? onClose;
+
   @override
   State<PointDetailScreen> createState() => _PointDetailScreenState();
 }
 
+enum _WellPalette { history, analysis, compliance, reports, system, support }
+
 class _PointDetailScreenState extends State<PointDetailScreen> {
   Map<String, dynamic>? _detail;
+  _WellPalette? _palette;
+  _WellPalette? _hostedTool;
+  WellPaletteHostState? _paletteHost;
   List<Map<String, dynamic>> _replayRecords = const [];
   String? _error;
   String? _replayError;
-  bool _loading = true;
-  bool _replayLoading = true;
+  bool _replayLoading = false;
+  bool _replayReady = false;
   int _selectedReplayIndex = 0;
   DateTimeRange _replayRange = DateTimeRange(
     start: DateTime.now().subtract(const Duration(days: 1)),
@@ -2319,8 +2461,13 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
   void initState() {
     super.initState();
     _load();
-    _loadReplay();
     _loadProfile();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _paletteHost = WellPaletteHost.of(context);
   }
 
   /// Ficha estática + variables del punto. Cada llamada es independiente:
@@ -2352,24 +2499,17 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
   }
 
   Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
     try {
       final id = _int(widget.point['id']);
       final detail = await widget.api.pointSummary(widget.token, id);
       if (!mounted) return;
       setState(() {
         _detail = detail;
-        _loading = false;
+        _error = null;
       });
     } on SmartHydroApiException catch (error) {
       if (!mounted) return;
-      setState(() {
-        _error = error.message;
-        _loading = false;
-      });
+      setState(() => _error = error.message);
     }
   }
 
@@ -2402,19 +2542,21 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
         _replayRecords = records;
         _selectedReplayIndex = records.isEmpty ? 0 : records.length - 1;
         _replayLoading = false;
+        _replayReady = true;
       });
     } on SmartHydroApiException catch (error) {
       if (!mounted) return;
       setState(() {
         _replayError = error.message;
         _replayLoading = false;
+        _replayReady = true;
       });
     }
   }
 
   Future<void> _chooseReplayRange() async {
     final now = DateTime.now();
-    final selected = await showDateRangePicker(
+    final selected = await showHydroDateRange(
       context: context,
       firstDate: DateTime(2010),
       lastDate: now,
@@ -2463,6 +2605,19 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
       setState(() => _replayTimer = null);
       return;
     }
+    if (!_replayReady) {
+      if (_replayLoading) return;
+      _loadReplay().then((_) {
+        if (!mounted || _replayRecords.length < 2) return;
+        _startReplay();
+      });
+      return;
+    }
+    if (_replayRecords.length < 2) return;
+    _startReplay();
+  }
+
+  void _startReplay() {
     if (_replayRecords.length < 2) return;
     const stepMs = 650;
     final last = _replayRecords.length - 1;
@@ -2494,6 +2649,7 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
   @override
   void dispose() {
     _replayTimer?.cancel();
+    _paletteHost?.show(null);
     super.dispose();
   }
 
@@ -2534,6 +2690,12 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
         ? null
         : DateTime.tryParse(selectedRecord['date_time']?.toString() ?? '');
     final title = data['title'] as String? ?? 'Punto de captación';
+    final model = loggerModelOf(data);
+    final project = data['project_name']?.toString();
+    final subtitle = [
+      if (project != null && project.isNotEmpty) project,
+      ?model,
+    ].join(' · ');
     final rawFlow = _optionalNumber(
       selectedRecord?['flow'] ?? telemetry['flow'],
     );
@@ -2568,208 +2730,270 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
         : levelRange.abs() < 0.0001
         ? 0.55
         : ((liveLevel - minimumLevel!) / levelRange).clamp(0.0, 1.0);
-    return Scaffold(
-      backgroundColor: const Color(0xFF071114),
-      body: Column(
-        children: [
-          Expanded(
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                CaptureStage(
-                  levelMeters: liveLevel,
-                  levelFill: levelFill,
-                  levelMin: _variables.hasLevel ? minimumLevel : null,
-                  levelMax: _variables.hasLevel ? maximumLevel : null,
-                  flowLitersPerSecond: liveFlow,
-                  isSurface: isSurface,
-                  link: pointLinkOf(data),
-                  profile: _profile,
-                  playing: _replayTimer != null,
-                  flowMax: _variables.hasFlow && flowMax != null && flowMax > 0
-                      ? flowMax
-                      : null,
-                  totalCubicMeters: liveTotal,
-                  loggerInfo: loggerInfo,
-                ),
-                SafeArea(
-                  bottom: false,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 20, 0, 0),
-                    child: Align(
-                      alignment: Alignment.topLeft,
-                      child: const HydroBackButton(backdrop: true),
+    final embedded = widget.onClose != null;
+    final scene = Column(
+      children: [
+        Expanded(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              CaptureStage(
+                levelMeters: liveLevel,
+                levelFill: levelFill,
+                levelMin: _variables.hasLevel ? minimumLevel : null,
+                levelMax: _variables.hasLevel ? maximumLevel : null,
+                flowLitersPerSecond: liveFlow,
+                clearBackdrop: embedded,
+                isSurface: isSurface,
+                link: pointLinkOf(data),
+                profile: _profile,
+                playing: _replayTimer != null,
+                flowMax: _variables.hasFlow && flowMax != null && flowMax > 0
+                    ? flowMax
+                    : null,
+                totalCubicMeters: liveTotal,
+                loggerInfo: loggerInfo,
+              ),
+              SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 0, 0),
+                  child: Align(
+                    alignment: Alignment.topLeft,
+                    child: HydroBackButton(
+                      backdrop: true,
+                      onPressed: widget.onClose,
                     ),
                   ),
                 ),
-                if (_loading || _replayLoading)
-                  const Positioned(
-                    left: 0,
-                    right: 0,
-                    top: 0,
-                    child: HydroLinearBar(),
+              ),
+              if (_replayLoading)
+                const Positioned(
+                  left: 0,
+                  right: 0,
+                  top: 0,
+                  child: HydroLinearBar(),
+                ),
+            ],
+          ),
+        ),
+        SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _InlineError(message: _error!, onRetry: _load),
                   ),
+                if (_replayError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _InlineError(
+                      message: _replayError!,
+                      onRetry: _loadReplay,
+                    ),
+                  ),
+                TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0, end: 1),
+                  duration: const Duration(milliseconds: 700),
+                  curve: const Interval(0.35, 1, curve: Curves.easeOutCubic),
+                  builder: (context, t, child) => Opacity(
+                    opacity: t,
+                    child: Transform.translate(
+                      offset: Offset(0, (1 - t) * 18),
+                      child: child,
+                    ),
+                  ),
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 760),
+                      child: _PointGlassDock(
+                        title: title,
+                        subtitle: subtitle,
+                        link: pointLinkOf(data),
+                        dgaActive: loggerInfo.dga != null,
+                        playing: _replayTimer != null,
+                        replayLabel: _replayLabel,
+                        replayStamp: startedAt == null
+                            ? null
+                            : _formatTimestamp(startedAt.toIso8601String()),
+                        replayIndex: _selectedReplayIndex,
+                        replayTotal: _replayRecords.length,
+                        canReplay:
+                            !_replayLoading &&
+                            (!_replayReady || _replayRecords.length > 1),
+                        atStart: _selectedReplayIndex <= 0,
+                        onToggleReplay: _toggleReplay,
+                        onRestart: _replayRestart,
+                        onScrub: (value) => setState(
+                          () => _selectedReplayIndex = value.round(),
+                        ),
+                        onPickRange: _chooseReplayRange,
+                        onHistory: _openHistory,
+                        onAnalysis: _openAnalysisForPoint,
+                        onCompliance: _openComplianceForPoint,
+                        onReports: _openReportsForPoint,
+                        onSystem: _openSystemForPoint,
+                        onSupport: _createTicketForPoint,
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
-          SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_error != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: _InlineError(message: _error!, onRetry: _load),
-                    ),
-                  if (_replayError != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: _InlineError(
-                        message: _replayError!,
-                        onRetry: _loadReplay,
-                      ),
-                    ),
-                  TweenAnimationBuilder<double>(
-                    tween: Tween(begin: 0, end: 1),
-                    duration: const Duration(milliseconds: 700),
-                    curve: const Interval(0.35, 1, curve: Curves.easeOutCubic),
-                    builder: (context, t, child) => Opacity(
-                      opacity: t,
-                      child: Transform.translate(
-                        offset: Offset(0, (1 - t) * 18),
-                        child: child,
-                      ),
-                    ),
-                    child: _PointGlassDock(
-                      title: title,
-                      subtitle: data['project_name'] as String? ?? '',
-                      link: pointLinkOf(data),
-                      dgaActive: loggerInfo.dga != null,
-                      playing: _replayTimer != null,
-                      replayLabel: _replayLabel,
-                      canReplay: _replayRecords.length > 1,
-                      atStart: _selectedReplayIndex <= 0,
-                      onToggleReplay: _toggleReplay,
-                      onRestart: _replayRestart,
-                      onPickRange: _chooseReplayRange,
-                      onHistory: _openHistory,
-                      onAnalysis: _openAnalysisForPoint,
-                      onCompliance: _openComplianceForPoint,
-                      onReports: _openReportsForPoint,
-                      onSystem: _openSystemForPoint,
-                      onSupport: _createTicketForPoint,
-                    ),
-                  ),
-                  if (_replayTimer != null && _replayRecords.length > 1) ...[
-                    const SizedBox(height: 8),
-                    _ReplayScrubber(
-                      index: _selectedReplayIndex,
-                      total: _replayRecords.length,
-                      label: startedAt == null
-                          ? null
-                          : _formatTimestamp(startedAt.toIso8601String()),
-                      startLabel: _formatTimestamp(
-                        _replayRecords.first['date_time']?.toString(),
-                      ),
-                      endLabel: _formatTimestamp(
-                        _replayRecords.last['date_time']?.toString(),
-                      ),
-                      onChanged: (value) =>
-                          setState(() => _selectedReplayIndex = value.round()),
-                    ),
-                  ],
+        ),
+      ],
+    );
+    final pane = embedded
+        ? scene
+        : DecoratedBox(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0xFF102830),
+                  Color(0xFF0A181D),
+                  Color(0xFF10262B),
                 ],
+                stops: [0, 0.72, 1],
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _openAnalysisForPoint() {
-    Navigator.of(context).push<void>(
-      hydroPageRoute(
-        AnalysisScreen(
-          api: widget.api,
-          token: widget.token,
-          points: [widget.point],
-        ),
-      ),
-    );
-  }
-
-  void _openComplianceForPoint() {
-    Navigator.of(context).push<void>(
-      hydroPageRoute(
-        PointComplianceScreen(
-          api: widget.api,
-          token: widget.token,
-          pointId: _int(widget.point['id']),
-          pointTitle: widget.point['title']?.toString(),
-        ),
-      ),
-    );
-  }
-
-  void _openSystemForPoint() {
-    Navigator.of(context).push<void>(
-      hydroPageRoute(
-        PointSystemScreen(
-          api: widget.api,
-          token: widget.token,
-          pointId: _int(widget.point['id']),
-          pointTitle: widget.point['title']?.toString() ?? 'Punto',
-        ),
-      ),
-    );
-  }
-
-  void _openReportsForPoint() {
-    Navigator.of(context).push<void>(
-      hydroPageRoute(
-        ReportsScreen(
-          api: widget.api,
-          token: widget.token,
-          points: [widget.point],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _createTicketForPoint() async {
-    final created = await showSupportTicketSheet(
-      context,
-      api: widget.api,
-      token: widget.token,
-      points: [widget.point],
-      initialPointId: _int(widget.point['id']),
-      lockPoint: true,
-      initialTitle: 'Solicitud sobre ${widget.point['title'] ?? 'punto'}',
-    );
-    if (created == true && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Solicitud creada correctamente.')),
-      );
+            child: scene,
+          );
+    final tool = _palette;
+    final host = _paletteHost;
+    final fromBottom = host == null && MediaQuery.sizeOf(context).width < 980;
+    final sheet = tool == null
+        ? null
+        : PointToolSheet(
+            title: _paletteTitle(tool),
+            subtitle: _str((_detail ?? widget.point)['title']),
+            onClose: _closePalette,
+            fromBottom: fromBottom,
+            child: _paletteBody(tool),
+          );
+    if (host != null && _hostedTool != tool) {
+      _hostedTool = tool;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        host.show(sheet);
+      });
     }
-  }
-
-  void _openHistory() {
-    showPointHistorySheet(
-      context,
-      api: widget.api,
-      token: widget.token,
-      pointId: _int(widget.point['id']),
-      pointTitle: _str((_detail ?? widget.point)['title']),
-      hasFlow: _variables.hasFlow,
-      hasLevel: _variables.hasLevel,
-      hasTotal: _variables.hasTotal,
-      onReplayDay: _replayDay,
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: host != null || sheet == null
+          ? pane
+          : Stack(
+              fit: StackFit.expand,
+              clipBehavior: Clip.hardEdge,
+              children: [pane, sheet],
+            ),
     );
   }
+
+  void _closePalette() {
+    if (_palette == null) return;
+    setState(() => _palette = null);
+  }
+
+  String _paletteTitle(_WellPalette tool) => switch (tool) {
+    _WellPalette.history => 'Historial',
+    _WellPalette.analysis => 'Análisis',
+    _WellPalette.compliance => 'Cumplimiento',
+    _WellPalette.reports => 'Registros',
+    _WellPalette.system => 'Sistema',
+    _WellPalette.support => 'Soporte',
+  };
+
+  Widget _paletteBody(_WellPalette tool) {
+    final title = widget.point['title']?.toString();
+    return switch (tool) {
+      _WellPalette.history => PointHistorySheet(
+        load: (days) => widget.api.pointCalendar(
+          widget.token,
+          _int(widget.point['id']),
+          days: days,
+        ),
+        pointTitle: title,
+        hasFlow: _variables.hasFlow,
+        hasLevel: _variables.hasLevel,
+        hasTotal: _variables.hasTotal,
+        onReplayDay: _replayDay,
+        onClose: _closePalette,
+        bare: true,
+      ),
+      _WellPalette.analysis => AnalysisScreen(
+        api: widget.api,
+        token: widget.token,
+        points: [widget.point],
+        showBack: false,
+        embedded: true,
+      ),
+      _WellPalette.compliance => PointComplianceScreen(
+        api: widget.api,
+        token: widget.token,
+        pointId: _int(widget.point['id']),
+        pointTitle: title,
+        embedded: true,
+      ),
+      _WellPalette.reports => ReportsScreen(
+        api: widget.api,
+        token: widget.token,
+        points: [widget.point],
+        showBack: false,
+        embedded: true,
+      ),
+      _WellPalette.system => PointSystemScreen(
+        api: widget.api,
+        token: widget.token,
+        pointId: _int(widget.point['id']),
+        pointTitle: title ?? 'Punto',
+        embedded: true,
+      ),
+      _WellPalette.support => SupportTicketSheet(
+        api: widget.api,
+        token: widget.token,
+        points: [widget.point],
+        initialPointId: _int(widget.point['id']),
+        lockPoint: true,
+        initialTitle: 'Solicitud sobre ${title ?? 'punto'}',
+        onResult: (created) {
+          _closePalette();
+          if (created && mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Solicitud creada correctamente.'),
+              ),
+            );
+          }
+        },
+      ),
+    };
+  }
+
+  void _openAnalysisForPoint() =>
+      setState(() => _palette = _WellPalette.analysis);
+
+  void _openComplianceForPoint() =>
+      setState(() => _palette = _WellPalette.compliance);
+
+  void _openSystemForPoint() =>
+      setState(() => _palette = _WellPalette.system);
+
+  void _openReportsForPoint() =>
+      setState(() => _palette = _WellPalette.reports);
+
+  void _createTicketForPoint() =>
+      setState(() => _palette = _WellPalette.support);
+
+  void _openHistory() => setState(() => _palette = _WellPalette.history);
 
   /// Carga un día completo en el visor y lo reproduce desde el inicio.
   Future<void> _replayDay(DateTime day) async {
@@ -2795,10 +3019,14 @@ class _PointGlassDock extends StatelessWidget {
     required this.dgaActive,
     required this.playing,
     required this.replayLabel,
+    this.replayStamp,
+    required this.replayIndex,
+    required this.replayTotal,
     required this.canReplay,
     required this.atStart,
     required this.onToggleReplay,
     required this.onRestart,
+    required this.onScrub,
     required this.onPickRange,
     required this.onHistory,
     required this.onAnalysis,
@@ -2814,10 +3042,14 @@ class _PointGlassDock extends StatelessWidget {
   final bool dgaActive;
   final bool playing;
   final String replayLabel;
+  final String? replayStamp;
+  final int replayIndex;
+  final int replayTotal;
   final bool canReplay;
   final bool atStart;
   final VoidCallback onToggleReplay;
   final VoidCallback onRestart;
+  final ValueChanged<double> onScrub;
   final VoidCallback onPickRange;
   final VoidCallback onHistory;
   final VoidCallback onAnalysis;
@@ -2928,7 +3160,11 @@ class _PointGlassDock extends StatelessWidget {
                   child: _ReplayPill(
                     playing: playing,
                     label: replayLabel,
+                    stamp: replayStamp,
+                    index: replayIndex,
+                    total: replayTotal,
                     onTap: canReplay ? onToggleReplay : null,
+                    onScrub: replayTotal > 1 ? onScrub : null,
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -2966,7 +3202,9 @@ class _PointGlassDock extends StatelessWidget {
                 Expanded(
                   child: _DockTile(
                     icon: Icons.verified_outlined,
-                    label: 'Cumplim.',
+                    label: MediaQuery.sizeOf(context).width >= 720
+                        ? 'Cumplimiento'
+                        : 'Cumplim.',
                     onTap: onCompliance,
                   ),
                 ),
@@ -3005,68 +3243,152 @@ class _ReplayPill extends StatelessWidget {
   const _ReplayPill({
     required this.playing,
     required this.label,
+    required this.index,
+    required this.total,
     required this.onTap,
+    this.stamp,
+    this.onScrub,
   });
 
   final bool playing;
 
   /// Período cargado en el visor (`Últimas 24 h`, `Vie 9 oct`…).
   final String label;
+  final String? stamp;
+  final int index;
+  final int total;
   final VoidCallback? onTap;
+  final ValueChanged<double>? onScrub;
 
   @override
   Widget build(BuildContext context) {
     final enabled = onTap != null;
     const accent = IkoluColors.cyan;
-    return Material(
-      color: accent.withValues(alpha: enabled ? (playing ? 0.26 : 0.16) : 0.06),
+    final maxIndex = math.max(total - 1, 1);
+    final progress = total > 1 ? (index / maxIndex).clamp(0.0, 1.0) : 0.0;
+    final detail = stamp ?? label;
+    return ClipRRect(
       borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onTap,
-        child: SizedBox(
-          height: 40,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 180),
-                child: Icon(
-                  playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                  key: ValueKey(playing),
-                  size: 20,
-                  color: accent.withValues(alpha: enabled ? 1 : 0.4),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text.rich(
-                  TextSpan(
-                    children: [
-                      TextSpan(text: playing ? 'Pausar' : 'Reproducir'),
-                      TextSpan(
-                        text: '  ·  $label',
-                        style: TextStyle(
-                          color: const Color(
-                            0xFFE8F2F1,
-                          ).withValues(alpha: enabled ? 0.8 : 0.35),
-                          fontWeight: FontWeight.w700,
+      child: SizedBox(
+        height: 40,
+        child: LayoutBuilder(
+          builder: (context, box) {
+            void scrubAt(Offset local) {
+              final scrub = onScrub;
+              if (scrub == null || box.maxWidth <= 0) return;
+              final t = (local.dx / box.maxWidth).clamp(0.0, 1.0);
+              scrub(t * (total - 1));
+            }
+
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onTap,
+              onHorizontalDragUpdate: onScrub == null
+                  ? null
+                  : (d) => scrubAt(d.localPosition),
+              onHorizontalDragStart: onScrub == null
+                  ? null
+                  : (d) => scrubAt(d.localPosition),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  ColoredBox(
+                    color: accent.withValues(
+                      alpha: enabled ? (playing ? 0.16 : 0.10) : 0.05,
+                    ),
+                  ),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: FractionallySizedBox(
+                      widthFactor: progress,
+                      heightFactor: 1,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              accent.withValues(
+                                alpha: playing ? 0.48 : 0.32,
+                              ),
+                              accent.withValues(
+                                alpha: playing ? 0.22 : 0.14,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ],
+                    ),
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: accent.withValues(alpha: enabled ? 1 : 0.4),
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.1,
+                  if (progress > 0)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: FractionallySizedBox(
+                        widthFactor: progress,
+                        heightFactor: 1,
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: Container(
+                            width: 2,
+                            color: accent.withValues(alpha: 0.9),
+                          ),
+                        ),
+                      ),
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 180),
+                          child: Icon(
+                            playing
+                                ? Icons.pause_rounded
+                                : Icons.play_arrow_rounded,
+                            key: ValueKey(playing),
+                            size: 20,
+                            color: accent.withValues(
+                              alpha: enabled ? 1 : 0.4,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text.rich(
+                            TextSpan(
+                              children: [
+                                TextSpan(
+                                  text: playing ? 'Pausar' : 'Reproducir',
+                                ),
+                                TextSpan(
+                                  text: '  ·  $detail',
+                                  style: TextStyle(
+                                    color: const Color(
+                                      0xFFE8F2F1,
+                                    ).withValues(alpha: enabled ? 0.8 : 0.35),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: accent.withValues(
+                                alpha: enabled ? 1 : 0.4,
+                              ),
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.1,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
@@ -3154,90 +3476,6 @@ class _DockTile extends StatelessWidget {
                   fontSize: 10,
                   fontWeight: FontWeight.w700,
                 ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ReplayScrubber extends StatelessWidget {
-  const _ReplayScrubber({
-    required this.index,
-    required this.total,
-    required this.onChanged,
-    this.label,
-    required this.startLabel,
-    required this.endLabel,
-  });
-
-  final int index;
-  final int total;
-  final String? label;
-  final String startLabel;
-  final String endLabel;
-  final ValueChanged<double> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: const Color(0xFF0F2227).withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(8, 2, 8, 6),
-        child: Column(
-          children: [
-            SliderTheme(
-              data: SliderTheme.of(context).copyWith(
-                activeTrackColor: IkoluColors.cyan,
-                inactiveTrackColor: const Color(0xFF26383A),
-                thumbColor: IkoluColors.cyan,
-                overlayColor: const Color(0xFF00C8FF).withValues(alpha: 0.2),
-                trackHeight: 3,
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-              ),
-              child: Slider(
-                value: index.toDouble(),
-                min: 0,
-                max: (total - 1).toDouble(),
-                divisions: total - 1,
-                label: label,
-                onChanged: onChanged,
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    startLabel,
-                    style: const TextStyle(
-                      color: Color(0xFF8FA8A8),
-                      fontSize: 10.5,
-                    ),
-                  ),
-                  Text(
-                    '${index + 1}/$total',
-                    style: const TextStyle(
-                      color: IkoluColors.cyan,
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  Text(
-                    endLabel,
-                    style: const TextStyle(
-                      color: Color(0xFF8FA8A8),
-                      fontSize: 10.5,
-                    ),
-                  ),
-                ],
               ),
             ),
           ],

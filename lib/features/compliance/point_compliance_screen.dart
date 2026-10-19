@@ -9,6 +9,7 @@ import '../../core/files/save_file.dart';
 import '../../shared/ui/hydro_ui.dart';
 import '../../shared/widgets/hydro_glass.dart';
 import '../dashboard/capture_stage.dart' show formatCl;
+import 'compliance_store.dart';
 import 'dga_compliance.dart';
 
 const _months = [
@@ -24,6 +25,9 @@ class PointComplianceScreen extends StatefulWidget {
     required this.token,
     required this.pointId,
     this.pointTitle,
+    this.embedded = false,
+    this.onBackToList,
+    this.store,
     super.key,
   });
 
@@ -31,6 +35,14 @@ class PointComplianceScreen extends StatefulWidget {
   final String token;
   final int pointId;
   final String? pointTitle;
+
+  /// Dentro de Cumplimiento en escritorio: no abre otra ruta y el rail sigue.
+  final bool embedded;
+
+  /// Vuelve a la grilla sin un botón Volver en la cabecera.
+  final VoidCallback? onBackToList;
+
+  final ComplianceStore? store;
 
   @override
   State<PointComplianceScreen> createState() => _PointComplianceScreenState();
@@ -54,11 +66,27 @@ class _PointComplianceScreenState extends State<PointComplianceScreen> {
   String? _busy;
   int _request = 0;
 
+  ComplianceStore get _store => widget.store ?? ComplianceStore.instance;
+
   @override
   void initState() {
     super.initState();
     _title = widget.pointTitle;
-    _loadPoint();
+    final cached = _store.detail(widget.token, widget.pointId);
+    final listed = _store.pointOnList(widget.token, widget.pointId);
+    if (cached != null) {
+      _hydrateDetail(cached, listed ?? const {});
+      final month = _store.month(widget.token, widget.pointId, _month);
+      if (month != null) {
+        _workbook = month.bytes;
+        _compliance = month.compliance;
+        _loadingMonth = false;
+      }
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _loadPoint();
+    });
   }
 
   DgaStandard get _standard => DgaStandard.parse(_dga['standard']);
@@ -70,45 +98,53 @@ class _PointComplianceScreenState extends State<PointComplianceScreen> {
       _num(_dga['total_granted_dga']) ?? _num(_item['authorized_total']);
 
   Future<void> _loadPoint() async {
-    setState(() {
-      _loadingPoint = true;
-      _error = null;
-    });
+    final cached = _store.detail(widget.token, widget.pointId);
+    final listed = _store.pointOnList(widget.token, widget.pointId);
+    if (cached != null && _store.detailIsFresh(widget.token, widget.pointId)) {
+      await _loadMonth();
+      return;
+    }
+    if (cached == null) {
+      setState(() {
+        _loadingPoint = true;
+        _error = null;
+      });
+    }
     try {
       final detail = await widget.api.pointDgaDetail(
         widget.token,
         widget.pointId,
       );
-      Map<String, dynamic> item = const {};
-      try {
-        final list = await widget.api.compliancePoints(widget.token);
-        item = list.firstWhere(
-          (p) => '${p['point_id']}' == '${widget.pointId}',
-          orElse: () => const {},
-        );
-      } on SmartHydroApiException {
-        // El resumen anual es complementario.
+      _store.putDetail(widget.token, widget.pointId, detail);
+      Map<String, dynamic> item = listed ?? const {};
+      if (item.isEmpty) {
+        try {
+          final list =
+              _store.list(widget.token) ??
+              await widget.api.compliancePoints(
+                widget.token,
+                pageSize: 200,
+              );
+          if (_store.list(widget.token) == null) {
+            _store.putList(widget.token, list);
+          }
+          item = list.firstWhere(
+            (p) => '${p['point_id']}' == '${widget.pointId}',
+            orElse: () => const {},
+          );
+        } on SmartHydroApiException {
+          // El resumen anual es complementario.
+        }
       }
       if (!mounted) return;
-      final modules = detail['modules'];
-      final m2 = modules is Map ? modules['m2'] : null;
-      setState(() {
-        _dga = detail['dga'] is Map
-            ? Map<String, dynamic>.from(detail['dga'] as Map)
-            : const {};
-        _item = item;
-        _title = _str(detail['title']) ?? _title;
-        _frequency = int.tryParse('${detail['frecuency'] ?? ''}') ?? 60;
-        _attempts = [
-          if (m2 is List)
-            for (final r in m2)
-              if (r is Map) DgaAttempt.fromJson(Map<String, dynamic>.from(r)),
-        ]..sort((a, b) => b.at.compareTo(a.at));
-        _loadingPoint = false;
-      });
-      _loadMonth();
+      setState(() => _hydrateDetail(detail, item));
+      await _loadMonth();
     } on SmartHydroApiException catch (e) {
       if (!mounted) return;
+      if (cached != null) {
+        await _loadMonth();
+        return;
+      }
       setState(() {
         _error = e.message;
         _loadingPoint = false;
@@ -116,15 +152,48 @@ class _PointComplianceScreenState extends State<PointComplianceScreen> {
     }
   }
 
+  void _hydrateDetail(Map<String, dynamic> detail, Map<String, dynamic> item) {
+    final modules = detail['modules'];
+    final m2 = modules is Map ? modules['m2'] : null;
+    _dga = detail['dga'] is Map
+        ? Map<String, dynamic>.from(detail['dga'] as Map)
+        : const {};
+    _item = item;
+    _title = _str(detail['title']) ?? _title;
+    _frequency = int.tryParse('${detail['frecuency'] ?? ''}') ?? 60;
+    _attempts = [
+      if (m2 is List)
+        for (final r in m2)
+          if (r is Map) DgaAttempt.fromJson(Map<String, dynamic>.from(r)),
+    ]..sort((a, b) => b.at.compareTo(a.at));
+    _loadingPoint = false;
+  }
+
   Future<void> _loadMonth() async {
     final request = ++_request;
-    setState(() {
-      _loadingMonth = true;
-      _monthError = null;
-      _selectedDay = null;
-    });
     final start = _month;
     final end = DateTime(start.year, start.month + 1);
+    final cached = _store.month(widget.token, widget.pointId, start);
+    if (cached != null &&
+        _store.monthIsFresh(widget.token, widget.pointId, start)) {
+      setState(() {
+        _workbook = cached.bytes;
+        _compliance = cached.compliance;
+        _loadingMonth = false;
+        _monthError = null;
+        _selectedDay = null;
+      });
+      return;
+    }
+    setState(() {
+      _loadingMonth = cached == null;
+      _monthError = null;
+      _selectedDay = null;
+      if (cached != null) {
+        _workbook = cached.bytes;
+        _compliance = cached.compliance;
+      }
+    });
     try {
       final last = end.subtract(const Duration(days: 1));
       final bytes = await widget.api.dgaWorkbook(
@@ -134,21 +203,32 @@ class _PointComplianceScreenState extends State<PointComplianceScreen> {
         end: last.isAfter(DateTime.now()) ? DateTime.now() : last,
       );
       final rows = parseDgaWorkbook(bytes);
+      final analyzed = analyzeDgaCompliance(
+        rows,
+        standard: _standard,
+        frequencyMinutes: _frequency,
+        start: start,
+        end: end,
+        authorizedFlow: _authorizedFlow,
+      );
+      _store.putMonth(
+        widget.token,
+        widget.pointId,
+        start,
+        ComplianceMonthSnap(bytes: bytes, compliance: analyzed),
+      );
       if (!mounted || request != _request) return;
       setState(() {
         _workbook = bytes;
-        _compliance = analyzeDgaCompliance(
-          rows,
-          standard: _standard,
-          frequencyMinutes: _frequency,
-          start: start,
-          end: end,
-          authorizedFlow: _authorizedFlow,
-        );
+        _compliance = analyzed;
         _loadingMonth = false;
       });
     } on SmartHydroApiException catch (e) {
       if (!mounted || request != _request) return;
+      if (cached != null) {
+        setState(() => _loadingMonth = false);
+        return;
+      }
       setState(() {
         _monthError = e.message;
         _workbook = null;
@@ -157,6 +237,10 @@ class _PointComplianceScreenState extends State<PointComplianceScreen> {
       });
     } catch (_) {
       if (!mounted || request != _request) return;
+      if (cached != null) {
+        setState(() => _loadingMonth = false);
+        return;
+      }
       setState(() {
         _monthError = 'No pudimos leer la planilla DGA del mes.';
         _loadingMonth = false;
@@ -215,19 +299,14 @@ class _PointComplianceScreenState extends State<PointComplianceScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => HydroPage(
-    title: 'Cumplimiento DGA',
-    subtitle: Text(
-      [?_title, ?_code].join(' · '),
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: HydroText.subtitle,
-    ),
-    body: HydroSwap(
+  Widget build(BuildContext context) {
+    final content = HydroSwap(
       state: _loadingPoint ? 'loading' : (_error == null ? 'ready' : 'error'),
       child: _body(),
-    ),
-  );
+    );
+    if (widget.embedded) return content;
+    return HydroPage(title: '', body: content);
+  }
 
   Widget _body() {
     if (_loadingPoint) {
@@ -246,19 +325,43 @@ class _PointComplianceScreenState extends State<PointComplianceScreen> {
         action: ('Reintentar', _loadPoint),
       );
     }
+    final identity = _IdentityBand(
+      title: _title ?? widget.pointTitle ?? 'Punto',
+      code: _code,
+      meta: _identityMeta(),
+      status: _identityStatus(),
+      facts: _identityFacts(),
+      onBack: widget.onBackToList,
+      onVerify: _code == null
+          ? null
+          : () => openExternal(
+              'https://snia.mop.gob.cl/cExtracciones2/#/consultaQR/$_code',
+            ),
+    );
     if (_code == null) {
-      return const HydroMessage(
-        icon: Icons.policy_outlined,
-        title: 'Este punto no tiene código de obra DGA',
-        message:
-            'Sin código de obra no hay reportes MEE que auditar. Si debería '
-            'reportar, pide a soporte que configure su ficha DGA.',
+      return ListView(
+        key: const Key('compliance-point-detail'),
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
+        children: [
+          identity,
+          const SizedBox(height: 16),
+          const HydroMessage(
+            icon: Icons.policy_outlined,
+            title: 'Este punto no tiene código de obra DGA',
+            message:
+                'Sin código de obra no hay reportes MEE que auditar. Si debería '
+                'reportar, pide a soporte que configure su ficha DGA.',
+          ),
+        ],
       );
     }
     final c = _compliance;
     return ListView(
+      key: const Key('compliance-point-detail'),
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
       children: [
+        identity,
+        const SizedBox(height: 18),
         _MonthTabs(
           selected: _month,
           onChanged: (m) {
@@ -369,21 +472,51 @@ class _PointComplianceScreenState extends State<PointComplianceScreen> {
           busy: _busy == 'records',
           onTap: _busy != null ? null : _downloadRecords,
         ),
-        const SizedBox(height: 26),
-        const HydroSectionTitle(title: 'Ficha DGA'),
-        const SizedBox(height: 12),
-        _Ficha(
-          dga: _dga,
-          code: _code!,
-          standard: _standard,
-          authorizedFlow: _authorizedFlow,
-          authorizedTotal: _authorizedTotal,
-          onVerify: () => openExternal(
-            'https://snia.mop.gob.cl/cExtracciones2/#/consultaQR/$_code',
-          ),
-        ),
       ],
     );
+  }
+
+  String _identityMeta() {
+    final client = _str(_item['client_name']);
+    final type = _str(_dga['type_dga']);
+    return [
+      ?client,
+      _standard.label,
+      if (type != null) _capitalize(type.toLowerCase()),
+    ].join(' · ');
+  }
+
+  (String, Color)? _identityStatus() {
+    final warning = _item['compliance_warning'];
+    final level = warning is Map ? warning['level'] : null;
+    return switch (level) {
+      'critical' => ('Excede', _Gob.rojo),
+      'warning' => ('Cerca', _Gob.azulClaro),
+      'safe' => ('Dentro', _Gob.azulClaro),
+      _ => null,
+    };
+  }
+
+  List<(String, String)> _identityFacts() {
+    final type = _str(_dga['type_dga']);
+    return [
+      ('Estándar MEE', _standard.label),
+      ('Reporte', _capitalize(_standard.cadence)),
+      if (type != null) ('Tipo de captación', _capitalize(type.toLowerCase())),
+      if (_authorizedFlow != null)
+        ('Caudal autorizado', '${formatCl(_authorizedFlow!, 2)} L/s'),
+      if (_authorizedTotal != null)
+        ('Volumen anual', '${formatCl(_authorizedTotal!, 0)} m³'),
+      if (_str(_dga['shac']) != null) ('SHAC', _str(_dga['shac'])!),
+      if (_str(_dga['region_dga'] ?? _dga['region']) != null)
+        ('Región', _str(_dga['region_dga'] ?? _dga['region'])!),
+      if (parseWallClock(_dga['date_start_compliance']) != null)
+        (
+          'Cumplimiento desde',
+          _date(parseWallClock(_dga['date_start_compliance'])!),
+        ),
+      ('Envío a la DGA', _dga['send_dga'] == true ? 'Activado' : 'Desactivado'),
+    ];
   }
 
   List<_Finding> _findings(DgaCompliance c) {
@@ -1188,18 +1321,16 @@ class _LimitBar extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 8),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(3),
-          child: TweenAnimationBuilder<double>(
-            tween: Tween(begin: 0, end: (r ?? 0).clamp(0.0, 1.0)),
-            duration: const Duration(milliseconds: 900),
-            curve: Curves.easeOutCubic,
-            builder: (context, t, _) => LinearProgressIndicator(
-              value: t,
-              minHeight: 5,
-              color: color,
-              backgroundColor: Colors.white.withValues(alpha: 0.07),
+        const SizedBox(height: 6),
+        TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0, end: (r ?? 0).clamp(0.0, 1.2)),
+          duration: const Duration(milliseconds: 900),
+          curve: Curves.easeOutCubic,
+          builder: (context, t, _) => SizedBox(
+            height: 7,
+            width: double.infinity,
+            child: CustomPaint(
+              painter: _LimitFillPainter(ratio: t, color: color),
             ),
           ),
         ),
@@ -1217,6 +1348,56 @@ class _LimitBar extends StatelessWidget {
       ],
     );
   }
+}
+
+class _LimitFillPainter extends CustomPainter {
+  const _LimitFillPainter({required this.ratio, required this.color});
+
+  final double ratio;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final track = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      const Radius.circular(4),
+    );
+    canvas.drawRRect(
+      track,
+      Paint()..color = Colors.white.withValues(alpha: 0.07),
+    );
+    final t = ratio.clamp(0.0, 1.0);
+    if (t > 0) {
+      canvas.save();
+      canvas.clipRRect(track);
+      final water = Rect.fromLTWH(0, 0, size.width * t, size.height);
+      canvas.drawRect(
+        water,
+        Paint()
+          ..shader = LinearGradient(
+            colors: [color.withValues(alpha: 0.72), color],
+          ).createShader(water),
+      );
+      canvas.drawRect(
+        Rect.fromLTWH(0, 0, size.width * t, 1.2),
+        Paint()..color = Colors.white.withValues(alpha: 0.45),
+      );
+      canvas.restore();
+    }
+    if (ratio > 1) {
+      canvas.drawRRect(
+        track,
+        Paint()
+          ..color = color.withValues(alpha: 0.7)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _LimitFillPainter old) =>
+      old.ratio != ratio || old.color != color;
 }
 
 class _AttemptRow extends StatelessWidget {
@@ -1409,91 +1590,174 @@ class _DownloadRow extends StatelessWidget {
   );
 }
 
-class _Ficha extends StatelessWidget {
-  const _Ficha({
-    required this.dga,
+abstract final class _Gob {
+  static const azulClaro = Color(0xFFC3DFF4);
+  static const rojo = Color(0xFFEB3C46);
+}
+
+class _IdentityBand extends StatelessWidget {
+  const _IdentityBand({
+    required this.title,
     required this.code,
-    required this.standard,
-    required this.authorizedFlow,
-    required this.authorizedTotal,
+    required this.meta,
+    required this.status,
+    required this.facts,
+    required this.onBack,
     required this.onVerify,
   });
 
-  final Map<String, dynamic> dga;
-  final String code;
-  final DgaStandard standard;
-  final double? authorizedFlow;
-  final double? authorizedTotal;
-  final VoidCallback onVerify;
+  final String title;
+  final String? code;
+  final String meta;
+  final (String, Color)? status;
+  final List<(String, String)> facts;
+  final VoidCallback? onBack;
+  final VoidCallback? onVerify;
 
   @override
   Widget build(BuildContext context) {
-    final type = _str(dga['type_dga']);
-    final facts = <(String, String)>[
-      ('Código de obra', code),
-      ('Estándar MEE', standard.label),
-      ('Reporte', _capitalize(standard.cadence)),
-      if (type != null) ('Tipo de captación', _capitalize(type.toLowerCase())),
-      if (authorizedFlow != null)
-        ('Caudal autorizado', '${formatCl(authorizedFlow!, 2)} L/s'),
-      if (authorizedTotal != null)
-        ('Volumen anual autorizado', '${formatCl(authorizedTotal!, 0)} m³'),
-      if (_str(dga['shac']) != null) ('SHAC', _str(dga['shac'])!),
-      if (_str(dga['region_dga'] ?? dga['region']) != null)
-        ('Región', _str(dga['region_dga'] ?? dga['region'])!),
-      if (parseWallClock(dga['date_start_compliance']) != null)
-        (
-          'Cumplimiento desde',
-          _date(parseWallClock(dga['date_start_compliance'])!),
-        ),
-      ('Envío a la DGA', dga['send_dga'] == true ? 'Activado' : 'Desactivado'),
-    ];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (final (label, value) in facts)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Text(
-                    label,
-                    style: const TextStyle(
-                      color: HydroTone.faint,
-                      fontSize: 12.5,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Flexible(
-                  child: Text(
-                    value,
-                    textAlign: TextAlign.right,
-                    style: const TextStyle(
-                      color: HydroTone.fog,
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w700,
+    final state = status;
+    return HydroGlassLight(
+      radius: 18,
+      strength: 0.85,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              if (onBack != null) ...[
+                InkWell(
+                  key: const Key('compliance-back-to-list'),
+                  onTap: onBack,
+                  borderRadius: BorderRadius.circular(20),
+                  child: const Padding(
+                    padding: EdgeInsets.fromLTRB(0, 4, 10, 4),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.arrow_back_rounded,
+                          size: 18,
+                          color: _Gob.azulClaro,
+                        ),
+                        SizedBox(width: 5),
+                        Text(
+                          'Volver',
+                          style: TextStyle(
+                            color: _Gob.azulClaro,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
               ],
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: HydroTone.fog,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+              ),
+              if (state != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6, left: 8),
+                  child: Text(
+                    state.$1,
+                    style: TextStyle(
+                      color: state.$2,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            code ?? 'Sin código de obra',
+            style: TextStyle(
+              color: code == null ? HydroTone.faint : _Gob.azulClaro,
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
             ),
           ),
-        const SizedBox(height: 8),
-        TextButton.icon(
-          onPressed: onVerify,
-          style: TextButton.styleFrom(
-            foregroundColor: HydroTone.accent,
-            backgroundColor: HydroTone.accent.withValues(alpha: 0.10),
-            shape: const StadiumBorder(),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          ),
-          icon: const Icon(Icons.open_in_new_rounded, size: 16),
-          label: const Text('Ver la obra en el portal de la DGA'),
-        ),
-      ],
+          if (meta.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              meta,
+              style: const TextStyle(
+                color: HydroTone.faint,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+          if (facts.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 18,
+              runSpacing: 10,
+              children: [
+                for (final (label, value) in facts)
+                  SizedBox(
+                    width: 148,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: HydroTone.faint,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Text(
+                          value,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: HydroTone.fog,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ],
+          if (onVerify != null) ...[
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: onVerify,
+              style: TextButton.styleFrom(
+                foregroundColor: _Gob.azulClaro,
+                backgroundColor: _Gob.azulClaro.withValues(alpha: 0.08),
+                shape: const StadiumBorder(),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+              ),
+              icon: const Icon(Icons.open_in_new_rounded, size: 16),
+              label: const Text('Ver la obra en el portal de la DGA'),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

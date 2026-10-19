@@ -8,7 +8,7 @@ import '../../core/api/smarthydro_api.dart';
 import '../../core/brand.dart';
 import '../../core/n1/n1_api.dart';
 import '../../core/n1/n1_models.dart';
-import '../../shared/widgets/hydro_glass.dart';
+import '../../shared/ui/hydro_ui.dart';
 import 'n1_buddy.dart';
 
 enum _ChatRole { user, assistant, system }
@@ -41,12 +41,16 @@ class AssistantScreen extends StatefulWidget {
     required this.n1Api,
     required this.session,
     required this.points,
+    this.showBack = true,
     super.key,
   });
 
   final N1Api n1Api;
   final SmartHydroSession session;
   final List<Map<String, dynamic>> points;
+
+  /// En el shell de escritorio el rail reemplaza a Volver.
+  final bool showBack;
 
   @override
   State<AssistantScreen> createState() => _AssistantScreenState();
@@ -502,45 +506,23 @@ class _AssistantScreenState extends State<AssistantScreen> {
   @override
   Widget build(BuildContext context) {
     final canSend = !_busy && widget.n1Api.isConfigured;
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        backgroundColor: const Color(0xE6081216),
-        titleSpacing: 8,
-        title: Row(
-          children: [
-            N1Buddy(
-              key: const ValueKey('n1-buddy'),
-              size: 36,
-              mood: _mood,
-            ),
-            const SizedBox(width: 10),
-            const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'N1 · SmartHydro',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
-                    height: 1.1,
-                  ),
-                ),
-                Text(
-                  'Asistente',
-                  style: TextStyle(
-                    color: Color(0xFF9AB0B1),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ],
+    return HydroPage(
+      title: 'N1 · SmartHydro',
+      showBack: widget.showBack,
+      titleLeading: N1Buddy(
+        key: const ValueKey('n1-buddy'),
+        size: 36,
+        mood: _mood,
+      ),
+      subtitle: const Text(
+        'Asistente',
+        style: TextStyle(
+          color: Color(0xFF9AB0B1),
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
         ),
       ),
-      body: HydroFrame(
-        child: Column(
+      body: Column(
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
@@ -650,7 +632,6 @@ class _AssistantScreenState extends State<AssistantScreen> {
             ),
           ],
         ),
-      ),
     );
   }
 }

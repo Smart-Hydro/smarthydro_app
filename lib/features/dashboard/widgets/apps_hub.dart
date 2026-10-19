@@ -1,12 +1,11 @@
-import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 
 import '../../../core/brand.dart';
 import '../../../shared/ui/hydro_ui.dart';
 import '../../../shared/widgets/hydro_glass.dart';
+import '../../../shared/widgets/hydro_glyph.dart';
 import '../../../shared/widgets/liquid_nav.dart';
 import '../point_link.dart';
 
@@ -59,23 +58,9 @@ class AppsHubSummary {
   }
 }
 
-enum _HydroGlyphKind {
-  ubicaciones,
-  analisis,
-  cumplimiento,
-  asistente,
-  soporte,
-  registros,
-  informes,
-}
-
 /// Página Apps: resumen hidráulico con preview de red (filtrable por punto).
 class AppsHub extends StatelessWidget {
-  const AppsHub({
-    required this.summary,
-    required this.onOpenApp,
-    super.key,
-  });
+  const AppsHub({required this.summary, required this.onOpenApp, super.key});
 
   final AppsHubSummary summary;
   final ValueChanged<int> onOpenApp;
@@ -150,7 +135,7 @@ class AppsHub extends StatelessWidget {
                   ),
                   delegate: SliverChildBuilderDelegate((context, index) {
                     final app = liquidDesktopApps[index];
-                    final kind = _glyphKindFor(index);
+                    final kind = hydroGlyphKindAt(index);
                     return _Entrance(
                       index: index,
                       reduce: reduce,
@@ -171,23 +156,22 @@ class AppsHub extends StatelessWidget {
     );
   }
 
-  static _HydroGlyphKind _glyphKindFor(int index) =>
-      _HydroGlyphKind.values[index.clamp(0, _HydroGlyphKind.values.length - 1)];
-
   static String _metricFor(int index, AppsHubSummary s) => switch (index) {
-        0 => '${s.pointCount} puntos · red completa',
-        1 => '${s.onlineCount} en línea · ${s.attentionCount} con aviso',
-        2 => s.complianceWatchCount == 0
-            ? 'Sin alertas DGA'
-            : '${s.complianceWatchCount} en vigilancia',
-        3 => 'N1 · contexto de tus puntos',
-        4 => s.openTicketCount == 0
-            ? 'Sin tickets abiertos'
-            : '${s.openTicketCount} abiertos',
-        5 => '${s.pointCount} puntos · export CSV',
-        6 => 'Pronto · reportes de red',
-        _ => '',
-      };
+    0 => '${s.pointCount} puntos · red completa',
+    1 => '${s.onlineCount} en línea · ${s.attentionCount} con aviso',
+    2 =>
+      s.complianceWatchCount == 0
+          ? 'Sin alertas DGA'
+          : '${s.complianceWatchCount} en vigilancia',
+    3 => 'N1 · contexto de tus puntos',
+    4 =>
+      s.openTicketCount == 0
+          ? 'Sin tickets abiertos'
+          : '${s.openTicketCount} abiertos',
+    5 => '${s.pointCount} puntos · export CSV',
+    6 => 'Pronto · reportes de red',
+    _ => '',
+  };
 }
 
 class _NetworkPulseStrip extends StatelessWidget {
@@ -240,11 +224,11 @@ class _NetworkPulseStrip extends StatelessWidget {
   }
 
   Widget _pulseDivider() => Container(
-        width: 1,
-        height: 28,
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        color: Colors.white.withValues(alpha: 0.08),
-      );
+    width: 1,
+    height: 28,
+    margin: const EdgeInsets.symmetric(horizontal: 4),
+    color: Colors.white.withValues(alpha: 0.08),
+  );
 }
 
 class _PulseStat extends StatelessWidget {
@@ -302,9 +286,7 @@ class _HydroTipCard extends StatelessWidget {
           SizedBox(
             width: 40,
             height: 40,
-            child: CustomPaint(
-              painter: const _WaveMarkPainter(),
-            ),
+            child: CustomPaint(painter: const _WaveMarkPainter()),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -348,7 +330,7 @@ class _AppSummaryCard extends StatefulWidget {
   });
 
   final LiquidAppShortcut app;
-  final _HydroGlyphKind kind;
+  final HydroGlyphKind kind;
   final String metric;
   final VoidCallback onTap;
 
@@ -410,7 +392,7 @@ class _AppSummaryCardState extends State<_AppSummaryCard> {
                   children: [
                     Opacity(
                       opacity: muted ? 0.7 : 1,
-                      child: _HydroGlyphBadge(
+                      child: HydroGlyph(
                         kind: widget.kind,
                         color: widget.app.color,
                       ),
@@ -600,396 +582,6 @@ class _Entrance extends StatelessWidget {
   }
 }
 
-class _HydroGlyphBadge extends StatefulWidget {
-  const _HydroGlyphBadge({required this.kind, required this.color});
-
-  final _HydroGlyphKind kind;
-  final Color color;
-
-  @override
-  State<_HydroGlyphBadge> createState() => _HydroGlyphBadgeState();
-}
-
-class _HydroGlyphBadgeState extends State<_HydroGlyphBadge>
-    with SingleTickerProviderStateMixin {
-  Ticker? _ticker;
-  /// Segundos acumulados (nunca vuelve a 0) → líquido continuo.
-  double _seconds = 0;
-  bool _reduce = false;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final reduce = MediaQuery.disableAnimationsOf(context);
-    if (reduce == _reduce && _ticker != null) return;
-    _reduce = reduce;
-    _ticker?.dispose();
-    _ticker = null;
-    if (reduce) {
-      _seconds = 1.2;
-      return;
-    }
-    _ticker = createTicker((elapsed) {
-      final next = elapsed.inMicroseconds / 1e6;
-      if ((next - _seconds).abs() < 0.008) return;
-      setState(() => _seconds = next);
-    })..start();
-  }
-
-  @override
-  void dispose() {
-    _ticker?.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final keyName = 'hydro-glyph-${widget.kind.name}';
-    return SizedBox(
-      key: ValueKey(keyName),
-      width: 64,
-      height: 64,
-      child: CustomPaint(
-        painter: _HydroGlyphPainter(
-          kind: widget.kind,
-          color: widget.color,
-          seconds: _seconds,
-        ),
-      ),
-    );
-  }
-}
-
-class _HydroGlyphPainter extends CustomPainter {
-  _HydroGlyphPainter({
-    required this.kind,
-    required this.color,
-    required this.seconds,
-  });
-
-  final _HydroGlyphKind kind;
-  final Color color;
-  /// Tiempo continuo en segundos (sin wrap 0→1).
-  final double seconds;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final c = Offset(size.width / 2, size.height / 2);
-    final r = size.shortestSide / 2;
-    // Velocidades suaves distintas; sin periodo que “cierre” de golpe.
-    final turn = seconds * 0.55;
-    final drift = seconds * 0.38;
-
-    // Borde orgánico tipo gota/agua, flujo continuo.
-    final blob = _waterBlobPath(c, r * 0.86, turn, drift);
-    final halo = _waterBlobPath(c, r * 0.94, turn + 0.4, drift + 0.2);
-
-    canvas.drawPath(
-      halo,
-      Paint()
-        ..color = color.withValues(alpha: 0.22)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
-    );
-
-    final fill = Paint()
-      ..shader = ui.Gradient.radial(
-        Offset(c.dx - r * 0.2, c.dy - r * 0.25),
-        r * 1.35,
-        [
-          Color.lerp(color, Colors.white, 0.32)!,
-          color,
-          Color.lerp(color, IkoluColors.navy, 0.2)!,
-        ],
-        const [0, 0.55, 1],
-      );
-    canvas.drawPath(blob, fill);
-
-    // Ribete agua: trazo claro ondulado sobre el borde.
-    canvas.drawPath(
-      blob,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = math.max(1.6, r * 0.07)
-        ..color = Colors.white.withValues(alpha: 0.38),
-    );
-
-    // Nivel interno continuo.
-    final levelY = c.dy + r * (0.14 - 0.07 * math.sin(turn));
-    final water = Path()
-      ..moveTo(c.dx - r * 0.7, levelY)
-      ..cubicTo(
-        c.dx - r * 0.25,
-        levelY - r * 0.12 * math.cos(turn),
-        c.dx + r * 0.15,
-        levelY + r * 0.12 * math.sin(turn),
-        c.dx + r * 0.7,
-        levelY - r * 0.03,
-      )
-      ..lineTo(c.dx + r * 0.7, c.dy + r * 0.7)
-      ..lineTo(c.dx - r * 0.7, c.dy + r * 0.7)
-      ..close();
-    canvas.save();
-    canvas.clipPath(blob);
-    canvas.drawPath(
-      water,
-      Paint()..color = Colors.white.withValues(alpha: 0.18),
-    );
-    canvas.restore();
-
-    const glyph = Color(0xFFF4FFFC);
-    final ink = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = math.max(2.0, r * 0.09)
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..color = glyph.withValues(alpha: 0.94);
-
-    final fillInk = Paint()..color = glyph.withValues(alpha: 0.96);
-
-    switch (kind) {
-      case _HydroGlyphKind.ubicaciones:
-        _paintNetwork(canvas, c, r, ink, fillInk, turn);
-      case _HydroGlyphKind.analisis:
-        _paintWaveBars(canvas, c, r, ink, turn);
-      case _HydroGlyphKind.cumplimiento:
-        _paintGauge(canvas, c, r, ink, fillInk, turn);
-      case _HydroGlyphKind.asistente:
-        _paintPulseNode(canvas, c, r, ink, fillInk, turn);
-      case _HydroGlyphKind.soporte:
-        _paintLifeline(canvas, c, r, ink, turn);
-      case _HydroGlyphKind.registros:
-        _paintLayers(canvas, c, r, ink, turn);
-      case _HydroGlyphKind.informes:
-        _paintSheetWave(canvas, c, r, ink, turn);
-    }
-  }
-
-  Path _waterBlobPath(
-    Offset c,
-    double radius,
-    double turn,
-    double drift,
-  ) {
-    const steps = 48;
-    final path = Path();
-    Offset? first;
-    Offset? prev;
-    for (var i = 0; i <= steps; i++) {
-      final t = i / steps;
-      final ang = t * math.pi * 2;
-      // Armónicos lentos: flujo continuo, sin pop.
-      final wobble = 1 +
-          0.055 * math.sin(ang * 2 + turn) +
-          0.035 * math.cos(ang * 3 - drift) +
-          0.02 * math.sin(ang + turn * 0.7);
-      final p = Offset(
-        c.dx + math.cos(ang) * radius * wobble,
-        c.dy + math.sin(ang) * radius * wobble,
-      );
-      if (i == 0) {
-        path.moveTo(p.dx, p.dy);
-        first = p;
-        prev = p;
-      } else {
-        final mid = Offset((prev!.dx + p.dx) / 2, (prev.dy + p.dy) / 2);
-        path.quadraticBezierTo(prev.dx, prev.dy, mid.dx, mid.dy);
-        prev = p;
-      }
-    }
-    if (first != null && prev != null) {
-      path.quadraticBezierTo(prev.dx, prev.dy, first.dx, first.dy);
-    }
-    path.close();
-    return path;
-  }
-
-  void _paintNetwork(
-    Canvas canvas,
-    Offset c,
-    double r,
-    Paint ink,
-    Paint fill,
-    double turn,
-  ) {
-    final bob = 0.03 * math.sin(turn);
-    final hubs = [
-      Offset(c.dx, c.dy - r * (0.28 + bob)),
-      Offset(c.dx - r * 0.34, c.dy + r * (0.22 - bob * 0.5)),
-      Offset(c.dx + r * 0.34, c.dy + r * (0.22 + bob * 0.5)),
-    ];
-    for (final h in hubs.skip(1)) {
-      canvas.drawLine(hubs.first, h, ink);
-    }
-    final rim = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = ink.strokeWidth
-      ..color = ink.color;
-    for (final h in hubs) {
-      canvas.drawCircle(h, r * 0.11, fill);
-      canvas.drawCircle(h, r * 0.11, rim);
-    }
-  }
-
-  void _paintWaveBars(
-    Canvas canvas,
-    Offset c,
-    double r,
-    Paint ink,
-    double turn,
-  ) {
-    final xs = [-0.34, -0.12, 0.12, 0.34];
-    final hs = [0.22, 0.42, 0.3, 0.48];
-    for (var i = 0; i < xs.length; i++) {
-      final h = r * (hs[i] + 0.07 * math.sin(turn + i * 0.9));
-      final x = c.dx + r * xs[i];
-      canvas.drawLine(
-        Offset(x, c.dy + r * 0.32),
-        Offset(x, c.dy + r * 0.32 - h),
-        ink,
-      );
-    }
-    final wave = Path()
-      ..moveTo(c.dx - r * 0.42, c.dy - r * 0.18)
-      ..cubicTo(
-        c.dx - r * 0.1,
-        c.dy - r * (0.32 + 0.06 * math.sin(turn)),
-        c.dx + r * 0.1,
-        c.dy - r * (0.02 - 0.06 * math.cos(turn)),
-        c.dx + r * 0.42,
-        c.dy - r * 0.2,
-      );
-    canvas.drawPath(wave, ink);
-  }
-
-  void _paintGauge(
-    Canvas canvas,
-    Offset c,
-    double r,
-    Paint ink,
-    Paint fill,
-    double turn,
-  ) {
-    final rect = Rect.fromCircle(center: c, radius: r * 0.42);
-    canvas.drawArc(rect, math.pi * 0.85, math.pi * 1.3, false, ink);
-    // Aguja oscila suave (sin salto): 0.35±0.18
-    final needle = 0.35 + 0.18 * math.sin(turn);
-    final ang = math.pi * (0.85 + 1.3 * needle);
-    canvas.drawLine(
-      c,
-      Offset(c.dx + math.cos(ang) * r * 0.32, c.dy + math.sin(ang) * r * 0.32),
-      ink,
-    );
-    canvas.drawCircle(c, r * 0.07, fill);
-  }
-
-  void _paintPulseNode(
-    Canvas canvas,
-    Offset c,
-    double r,
-    Paint ink,
-    Paint fill,
-    double turn,
-  ) {
-    // Respiración continua (radio sin reinicio).
-    final breath = 0.16 + 0.03 * math.sin(turn);
-    canvas.drawCircle(
-      c,
-      r * (breath + 0.18),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5
-        ..color = const Color(0xFFF4FFFC).withValues(
-          alpha: 0.28 + 0.12 * math.cos(turn),
-        ),
-    );
-    canvas.drawCircle(c, r * breath, fill);
-    final sat = Offset(
-      c.dx + math.cos(turn) * r * 0.28,
-      c.dy + math.sin(turn) * r * 0.18 - r * 0.05,
-    );
-    canvas.drawCircle(sat, r * 0.08, fill);
-    canvas.drawLine(c, sat, ink);
-  }
-
-  void _paintLifeline(
-    Canvas canvas,
-    Offset c,
-    double r,
-    Paint ink,
-    double turn,
-  ) {
-    final k = 0.06 * math.sin(turn);
-    final path = Path()
-      ..moveTo(c.dx - r * 0.42, c.dy + r * 0.06)
-      ..lineTo(c.dx - r * 0.18, c.dy + r * 0.06)
-      ..lineTo(c.dx - r * 0.06, c.dy - r * (0.28 + k))
-      ..lineTo(c.dx + r * 0.08, c.dy + r * (0.3 - k))
-      ..lineTo(c.dx + r * 0.2, c.dy - r * 0.08)
-      ..lineTo(c.dx + r * 0.42, c.dy - r * 0.08);
-    canvas.drawPath(path, ink);
-  }
-
-  void _paintLayers(
-    Canvas canvas,
-    Offset c,
-    double r,
-    Paint ink,
-    double turn,
-  ) {
-    for (var i = 0; i < 3; i++) {
-      final y = c.dy - r * 0.22 + i * r * 0.22 + r * 0.02 * math.sin(turn + i);
-      final w = r * (0.5 - i * 0.04);
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromCenter(
-            center: Offset(c.dx, y),
-            width: w * 2,
-            height: r * 0.14,
-          ),
-          Radius.circular(r * 0.06),
-        ),
-        ink,
-      );
-    }
-  }
-
-  void _paintSheetWave(
-    Canvas canvas,
-    Offset c,
-    double r,
-    Paint ink,
-    double turn,
-  ) {
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromCenter(center: c, width: r * 0.7, height: r * 0.9),
-        Radius.circular(r * 0.12),
-      ),
-      ink,
-    );
-    for (var i = 0; i < 3; i++) {
-      final y = c.dy - r * 0.18 + i * r * 0.18;
-      final path = Path()
-        ..moveTo(c.dx - r * 0.22, y)
-        ..cubicTo(
-          c.dx - r * 0.05,
-          y - r * 0.04 * math.sin(turn + i),
-          c.dx + r * 0.05,
-          y + r * 0.04 * math.cos(turn + i),
-          c.dx + r * 0.22,
-          y,
-        );
-      canvas.drawPath(path, ink);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _HydroGlyphPainter oldDelegate) =>
-      oldDelegate.seconds != seconds ||
-      oldDelegate.kind != kind ||
-      oldDelegate.color != color;
-}
-
 /// Marca tip: ondas, no gota Material.
 class _WaveMarkPainter extends CustomPainter {
   const _WaveMarkPainter();
@@ -1002,14 +594,10 @@ class _WaveMarkPainter extends CustomPainter {
       c,
       r * 0.92,
       Paint()
-        ..shader = ui.Gradient.radial(
-          c,
-          r,
-          [
-            IkoluColors.cyan.withValues(alpha: 0.35),
-            IkoluColors.cyan.withValues(alpha: 0.05),
-          ],
-        ),
+        ..shader = ui.Gradient.radial(c, r, [
+          IkoluColors.cyan.withValues(alpha: 0.35),
+          IkoluColors.cyan.withValues(alpha: 0.05),
+        ]),
     );
     final ink = Paint()
       ..style = PaintingStyle.stroke

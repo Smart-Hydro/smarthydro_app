@@ -1,0 +1,44 @@
+name: Staging
+
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: GitHub Pages
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: staging
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter test
+      - name: Build web
+        run: |
+          flutter build web --release \
+            --base-href /smarthydro_app/ \
+            --dart-define=APP_ENV=staging \
+            --dart-define=N1_WEB_APP_URL=https://script.google.com/macros/s/AKfycbweqRfMhbH7jJzIDsQaTx_MXFgZBwkI_SIL3SENjwndBo9pkq6XOwfgXGLJvQH0Gd8/exec
+          cp build/web/index.html build/web/404.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+      - id: deployment
+        uses: actions/deploy-pages@v4

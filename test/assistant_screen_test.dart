@@ -5,6 +5,7 @@ import 'package:smarthydro_app/core/n1/n1_api.dart';
 import 'package:smarthydro_app/core/n1/n1_config.dart';
 import 'package:smarthydro_app/core/n1/n1_models.dart';
 import 'package:smarthydro_app/features/assistant/assistant_screen.dart';
+import 'package:smarthydro_app/features/assistant/n1_buddy.dart';
 
 class _FakeN1Api extends N1Api {
   _FakeN1Api()
@@ -86,7 +87,7 @@ void main() {
     );
 
     expect(find.textContaining('SmartHydro N1'), findsOneWidget);
-    expect(find.byKey(const ValueKey('n1-buddy')), findsOneWidget);
+    expect(find.byType(N1Buddy), findsAtLeastNWidgets(1));
     expect(find.text('N1 · SmartHydro'), findsOneWidget);
     expect(find.text('Pedir reporte'), findsOneWidget);
     expect(find.text('Listar archivos'), findsOneWidget);

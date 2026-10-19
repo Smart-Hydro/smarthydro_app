@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:smarthydro_app/shared/widgets/hydro_glyph.dart';
 import 'package:smarthydro_app/shared/widgets/liquid_nav.dart';
 import 'package:smarthydro_app/shared/widgets/workstation_backdrop.dart';
 
@@ -110,9 +111,15 @@ void main() {
       ),
     );
 
-    for (final app in liquidDesktopApps) {
+    expect(HydroGlyphKind.values.length, liquidDesktopApps.length);
+    for (var i = 0; i < liquidDesktopApps.length; i++) {
+      final app = liquidDesktopApps[i];
       expect(find.text(app.label), findsWidgets);
-      expect(find.byIcon(app.icon), findsOneWidget);
+      expect(
+        find.byKey(ValueKey('rail-glyph-${HydroGlyphKind.values[i].name}')),
+        findsOneWidget,
+      );
+      expect(find.byIcon(app.icon), findsNothing);
     }
     expect(find.byKey(const ValueKey('liquid-nav-rail-apps')), findsOneWidget);
     expect(find.text('Ver todas'), findsNothing);
@@ -144,7 +151,7 @@ void main() {
     expect(opened, 1);
 
     await tester.ensureVisible(find.text('Asistente'));
-    await tester.pumpAndSettle();
+    await tester.pump();
     await tester.tap(find.text('Asistente'));
     await tester.pump();
     expect(opened, 3);
@@ -210,6 +217,57 @@ void main() {
     await tester.tap(find.text('Perfil'));
     await tester.pump();
     expect(selected, liquidProfileIndex);
+  });
+
+  testWidgets('con una app abierta el punto va bajo el divisor', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MediaQuery(
+        data: const MediaQueryData(size: Size(1200, 1200)),
+        child: MaterialApp(
+          home: Scaffold(
+            body: LiquidNavRail(
+              selectedIndex: 0,
+              selectedAppIndex: 2,
+              unreadCount: 0,
+              onSelect: (_) {},
+              onOpenApp: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final iot = tester.widget<Text>(find.text('IoT'));
+    expect(iot.style?.fontWeight, FontWeight.w500);
+    expect(find.byKey(const ValueKey('liquid-nav-rail-app-dot')), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find
+            .ancestor(
+              of: find.text('Cumplimiento'),
+              matching: find.byType(Column),
+            )
+            .first,
+        matching: find.byKey(const ValueKey('liquid-nav-rail-app-dot')),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  test('en escritorio las apps del rail se quedan en el shell', () {
+    for (var index = 0; index < liquidDesktopApps.length; index++) {
+      expect(liquidAppStaysInShell(wide: true, index: index), isTrue);
+    }
+    expect(
+      liquidAppStaysInShell(wide: true, index: liquidDesktopApps.length),
+      isFalse,
+    );
+    expect(liquidAppStaysInShell(wide: false, index: 3), isFalse);
   });
 
   testWidgets('en desktop el rail flota también sobre Home', (tester) async {

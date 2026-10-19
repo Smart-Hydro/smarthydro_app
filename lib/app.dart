@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'core/app_env.dart';
 import 'core/brand.dart';
 import 'core/session/session_provider.dart';
 import 'features/auth/login_screen.dart';
@@ -37,6 +38,32 @@ class SmartHydroApp extends ConsumerWidget {
           children: [
             const WorkstationBackdrop(),
             if (child != null) Positioned.fill(child: child),
+            if (AppEnv.isStaging)
+              const Positioned(
+                top: 10,
+                right: 12,
+                child: IgnorePointer(
+                  child: Material(
+                    color: Color(0xCC102226),
+                    borderRadius: BorderRadius.all(Radius.circular(999)),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      child: Text(
+                        'Staging',
+                        style: TextStyle(
+                          color: Color(0xFF7EE0D0),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          decoration: TextDecoration.none,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
         );
       },

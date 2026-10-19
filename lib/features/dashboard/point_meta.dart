@@ -107,30 +107,38 @@ class PointVariables {
       items.where((v) => v.isTotal).toList(growable: false);
 }
 
-/// Modelo / proveedor del datalogger (Twin, Nettra, Novus…).
+const _twinNames = {'twin', 'tdata'};
+
+/// `tago` es el handler de Novus en la API. No es Nettra.
+const _novusNames = {'novus', 'tago'};
+const _nettraNames = {'nettra', 'thethings'};
+
+/// Modelo del datalogger. La API manda `provider` como handler
+/// (`tdata`, `thethings`, `tago`) o, si no hay proveedor nuevo, no manda
+/// nombre y el cliente usa los booleanos viejos en ese mismo orden.
 String? loggerModelOf(Map<String, dynamic> data) {
   final provider =
       '${data['provider'] ?? data['telemetry_provider_name'] ?? ''}'
           .trim()
           .toLowerCase();
-  if (provider.contains('twin') ||
-      provider.contains('tdata') ||
-      data['is_tdata'] == true) {
-    return 'Twin';
-  }
-  if (provider.contains('nettra') ||
-      provider.contains('thethings') ||
-      provider.contains('tago') ||
-      data['is_thethings'] == true) {
-    return 'Nettra';
-  }
-  if (provider.contains('novus') || data['is_novus'] == true) {
-    return 'Novus';
-  }
   if (provider.isNotEmpty && provider != 'null' && provider != 'none') {
+    if (_names(provider, _twinNames)) return 'Twin';
+    if (_names(provider, _novusNames)) return 'Novus';
+    if (_names(provider, _nettraNames)) return 'Nettra';
     return provider[0].toUpperCase() + provider.substring(1);
   }
+  if (data['is_tdata'] == true) return 'Twin';
+  if (data['is_thethings'] == true) return 'Nettra';
+  if (data['is_novus'] == true) return 'Novus';
   return null;
+}
+
+bool _names(String provider, Set<String> names) {
+  if (names.contains(provider)) return true;
+  for (final token in provider.split(RegExp(r'[^a-z0-9]+'))) {
+    if (names.contains(token)) return true;
+  }
+  return false;
 }
 
 /// Ficha DGA del punto. Solo se arma si el cumplimiento está activo.
@@ -194,6 +202,39 @@ class DgaInfo {
 
   static String _fmt(double v) =>
       v >= 100 ? v.toStringAsFixed(0) : v.toStringAsFixed(2);
+}
+
+/// DGA si el punto informa a la DGA. Si no, SMA.
+String complianceAgencyOf(
+  Map<String, dynamic> point, {
+  Map<String, dynamic>? compliance,
+}) {
+  final types = <String>{
+    ..._agencyTokens(point['compliance_type']),
+    ..._agencyTokens(compliance?['compliance_type']),
+  };
+  if (types.contains('DGA')) return 'DGA';
+  if (types.contains('SMA')) return 'SMA';
+  final nested = point['dga'];
+  if (nested is Map) {
+    final info = DgaInfo.tryParse(Map<String, dynamic>.from(nested));
+    if (info != null) return 'DGA';
+  }
+  if (DgaInfo.tryParse(point) != null) return 'DGA';
+  return 'SMA';
+}
+
+Set<String> _agencyTokens(dynamic raw) {
+  if (raw is List) {
+    return {
+      for (final item in raw)
+        if ('$item'.trim().isNotEmpty && '$item'.trim() != 'null')
+          '$item'.trim().toUpperCase(),
+    };
+  }
+  final text = '$raw'.trim().toUpperCase();
+  if (text.isEmpty || text == 'NULL') return const {};
+  return {text};
 }
 
 /// Todo lo que el tablero muestra al tocar el datalogger.

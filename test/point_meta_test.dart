@@ -25,10 +25,39 @@ void main() {
     );
   });
 
+  test('si no es DGA el punto es SMA', () {
+    expect(complianceAgencyOf({'send_dga': true, 'code_dga': 'X1'}), 'DGA');
+    expect(
+      complianceAgencyOf({
+        'dga': {'send_dga': true, 'code_dga': 'X1'},
+      }),
+      'DGA',
+    );
+    expect(complianceAgencyOf({'title': 'P6'}), 'SMA');
+    expect(
+      complianceAgencyOf({
+        'compliance_type': ['SMA'],
+      }),
+      'SMA',
+    );
+    expect(
+      complianceAgencyOf({
+        'compliance_type': ['DGA', 'SMA'],
+      }),
+      'DGA',
+    );
+  });
+
   test('detecta modelo Twin / Nettra / Novus', () {
     expect(loggerModelOf({'is_tdata': true}), 'Twin');
+    expect(loggerModelOf({'provider': 'tdata'}), 'Twin');
     expect(loggerModelOf({'provider': 'nettra'}), 'Nettra');
+    expect(loggerModelOf({'provider': 'thethings'}), 'Nettra');
     expect(loggerModelOf({'is_novus': true}), 'Novus');
+    expect(loggerModelOf({'provider': 'tago'}), 'Novus');
+    expect(loggerModelOf({'provider': 'novus'}), 'Novus');
+    expect(loggerModelOf({'provider': 'tago', 'is_thethings': true}), 'Novus');
+    expect(loggerModelOf({'provider': 'santiago'}), 'Santiago');
   });
 
   test('str_variable del esquema se mapea a su significado', () {
