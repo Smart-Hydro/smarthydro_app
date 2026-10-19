@@ -94,8 +94,8 @@ N1 va vivo (Web App `/exec` de prod). El login usa `https://api.smarthydro.app`;
 | `production` | `APP_ENV=production` | ninguno |
 
 ```bash
-git push origin mapa-dashboard-map:staging
-git push origin mapa-dashboard-map:production
+git push origin dev:staging
+git push origin dev:production
 ```
 
 ## Requisitos
