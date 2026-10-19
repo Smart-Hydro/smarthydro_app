@@ -2078,6 +2078,46 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('en el mapa late solo el punto conectado', (tester) async {
+    Finder pulses() => find.byWidgetPredicate(
+      (widget) =>
+          widget is CustomPaint &&
+          widget.painter.runtimeType.toString() == '_PulsePainter',
+    );
+    Future<void> pump(bool gap) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 420,
+              height: 640,
+              child: CaptureLocationMap(
+                key: ValueKey(gap),
+                tileProvider: _QuietTiles(),
+                points: [
+                  _point(
+                    id: 7,
+                    title: 'Pozo Norte',
+                    project: 'Fundo',
+                    gap: gap,
+                    lat: -33.45,
+                    lon: -70.66,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    await pump(false);
+    expect(pulses(), findsOneWidget);
+    await pump(true);
+    expect(pulses(), findsNothing);
+  });
+
   testWidgets('la capa pública se dibuja sin repetir los puntos propios', (
     tester,
   ) async {
@@ -2267,7 +2307,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('el mouse sobre el cubo abre las stats sin tapar el esquema', (
+  testWidgets('el clic en el cubo abre las stats sin tapar el esquema', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(390, 760));
@@ -2297,11 +2337,7 @@ void main() {
     expect(find.byKey(const ValueKey('capture-stats')), findsNothing);
     expect(find.byKey(const ValueKey('capture-hub')), findsOneWidget);
 
-    final hover = await tester.createGesture(kind: PointerDeviceKind.mouse);
-    await hover.addPointer();
-    await hover.moveTo(
-      tester.getCenter(find.byKey(const ValueKey('capture-hub'))),
-    );
+    await tester.tap(find.byKey(const ValueKey('capture-hub')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 320));
     expect(find.byKey(const ValueKey('capture-hub-card')), findsOneWidget);
@@ -2314,8 +2350,6 @@ void main() {
     expect(find.text('Disponibilidad'), findsOneWidget);
     expect(find.text('Rendimiento'), findsOneWidget);
 
-    await hover.moveTo(const Offset(8, 8));
-    await tester.pump();
     await tester.tap(find.byKey(const ValueKey('capture-hub-card-close')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
@@ -2325,7 +2359,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('el zoom no abre el estado de la red', (tester) async {
+  testWidgets('pasar el cursor o hacer zoom no abre el estado de la red', (
+    tester,
+  ) async {
     await tester.binding.setSurfaceSize(const Size(390, 760));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
@@ -2378,8 +2414,8 @@ void main() {
     await tester.pump();
     await hover.moveTo(tester.getCenter(hub));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 320));
-    expect(find.byKey(const ValueKey('capture-hub-card')), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.byKey(const ValueKey('capture-hub-card')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

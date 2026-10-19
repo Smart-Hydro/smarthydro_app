@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 
+import '../../core/brand.dart';
+import '../dashboard/point_link.dart';
 import '../dashboard/widgets/capture_logger_plate.dart';
 import 'capture_coordinates.dart';
 import 'capture_water_mark.dart';
@@ -217,6 +219,7 @@ class _CaptureLocationMapState extends State<CaptureLocationMap>
               selectedKey: widget.selectedKey,
               burst: widget.locateTick,
             ),
+            _ActivePulse(located: located),
             _CaptureMarkers(
               located: located,
               selectedKey: widget.selectedKey,
@@ -299,6 +302,112 @@ class _WaterOnPoint extends StatelessWidget {
 }
 
 const _waterSize = 220.0;
+
+/// Anillo que late bajo cada punto conectado, para verlos de un vistazo.
+/// Si el punto quedó dentro de un grupo, late el grupo. Es una sola capa
+/// de canvas: no hay un widget animado por punto.
+class _ActivePulse extends StatefulWidget {
+  const _ActivePulse({required this.located});
+
+  final List<_Located> located;
+
+  @override
+  State<_ActivePulse> createState() => _ActivePulseState();
+}
+
+class _ActivePulseState extends State<_ActivePulse>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _beat = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1800),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _beat
+        ..stop()
+        ..value = 0.35;
+    } else if (!_beat.isAnimating) {
+      _beat.repeat();
+    }
+  }
+
+  @override
+  void dispose() {
+    _beat.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final camera = MapCamera.of(context);
+    final screen = [
+      for (final item in widget.located)
+        camera.latLngToScreenOffset(item.location),
+    ];
+    final separate =
+        camera.zoom >= captureClusterSeparateZoom || !_cameraSized(camera);
+    final groups = separate
+        ? [
+            for (var index = 0; index < screen.length; index++) [index],
+          ]
+        : clusterByPixel(screen);
+    final spots = <Offset>[
+      for (final group in groups)
+        if (group.any(
+          (index) =>
+              pointLinkOf(widget.located[index].point) == PointLink.connected,
+        ))
+          group.map((index) => screen[index]).reduce((a, b) => a + b) /
+              group.length.toDouble(),
+    ];
+    if (spots.isEmpty) return const SizedBox.shrink();
+    return IgnorePointer(
+      child: RepaintBoundary(
+        child: SizedBox.expand(
+          child: CustomPaint(
+            painter: _PulsePainter(spots: spots, beat: _beat),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PulsePainter extends CustomPainter {
+  _PulsePainter({required this.spots, required this.beat})
+    : super(repaint: beat);
+
+  final List<Offset> spots;
+  final Animation<double> beat;
+
+  static const _color = IkoluColors.connected;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Dos ondas desfasadas: siempre hay una visible.
+    for (final phase in const [0.0, 0.5]) {
+      final t = (beat.value + phase) % 1;
+      final radius = 9 + 19 * Curves.easeOutCubic.transform(t);
+      final alpha = (1 - t) * 0.7;
+      final ring = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = _color.withValues(alpha: alpha);
+      final glow = Paint()..color = _color.withValues(alpha: alpha * 0.18);
+      for (final spot in spots) {
+        canvas.drawCircle(spot, radius, glow);
+        canvas.drawCircle(spot, radius, ring);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _PulsePainter oldDelegate) =>
+      oldDelegate.spots != spots || oldDelegate.beat != beat;
+}
 
 class _CaptureMarkers extends StatelessWidget {
   const _CaptureMarkers({

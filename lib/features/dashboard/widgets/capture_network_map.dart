@@ -256,11 +256,6 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
   bool _boardPan = false;
   bool _hubHover = false;
   double _hubHoverShown = 0;
-  bool _hubHoverLatched = false;
-  bool _hubHoverTainted = false;
-  Timer? _hubHoverTimer;
-  bool _zoomGuard = false;
-  Timer? _zoomGuardTimer;
   bool _statsOpen = false;
   bool _configOpen = false;
 
@@ -398,8 +393,6 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
 
   @override
   void dispose() {
-    _hubHoverTimer?.cancel();
-    _zoomGuardTimer?.cancel();
     _ticker?.dispose();
     _seconds.dispose();
     _assemble.dispose();
@@ -439,52 +432,17 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
     });
   }
 
+  /// Pasar el cursor solo marca el cubo. El estado de la red se abre con un
+  /// clic: el cubo está al centro y el cursor lo cruza todo el tiempo.
   void _onHubHover(bool inside) {
-    _hubHoverTimer?.cancel();
-    _hubHoverTimer = null;
-    if (!inside) {
-      _hubHoverTainted = false;
-      if (!_statsOpen) _hubHoverLatched = false;
-    }
     setState(() {
       _hubHover = inside;
       if (!_motion) _hubHoverShown = inside ? 1 : 0;
-    });
-    if (!inside || _statsOpen || _hubHoverLatched || _showLocations) return;
-    // El zoom crece desde el cubo y lo mete bajo el cursor. Eso no es un hover.
-    if (_hubHoverTainted || _zoomGuard) {
-      _hubHoverTainted = true;
-      return;
-    }
-    _hubHoverTimer = Timer(const Duration(milliseconds: 280), () {
-      if (!mounted ||
-          !_hubHover ||
-          _statsOpen ||
-          _hubHoverTainted ||
-          _zoomGuard) {
-        return;
-      }
-      _hubHoverLatched = true;
-      _openHubStats();
-    });
-  }
-
-  /// Un zoom en curso no debe abrir el estado de la red.
-  void _holdHubForZoom() {
-    _hubHoverTimer?.cancel();
-    _hubHoverTimer = null;
-    _zoomGuard = true;
-    if (_hubHover) _hubHoverTainted = true;
-    _zoomGuardTimer?.cancel();
-    _zoomGuardTimer = Timer(const Duration(milliseconds: 800), () {
-      _zoomGuard = false;
-      _zoomGuardTimer = null;
     });
   }
 
   void _openHubStats() {
     if (_statsOpen || !mounted) return;
-    _hubHoverTimer?.cancel();
     setState(() => _statsOpen = true);
   }
 
@@ -494,7 +452,6 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
   }
 
   void _setZoomTarget(double next) {
-    _holdHubForZoom();
     final clamped = next
         .clamp(captureSchemeZoomMin, captureSchemeZoomMax)
         .toDouble();
