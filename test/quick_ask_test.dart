@@ -5,6 +5,7 @@ import 'package:smarthydro_app/core/n1/n1_config.dart';
 import 'package:smarthydro_app/core/n1/n1_models.dart';
 import 'package:smarthydro_app/features/assistant/n1_buddy.dart';
 import 'package:smarthydro_app/features/assistant/quick_ask.dart';
+import 'package:smarthydro_app/shared/widgets/hydro_glyph.dart';
 
 class _FakeN1Api extends N1Api {
   _FakeN1Api()
@@ -46,6 +47,29 @@ void main() {
 
     expect(find.byKey(const ValueKey('n1-quick-buddy')), findsOneWidget);
     expect(find.byType(N1Buddy), findsOneWidget);
+    final glyph = tester.widget<HydroGlyph>(find.byType(HydroGlyph));
+    expect(glyph.kind, HydroGlyphKind.asistente);
     expect(find.byTooltip('Pregunta rápida'), findsOneWidget);
+  });
+
+  testWidgets('la barra de pregunta rápida usa el glifo Asistente', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: QuickAsk(
+            n1Api: _FakeN1Api(),
+            token: 'tok',
+            email: 'ana@empresa.cl',
+            pointIds: const [4],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(N1Buddy), findsOneWidget);
+    final glyph = tester.widget<HydroGlyph>(find.byType(HydroGlyph));
+    expect(glyph.kind, HydroGlyphKind.asistente);
   });
 }

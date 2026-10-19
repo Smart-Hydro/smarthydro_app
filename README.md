@@ -80,18 +80,22 @@ Paleta de producto (alineada a la app):
 
 ---
 
-## Staging
+## Staging y producción
 
-La rama `staging` publica la PWA en GitHub Pages para que el equipo revise mientras se arma producción:
+La PWA vive en GitHub Pages:
 
 **https://felipebarraza6.github.io/smarthydro_app/**
 
-Cada push a `staging` corre tests y despliega. N1 va vivo (Web App `/exec` de prod). El login usa `https://api.smarthydro.app`; el API tiene que permitir el origen `https://felipebarraza6.github.io`.
+N1 va vivo (Web App `/exec` de prod). El login usa `https://api.smarthydro.app`; el API tiene que permitir el origen `https://felipebarraza6.github.io`.
 
-Publicar un cambio rápido desde la rama de trabajo:
+| Rama | Build | Chip |
+|------|--------|------|
+| `staging` | `APP_ENV=staging` | Staging |
+| `production` | `APP_ENV=production` | ninguno |
 
 ```bash
 git push origin mapa-dashboard-map:staging
+git push origin mapa-dashboard-map:production
 ```
 
 ## Requisitos
