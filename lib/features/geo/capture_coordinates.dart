@@ -163,6 +163,73 @@ double? _coordinate(dynamic value) {
   return null;
 }
 
+/// Distancia en km sobre la Tierra (haversine), como el observatorio.
+double captureDistanceKm(LatLng a, LatLng b) {
+  const toRad = math.pi / 180;
+  final dLat = (b.latitude - a.latitude) * toRad;
+  final dLon = (b.longitude - a.longitude) * toRad;
+  final h =
+      math.pow(math.sin(dLat / 2), 2) +
+      math.cos(a.latitude * toRad) *
+          math.cos(b.latitude * toRad) *
+          math.pow(math.sin(dLon / 2), 2);
+  return 12742 * math.asin(math.min(1.0, math.sqrt(h.toDouble())));
+}
+
+/// Enlaces de la red entre equipos, igual que el observatorio: el árbol de
+/// expansión mínima (Prim) deja todo conectado y cada punto suma además sus
+/// [extraK] vecinos más cercanos. Devuelve pares de índices sin repetir.
+List<(int, int)> captureGeoEdges(List<LatLng> points, {int extraK = 2}) {
+  final n = points.length;
+  if (n < 2) return const [];
+  final seen = <int>{};
+  final edges = <(int, int)>[];
+  void link(int a, int b) {
+    final low = math.min(a, b);
+    final high = math.max(a, b);
+    if (seen.add(low * n + high)) edges.add((low, high));
+  }
+
+  final inTree = List<bool>.filled(n, false);
+  final best = List<double>.filled(n, double.infinity);
+  final parent = List<int>.filled(n, -1);
+  best[0] = 0;
+  for (var round = 0; round < n; round++) {
+    var next = -1;
+    var nearest = double.infinity;
+    for (var i = 0; i < n; i++) {
+      if (!inTree[i] && best[i] < nearest) {
+        nearest = best[i];
+        next = i;
+      }
+    }
+    if (next < 0) break;
+    inTree[next] = true;
+    if (parent[next] >= 0) link(next, parent[next]);
+    for (var i = 0; i < n; i++) {
+      if (inTree[i]) continue;
+      final d = captureDistanceKm(points[next], points[i]);
+      if (d < best[i]) {
+        best[i] = d;
+        parent[i] = next;
+      }
+    }
+  }
+
+  if (extraK > 0) {
+    for (var i = 0; i < n; i++) {
+      final near = [
+        for (var j = 0; j < n; j++)
+          if (j != i) (j, captureDistanceKm(points[i], points[j])),
+      ]..sort((a, b) => a.$2.compareTo(b.$2));
+      for (final (j, _) in near.take(extraK)) {
+        link(i, j);
+      }
+    }
+  }
+  return edges;
+}
+
 /// Radio de agrupación, el mismo de leaflet.markercluster en Ikolu.
 const captureClusterRadius = 80.0;
 

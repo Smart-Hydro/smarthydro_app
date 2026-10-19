@@ -43,6 +43,86 @@ void main() {
     expect(captureLatLng({'title': 'Pozo'}), isNull);
   });
 
+  test('la red conecta a todos y suma los dos vecinos más cercanos', () {
+    // Cuatro equipos en línea norte-sur y uno lejos.
+    const points = [
+      LatLng(-33.40, -70.60),
+      LatLng(-33.45, -70.60),
+      LatLng(-33.50, -70.60),
+      LatLng(-33.55, -70.60),
+      LatLng(-41.47, -72.94),
+    ];
+    final edges = captureGeoEdges(points);
+    // Sin repetidos y siempre (menor, mayor).
+    expect(edges.toSet(), hasLength(edges.length));
+    expect(edges.every((e) => e.$1 < e.$2), isTrue);
+    // El árbol deja a todos unidos: desde 0 se llega a cada punto.
+    final reach = {0};
+    var grew = true;
+    while (grew) {
+      grew = false;
+      for (final (a, b) in edges) {
+        if (reach.contains(a) && reach.add(b)) grew = true;
+        if (reach.contains(b) && reach.add(a)) grew = true;
+      }
+    }
+    expect(reach, hasLength(points.length));
+    // Vecinos cercanos: 0 se une con 1 y 2.
+    expect(edges, containsAll([(0, 1), (0, 2)]));
+    expect(captureGeoEdges(const [LatLng(-33, -70)]), isEmpty);
+    expect(
+      captureDistanceKm(
+        const LatLng(-33.45, -70.6),
+        const LatLng(-33.55, -70.6),
+      ),
+      closeTo(11.1, 0.1),
+    );
+  });
+
+  testWidgets('el mapa dibuja la red entre equipos', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 420,
+            height: 640,
+            child: CaptureLocationMap(
+              tileProvider: _QuietTiles(),
+              selectedKey: '7',
+              points: [
+                _point(
+                  id: 7,
+                  title: 'Pozo Norte',
+                  project: 'Fundo',
+                  lat: -33.45,
+                  lon: -70.66,
+                ),
+                _point(
+                  id: 8,
+                  title: 'Pozo Sur',
+                  project: 'Fundo',
+                  lat: -33.60,
+                  lon: -70.70,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    final edges = find.byWidgetPredicate(
+      (widget) =>
+          widget is CustomPaint &&
+          widget.painter.runtimeType.toString() == '_EdgePainter',
+    );
+    expect(edges, findsOneWidget);
+    final painter = tester.widget<CustomPaint>(edges).painter as dynamic;
+    // El único enlace toca al punto elegido: va brillante.
+    expect((painter.hot as List), hasLength(1));
+    expect((painter.plain as List), isEmpty);
+  });
+
   test('UTM 19S se convierte como en el observatorio', () {
     // Plaza de Armas de Santiago guardada como norte/este.
     final plaza = captureLatLng({'lat': '6298836', 'lon': '346454'})!;

@@ -151,11 +151,7 @@ class _WaterPainter extends CustomPainter {
     }
     canvas.restore();
 
-    canvas.drawCircle(
-      Offset.zero,
-      5,
-      Paint()..color = const Color(0x99F4FEFF),
-    );
+    canvas.drawCircle(Offset.zero, 5, Paint()..color = const Color(0x99F4FEFF));
     canvas.restore();
   }
 

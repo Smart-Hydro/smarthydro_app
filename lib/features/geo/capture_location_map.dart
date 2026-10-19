@@ -1,6 +1,9 @@
 import 'dart:math' as math;
+import 'dart:ui' show PointMode;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 
@@ -108,6 +111,25 @@ class _CaptureLocationMapState extends State<CaptureLocationMap>
         break;
       }
     }
+  }
+
+  List<LatLng>? _edgeSource;
+  List<(int, int)> _edges = const [];
+
+  /// La red solo se recalcula si cambian las coordenadas.
+  List<(int, int)> _edgesFor(List<_Located> located) {
+    final coords = [for (final item in located) item.location];
+    final same =
+        _edgeSource != null &&
+        _edgeSource!.length == coords.length &&
+        Iterable<int>.generate(
+          coords.length,
+        ).every((i) => _edgeSource![i] == coords[i]);
+    if (!same) {
+      _edgeSource = coords;
+      _edges = captureGeoEdges(coords);
+    }
+    return _edges;
   }
 
   /// Los puntos propios ya van con su logger: la capa pública no los repite.
@@ -219,6 +241,12 @@ class _CaptureLocationMapState extends State<CaptureLocationMap>
               tileDisplay: const TileDisplay.instantaneous(),
             ),
             if (public.isNotEmpty) CircleLayer(circles: public),
+            if (located.length > 1)
+              _NetworkEdges(
+                located: located,
+                edges: _edgesFor(located),
+                selectedKey: widget.selectedKey,
+              ),
             _WaterOnPoint(
               located: located,
               selectedKey: widget.selectedKey,
@@ -310,6 +338,215 @@ class _WaterOnPoint extends StatelessWidget {
 }
 
 const _waterSize = 220.0;
+
+/// Red entre equipos, como el observatorio: trazos punteados que fluyen.
+/// Aparece desde zoom 4; los enlaces del punto elegido brillan y corren más
+/// rápido.
+class _NetworkEdges extends StatefulWidget {
+  const _NetworkEdges({
+    required this.located,
+    required this.edges,
+    required this.selectedKey,
+  });
+
+  final List<_Located> located;
+  final List<(int, int)> edges;
+  final String? selectedKey;
+
+  static const minZoom = 4.0;
+
+  /// Bajo este zoom la red va más tenue, para no tapar el mapa.
+  static const fineZoom = 8.0;
+
+  @override
+  State<_NetworkEdges> createState() => _NetworkEdgesState();
+}
+
+class _NetworkEdgesState extends State<_NetworkEdges>
+    with SingleTickerProviderStateMixin {
+  static const _frame = 1 / 30;
+
+  late final Ticker _ticker = createTicker((elapsed) {
+    final next = elapsed.inMicroseconds / 1e6;
+    if (next - _seconds.value < _frame) return;
+    _seconds.value = next;
+  });
+  final _seconds = ValueNotifier<double>(0);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _ticker.stop();
+    } else if (!_ticker.isActive) {
+      _ticker.start();
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    _seconds.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final camera = MapCamera.of(context);
+    if (camera.zoom < _NetworkEdges.minZoom) return const SizedBox.shrink();
+    var selected = -1;
+    final screen = <Offset>[];
+    for (var i = 0; i < widget.located.length; i++) {
+      final item = widget.located[i];
+      screen.add(camera.latLngToScreenOffset(item.location));
+      if (capturePointKey(item.point) == widget.selectedKey) selected = i;
+    }
+    final plain = <(Offset, Offset)>[];
+    final hot = <(Offset, Offset)>[];
+    for (final (a, b) in widget.edges) {
+      final segment = (screen[a], screen[b]);
+      (a == selected || b == selected ? hot : plain).add(segment);
+    }
+    return IgnorePointer(
+      child: RepaintBoundary(
+        child: SizedBox.expand(
+          child: CustomPaint(
+            painter: _EdgePainter(
+              plain: plain,
+              hot: hot,
+              fine: camera.zoom >= _NetworkEdges.fineZoom,
+              clock: _seconds,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EdgePainter extends CustomPainter {
+  _EdgePainter({
+    required this.plain,
+    required this.hot,
+    required this.fine,
+    required this.clock,
+  }) : super(repaint: clock);
+
+  final List<(Offset, Offset)> plain;
+  final List<(Offset, Offset)> hot;
+  final bool fine;
+  final ValueListenable<double> clock;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final view = (Offset.zero & size).inflate(8);
+    final seconds = clock.value;
+    // Mismas velocidades que el CSS del observatorio: 16 px en 4 s, y en
+    // 2,2 s para los enlaces del punto elegido.
+    _dashes(
+      canvas,
+      view,
+      plain,
+      dash: 1.5,
+      gap: 5,
+      shift: seconds * 16 / 4,
+      paint: Paint()
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = fine ? 1.2 : 1
+        // Algo más visible que el observatorio: aquí la red es el foco.
+        ..color = fine ? const Color(0x8C78B4DC) : const Color(0x6678AFD2),
+    );
+    _dashes(
+      canvas,
+      view,
+      hot,
+      dash: 1,
+      gap: 3,
+      shift: seconds * 16 / 2.2,
+      paint: Paint()
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = 1.8
+        ..color = const Color(0xC7B4D7EB),
+    );
+  }
+
+  void _dashes(
+    Canvas canvas,
+    Rect view,
+    List<(Offset, Offset)> segments, {
+    required double dash,
+    required double gap,
+    required double shift,
+    required Paint paint,
+  }) {
+    if (segments.isEmpty) return;
+    final period = dash + gap;
+    final phase = shift % period;
+    final out = <double>[];
+    for (final (from, to) in segments) {
+      final clipped = _clip(from, to, view);
+      if (clipped == null) continue;
+      final (a, b) = clipped;
+      final along = b - a;
+      final length = along.distance;
+      if (length < 0.5) continue;
+      final unit = along / length;
+      // El patrón queda anclado al inicio real del enlace, no al recorte.
+      final start = (a - from).distance;
+      var s = phase - period - (start % period);
+      while (s < length) {
+        final head = math.max(0.0, s);
+        final tail = math.min(length, s + dash);
+        if (tail > head) {
+          final p = a + unit * head;
+          final q = a + unit * tail;
+          out
+            ..add(p.dx)
+            ..add(p.dy)
+            ..add(q.dx)
+            ..add(q.dy);
+        }
+        s += period;
+      }
+    }
+    if (out.isEmpty) return;
+    canvas.drawRawPoints(PointMode.lines, Float32List.fromList(out), paint);
+  }
+
+  /// Recorta el tramo a lo visible (Liang-Barsky). Nulo si queda fuera.
+  static (Offset, Offset)? _clip(Offset a, Offset b, Rect r) {
+    var t0 = 0.0;
+    var t1 = 1.0;
+    final d = b - a;
+    bool edge(double p, double q) {
+      if (p == 0) return q >= 0;
+      final t = q / p;
+      if (p < 0) {
+        if (t > t1) return false;
+        if (t > t0) t0 = t;
+      } else {
+        if (t < t0) return false;
+        if (t < t1) t1 = t;
+      }
+      return true;
+    }
+
+    if (!edge(-d.dx, a.dx - r.left) ||
+        !edge(d.dx, r.right - a.dx) ||
+        !edge(-d.dy, a.dy - r.top) ||
+        !edge(d.dy, r.bottom - a.dy)) {
+      return null;
+    }
+    return (a + d * t0, a + d * t1);
+  }
+
+  @override
+  bool shouldRepaint(covariant _EdgePainter oldDelegate) =>
+      oldDelegate.plain != plain ||
+      oldDelegate.hot != hot ||
+      oldDelegate.fine != fine ||
+      oldDelegate.clock != clock;
+}
 
 /// Onda que sale de la luz de la antena de cada punto conectado, para verlos
 /// de un vistazo. Si el punto quedó dentro de un grupo, late la antena del
