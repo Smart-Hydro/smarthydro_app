@@ -7,7 +7,10 @@ import '../api/smarthydro_api.dart';
 import 'session_store.dart';
 
 final smartHydroApiProvider = Provider<SmartHydroApi>((ref) {
-  return SmartHydroApi();
+  return SmartHydroApi(
+    onUnauthorized: (token) =>
+        ref.read(sessionProvider.notifier).expire(token),
+  );
 });
 
 final sessionStoreProvider = Provider<SessionStore>((ref) {
@@ -16,17 +19,26 @@ final sessionStoreProvider = Provider<SessionStore>((ref) {
 
 /// Sesión lista para pintar. [ready] es falso mientras se lee el almacenamiento.
 class SessionSnapshot {
-  const SessionSnapshot._({required this.ready, this.session});
+  const SessionSnapshot._({
+    required this.ready,
+    this.session,
+    this.expired = false,
+  });
 
   const SessionSnapshot.restoring() : this._(ready: false);
 
   const SessionSnapshot.signedOut() : this._(ready: true);
 
+  /// Salida forzada por un 401: el login avisa por qué volvió.
+  const SessionSnapshot.expired() : this._(ready: true, expired: true);
+
   const SessionSnapshot.signedIn(SmartHydroSession this.session)
-    : ready = true;
+    : ready = true,
+      expired = false;
 
   final bool ready;
   final SmartHydroSession? session;
+  final bool expired;
 }
 
 class SessionNotifier extends Notifier<SessionSnapshot> {
@@ -79,8 +91,17 @@ class SessionNotifier extends Notifier<SessionSnapshot> {
     state = SessionSnapshot.signedIn(next);
   }
 
-  Future<void> signOut() async {
-    state = const SessionSnapshot.signedOut();
+  /// Solo cierra si el 401 es del token vigente: una respuesta tardía de una
+  /// sesión anterior no puede sacar al usuario que acaba de entrar.
+  Future<void> expire(String token) async {
+    if (state.session?.token != token) return;
+    await signOut(expired: true);
+  }
+
+  Future<void> signOut({bool expired = false}) async {
+    state = expired
+        ? const SessionSnapshot.expired()
+        : const SessionSnapshot.signedOut();
     try {
       await ref.read(sessionStoreProvider).clear();
     } catch (_) {}

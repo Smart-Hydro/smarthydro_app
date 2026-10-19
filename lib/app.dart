@@ -14,11 +14,27 @@ class SmartHydroApp extends ConsumerWidget {
 
   static const _ocean = WorkstationBackdrop.base;
   static const _surface = Color(0xFF12252A);
+  static final _navigatorKey = GlobalKey<NavigatorState>();
+  static final _messengerKey = GlobalKey<ScaffoldMessengerState>();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.watch(sessionProvider);
-    final session = auth.session;
+    // Si la sesión entra, sale o expira con pantallas apiladas (detalle,
+    // reportes...), no quedan rutas huérfanas con un token inválido.
+    ref.listen(sessionProvider, (previous, next) {
+      if (previous?.session?.token == next.session?.token) return;
+      _navigatorKey.currentState?.popUntil((route) => route.isFirst);
+      if (next.expired) {
+        _messengerKey.currentState
+          ?..clearSnackBars()
+          ..showSnackBar(
+            const SnackBar(
+              content: Text('Tu sesión expiró. Vuelve a ingresar.'),
+            ),
+          );
+      }
+    });
     final scheme = ColorScheme.fromSeed(
       seedColor: IkoluColors.cyan,
       brightness: Brightness.dark,
@@ -26,10 +42,8 @@ class SmartHydroApp extends ConsumerWidget {
     );
 
     return MaterialApp(
-      // Al cambiar el estado de sesión se reinicia el navegador raíz: si la
-      // sesión expira con pantallas apiladas (detalle, reportes...), no
-      // quedan rutas huérfanas sobre el login con un token inválido.
-      key: ValueKey(session != null),
+      navigatorKey: _navigatorKey,
+      scaffoldMessengerKey: _messengerKey,
       title: 'Ikolu · Smart Hydro',
       debugShowCheckedModeBanner: false,
       builder: (context, child) {
@@ -111,13 +125,15 @@ class SmartHydroApp extends ConsumerWidget {
               .accessibilityFeatures
               .disableAnimations
           ? Duration.zero
-          : const Duration(milliseconds: 600),
+          : HydroMotion.page,
       switchInCurve: Curves.easeOutCubic,
       switchOutCurve: Curves.easeInCubic,
       child: session == null
           ? const LoginScreen(key: ValueKey('login'))
+          // Por token: editar el perfil cambia el usuario, no la sesión, y
+          // no debe remontar el dashboard ni devolverlo a IoT.
           : LiveDashboardScreen(
-              key: ValueKey('dashboard-${session.hashCode}'),
+              key: ValueKey('dashboard-${session.token}'),
               session: session,
             ),
     );

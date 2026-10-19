@@ -72,6 +72,7 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
   String? _eventsError;
   bool _loadingNotifications = false;
   bool _notificationRequestInFlight = false;
+  bool _fullNotificationsPending = false;
   Timer? _notificationPoll;
   bool _notifyEmail = true;
   bool _savingEmailPreference = false;
@@ -96,7 +97,9 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
     if (state == AppLifecycleState.resumed) {
       _startNotificationPolling();
       _loadNotifications();
-    } else {
+    } else if (state != AppLifecycleState.inactive) {
+      // inactive en web es solo perder el foco: una sala de control en otro
+      // monitor sigue recibiendo avisos.
       _notificationPoll?.cancel();
       _notificationPoll = null;
     }
@@ -133,18 +136,26 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
       });
       if (_selectedTab == 1) _loadNotifications();
     } on SmartHydroApiException catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _loadError = error.message;
-        _loading = false;
-      });
+      _failDashboard(error.message);
     } catch (_) {
-      if (!mounted) return;
+      _failDashboard('No se pudieron cargar tus datos. Intenta actualizar.');
+    }
+  }
+
+  /// Con datos ya en pantalla, un refresco fallido no tapa el mapa.
+  void _failDashboard(String message) {
+    if (!mounted) return;
+    if (_points.isEmpty) {
       setState(() {
-        _loadError = 'No se pudieron cargar tus datos. Intenta actualizar.';
+        _loadError = message;
         _loading = false;
       });
+      return;
     }
+    setState(() => _loading = false);
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _loadOpenTickets() async {
@@ -188,34 +199,52 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
     }
   }
 
+  /// Fuera de Eventos solo hace falta el contador de no leídos: el resumen y
+  /// los 100 eventos se piden cuando esa pestaña está a la vista.
   Future<void> _loadNotifications() async {
-    if (_notificationRequestInFlight) return;
+    if (_notificationRequestInFlight) {
+      if (_selectedTab == 1) _fullNotificationsPending = true;
+      return;
+    }
     _notificationRequestInFlight = true;
-    setState(() {
-      _loadingNotifications = true;
-      _eventsError = null;
-    });
+    final full = _selectedTab == 1;
+    if (full) {
+      setState(() {
+        _loadingNotifications = true;
+        _eventsError = null;
+      });
+    }
     try {
       final results = await Future.wait<Object?>([
         _api
             .ticketNotifications(widget.session.token)
             .then<Object?>((value) => value)
             .catchError((Object error) => error),
-        _api
-            .systemEventsSummary(widget.session.token)
-            .then<Object?>((value) => value)
-            .catchError((Object error) => error),
-        _api
-            .systemEvents(widget.session.token, pageSize: 100)
-            .then<Object?>((value) => value)
-            .catchError((Object error) => error),
+        if (full) ...[
+          _api
+              .systemEventsSummary(widget.session.token)
+              .then<Object?>((value) => value)
+              .catchError((Object error) => error),
+          _api
+              .systemEvents(widget.session.token, pageSize: 100)
+              .then<Object?>((value) => value)
+              .catchError((Object error) => error),
+        ],
       ]);
       if (!mounted) return;
+      final tickets = results[0];
+      final unreadChanged =
+          tickets is Map<String, dynamic> &&
+          tickets['unread_count'] != _ticketNotifications['unread_count'];
+      if (!full && !unreadChanged) {
+        if (tickets is Map<String, dynamic>) _ticketNotifications = tickets;
+        return;
+      }
       setState(() {
-        final tickets = results[0];
         if (tickets is Map<String, dynamic>) {
           _ticketNotifications = tickets;
         }
+        if (!full) return;
         final summary = results[1];
         if (summary is Map<String, dynamic>) {
           _eventsSummary = summary;
@@ -229,7 +258,13 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
       });
     } finally {
       _notificationRequestInFlight = false;
-      if (mounted) setState(() => _loadingNotifications = false);
+      if (mounted && _loadingNotifications) {
+        setState(() => _loadingNotifications = false);
+      }
+      if (mounted && _fullNotificationsPending) {
+        _fullNotificationsPending = false;
+        _loadNotifications();
+      }
     }
   }
 
@@ -266,6 +301,10 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
 
   void _signOut() => ref.read(sessionProvider.notifier).signOut();
 
+  /// Solo la primera carga muestra el esqueleto. Un refresco deja el mapa
+  /// montado con su zoom, página y ficha abierta.
+  bool get _initialLoading => _loading && _points.isEmpty && _selectedTab == 0;
+
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 980;
@@ -297,7 +336,7 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
           );
         },
         child: KeyedSubtree(
-          key: ValueKey(tool ?? (_selectedTab, _loading && _selectedTab == 0)),
+          key: ValueKey(tool ?? (_selectedTab, _initialLoading)),
           child: page,
         ),
       ),
@@ -381,9 +420,10 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
 
     switch (_selectedTab) {
       case 0:
-        return _loading
+        return _initialLoading
             ? const _HomeLoading()
             : _DashboardTab(
+                refreshing: _loading,
                 points: _points,
                 openTickets: _openTickets,
                 compliance: _compliance,
@@ -688,6 +728,7 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
 
 class _DashboardTab extends StatefulWidget {
   const _DashboardTab({
+    required this.refreshing,
     required this.points,
     required this.openTickets,
     required this.compliance,
@@ -704,6 +745,7 @@ class _DashboardTab extends StatefulWidget {
     this.userId,
   });
 
+  final bool refreshing;
   final List<Map<String, dynamic>> points;
   final List<Map<String, dynamic>> openTickets;
   final List<Map<String, dynamic>> compliance;
@@ -838,8 +880,15 @@ class _DashboardTabState extends State<_DashboardTab> {
                 alignment: Alignment.centerRight,
                 child: IconButton(
                   tooltip: 'Actualizar resumen',
-                  onPressed: () => widget.onRefresh(),
-                  icon: const Icon(Icons.refresh_rounded, size: 20),
+                  onPressed: widget.refreshing
+                      ? null
+                      : () => widget.onRefresh(),
+                  icon: widget.refreshing
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh_rounded, size: 20),
                 ),
               ),
             if (widget.points.isEmpty)

@@ -111,8 +111,6 @@ class _PreviewHome extends StatelessWidget {
                         child: HydroGlass(
                           padding: const EdgeInsets.all(12),
                           radius: 16,
-
-                          accent: item.$3,
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -200,11 +198,6 @@ class _PreviewHome extends StatelessWidget {
                   HydroGlass(
                     padding: const EdgeInsets.all(12),
                     radius: 18,
-                    accent: switch (pointLinkOf(point)) {
-                      PointLink.connected => const Color(0xFF66E0C2),
-                      PointLink.gap => const Color(0xFFFFC46B),
-                      PointLink.incident => const Color(0xFFFF847A),
-                    },
                     child: Row(
                       children: [
                         MiniIsoWell(

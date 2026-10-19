@@ -35,7 +35,7 @@ class SmartHydroApiException implements Exception {
 }
 
 class SmartHydroApi {
-  SmartHydroApi({Dio? dio})
+  SmartHydroApi({Dio? dio, this.onUnauthorized})
     : _dio =
           dio ??
           Dio(
@@ -48,9 +48,24 @@ class SmartHydroApi {
               receiveTimeout: const Duration(seconds: 25),
               headers: const {'Accept': 'application/json'},
             ),
-          );
+          ) {
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onError: (error, handler) {
+          final token = _tokenOf(error.requestOptions);
+          if (error.response?.statusCode == 401 && token != null) {
+            onUnauthorized?.call(token);
+          }
+          handler.next(error);
+        },
+      ),
+    );
+  }
 
   final Dio _dio;
+
+  /// Un 401 con token (no el del login) es una sesión vencida o revocada.
+  final void Function(String token)? onUnauthorized;
 
   /// Salud pública del API (`GET /health`). Sin auth.
   Future<bool> health() async {
@@ -790,8 +805,17 @@ class SmartHydroApi {
     return '$year-$month-$day';
   }
 
+  static String? _tokenOf(RequestOptions options) {
+    final header = options.headers['Authorization'];
+    if (header is! String || !header.startsWith('Token ')) return null;
+    return header.substring('Token '.length);
+  }
+
   static String _messageFor(DioException error) {
     final response = error.response;
+    if (response?.statusCode == 401 && _tokenOf(error.requestOptions) != null) {
+      return 'Tu sesión expiró. Vuelve a ingresar.';
+    }
     final data = _map(response?.data);
     final detail = data['message'] ?? data['detail'] ?? data['error'];
     if (detail is String && detail.trim().isNotEmpty) return detail;

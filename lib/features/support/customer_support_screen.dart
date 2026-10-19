@@ -16,22 +16,8 @@ Future<bool?> showSupportTicketSheet(
   int? initialPointId,
   String? initialPriority,
   bool lockPoint = false,
-}) async {
-  var categories = const <Map<String, dynamic>>[];
-  try {
-    categories = (await api.ticketCategories(token))
-        .where(
-          (category) => const {
-            'SOFTWARE',
-            'HARDWARE',
-            'COMPLIANCE',
-          }.contains('${category['category_type']}'.toUpperCase()),
-        )
-        .toList(growable: false);
-  } on SmartHydroApiException {
-    categories = const [];
-  }
-  if (!context.mounted) return null;
+}) {
+  // Se abre al toque: la hoja carga sus categorías mientras se escribe.
   return showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
@@ -41,7 +27,7 @@ Future<bool?> showSupportTicketSheet(
       api: api,
       token: token,
       points: points,
-      categories: categories,
+      categories: const [],
       initialTitle: initialTitle,
       initialDescription: initialDescription,
       initialPointId: initialPointId,
@@ -363,6 +349,9 @@ class _SupportTicketSheetState extends State<SupportTicketSheet> {
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<int?>(
+            // initialValue solo se lee al montar: al llegar las categorías
+            // se remonta para mostrar la elegida por defecto.
+            key: ValueKey(_categories.isEmpty),
             initialValue: _categoryId,
             decoration: const InputDecoration(labelText: 'Categoría'),
             items: [

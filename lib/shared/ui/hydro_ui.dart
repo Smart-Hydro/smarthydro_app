@@ -47,6 +47,10 @@ abstract final class HydroText {
 abstract final class HydroMotion {
   static const fast = Duration(milliseconds: 200);
   static const medium = Duration(milliseconds: 320);
+
+  /// Cambio de pantalla completa: rutas, pestañas, login ↔ dashboard.
+  static const page = Duration(milliseconds: 300);
+  static const pageReverse = Duration(milliseconds: 240);
   static const curve = Curves.easeOutCubic;
 
   static Duration of(BuildContext context, Duration d) =>
