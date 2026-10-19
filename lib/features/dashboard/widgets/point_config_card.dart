@@ -74,7 +74,13 @@ class _PointConfigCardState extends State<PointConfigCard> {
   var _provider = 'none';
   var _surface = false;
   var _telemetry = true;
-  var _dga = false;
+
+  /// `DGA`, `SMA` o nulo sin cumplimiento. Misma regla que el API.
+  String? _agency;
+
+  /// Envío activo de la agencia elegida (`send_dga` o `send_sma`).
+  var _sending = false;
+  final _smaDevice = TextEditingController();
   var _standard = 'SIN_ESTANDAR';
   var _loading = false;
   var _saving = false;
@@ -82,8 +88,6 @@ class _PointConfigCardState extends State<PointConfigCard> {
   var _panel = _ConfigPanel.point;
 
   bool get _creating => widget.point == null;
-
-  String get _agency => _dga ? 'DGA' : 'SMA';
 
   @override
   void initState() {
@@ -134,6 +138,7 @@ class _PointConfigCardState extends State<PointConfigCard> {
       _gapHours,
       _reconnect,
       _sendStart,
+      _smaDevice,
       _schemeName,
       _schemeDescription,
     ]) {
@@ -325,7 +330,13 @@ class _PointConfigCardState extends State<PointConfigCard> {
     if (rows.isEmpty) return;
     final row = rows.first;
     _dgaId = _intOf(row['id']);
-    _dga = row['send_dga'] == true;
+    _agency = complianceAgencyForConfig(row);
+    _sending = switch (_agency) {
+      'DGA' => row['send_dga'] == true,
+      'SMA' => row['send_sma'] == true,
+      _ => false,
+    };
+    _smaDevice.text = _text(row['sma_device_id']);
     final kind = '${row['type_dga'] ?? ''}'.toUpperCase();
     if (kind == 'SUPERFICIAL' || kind == 'SUBTERRANEO') {
       _surface = kind == 'SUPERFICIAL';
@@ -604,6 +615,11 @@ class _PointConfigCardState extends State<PointConfigCard> {
       setState(() => _error = schemeProblem);
       return;
     }
+    final complianceProblem = _complianceProblem();
+    if (complianceProblem != null) {
+      setState(() => _error = complianceProblem);
+      return;
+    }
     setState(() {
       _saving = true;
       _error = null;
@@ -645,21 +661,27 @@ class _PointConfigCardState extends State<PointConfigCard> {
         'max_time_gap_hours': _num(_gapHours.text, '2'),
         'reconnection_threshold_hours': _num(_reconnect.text, '2'),
       });
+      // El API deduce la agencia del código (OB = DGA) y de sma_device_id:
+      // lo que no corresponde a la elegida se vacía para que no la cambie.
+      final dga = _agency == 'DGA';
+      final sma = _agency == 'SMA';
       final dgaBody = <String, dynamic>{
         'point_catchment': id,
-        'send_dga': _dga,
+        'send_dga': dga && _sending,
+        'send_sma': sma && _sending,
         'type_dga': _surface ? 'SUPERFICIAL' : 'SUBTERRANEO',
         'standard': _standard,
-        'code_dga': _code.text.trim(),
+        'code_dga': _agency == null ? '' : _code.text.trim(),
+        'sma_device_id': sma ? _smaDevice.text.trim() : '',
         'flow_granted_dga': _num(_flowGranted.text, '0'),
         'total_granted_dga': int.tryParse(_totalGranted.text.trim()) ?? 0,
         'shac': _shac.text.trim(),
         'region_dga': _region.text.trim(),
-        if (_sendStart.text.trim().isNotEmpty)
+        if (dga && _sendStart.text.trim().isNotEmpty)
           'date_start_compliance': _sendStart.text.trim(),
       };
       if (_dgaId == null) {
-        if (_dga) await api.createDgaConfig(token, dgaBody);
+        if (_agency != null) await api.createDgaConfig(token, dgaBody);
       } else {
         await api.updateDgaConfig(token, _dgaId!, dgaBody);
       }
@@ -672,6 +694,21 @@ class _PointConfigCardState extends State<PointConfigCard> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  String? _complianceProblem() {
+    final code = _code.text.trim();
+    final ob = code.toUpperCase().startsWith('OB');
+    switch (_agency) {
+      case 'DGA':
+        if (!ob) return 'El código de obra DGA empieza con OB.';
+      case 'SMA':
+        if (code.isEmpty && _smaDevice.text.trim().isEmpty) {
+          return 'SMA necesita el código UF o el dispositivo SMA.';
+        }
+        if (ob) return 'Un código que empieza con OB es DGA, no SMA.';
+    }
+    return null;
   }
 
   @override
@@ -778,9 +815,13 @@ class _PointConfigCardState extends State<PointConfigCard> {
       case _ConfigPanel.telemetry:
         return 'De qué equipo llegan las lecturas y si se procesan.';
       case _ConfigPanel.compliance:
-        return _dga
-            ? 'Lo que se informa a la DGA. El detalle aparece al activarlo.'
-            : 'Si no es DGA, el punto es SMA. Activa el envío solo si debe informar a la DGA.';
+        return switch (_agency) {
+          'DGA' => 'Lo que se informa a la Dirección General de Aguas.',
+          'SMA' =>
+            'Lo que se informa a la Superintendencia del Medio Ambiente.',
+          _ =>
+            'Un punto puede no tener cumplimiento. Elige DGA o SMA solo si debe informar.',
+        };
       case _ConfigPanel.physical:
         return 'Medidas de terreno y límites para aceptar una lectura.';
       case _ConfigPanel.scheme:
@@ -919,21 +960,78 @@ class _PointConfigCardState extends State<PointConfigCard> {
   }
 
   Widget _compliancePanel(bool narrow) {
+    final agency = _agency;
     return _stack([
-      SwitchListTile(
-        key: const ValueKey('capture-config-dga'),
-        contentPadding: EdgeInsets.zero,
-        title: Text('Cumplimiento $_agency', style: _configLabel),
-        subtitle: Text(
-          _dga
-              ? 'Activo: este punto informa a la Dirección General de Aguas.'
-              : 'Sin envío DGA. El punto queda como SMA.',
-          style: _configHelp,
-        ),
-        value: _dga,
-        onChanged: (value) => setState(() => _dga = value),
+      SegmentedButton<String>(
+        showSelectedIcon: false,
+        segments: const [
+          ButtonSegment(
+            value: 'none',
+            label: Text(
+              'Sin cumplimiento',
+              key: ValueKey('capture-config-none'),
+            ),
+          ),
+          ButtonSegment(
+            value: 'DGA',
+            label: Text('DGA', key: ValueKey('capture-config-dga')),
+          ),
+          ButtonSegment(
+            value: 'SMA',
+            label: Text('SMA', key: ValueKey('capture-config-sma')),
+          ),
+        ],
+        selected: {agency ?? 'none'},
+        onSelectionChanged: (picked) => setState(() {
+          final next = picked.first == 'none' ? null : picked.first;
+          if (next != _agency) _sending = next != null;
+          _agency = next;
+        }),
       ),
-      if (_dga) ...[
+      if (agency != null)
+        SwitchListTile(
+          key: const ValueKey('capture-config-sending'),
+          contentPadding: EdgeInsets.zero,
+          title: Text('Cumplimiento $agency', style: _configLabel),
+          subtitle: Text(
+            _sending
+                ? (agency == 'DGA'
+                      ? 'Activo: informa a la Dirección General de Aguas.'
+                      : 'Activo: informa a la Superintendencia del Medio Ambiente.')
+                : 'Configurado, sin envío por ahora.',
+            style: _configHelp,
+          ),
+          value: _sending,
+          onChanged: (value) => setState(() => _sending = value),
+        ),
+      if (agency == 'SMA') ...[
+        _field(
+          'Código UF',
+          _code,
+          key: const ValueKey('capture-config-code'),
+          help: 'Unidad fiscalizable ante la SMA. No empieza con OB.',
+        ),
+        _pair(
+          _field(
+            'Dispositivo SMA',
+            _smaDevice,
+            key: const ValueKey('capture-config-sma-device'),
+            help: 'ID del dispositivo en el sistema SMA.',
+          ),
+          _field(
+            'Proceso SMA',
+            _totalGranted,
+            help: 'ID del proceso al que se envían los registros.',
+          ),
+          narrow,
+        ),
+        _field(
+          'Caudal otorgado (L/s)',
+          _flowGranted,
+          help: 'Caudal autorizado, en litros por segundo.',
+        ),
+      ],
+      if (agency == 'DGA') ...[
         _noted(
           _standardField(),
           'Régimen de reporte que corresponde al derecho.',
@@ -942,7 +1040,7 @@ class _PointConfigCardState extends State<PointConfigCard> {
           'Código de obra',
           _code,
           key: const ValueKey('capture-config-code'),
-          help: 'Identificador de la obra ante la DGA.',
+          help: 'Identificador de la obra ante la DGA. Empieza con OB.',
         ),
         _pair(
           _field(
@@ -1684,6 +1782,8 @@ List<Map<String, dynamic>> dgaRowsOf(Map<String, dynamic> point) {
   final nested = point['dga'] ?? point['dga_config'];
   final top = <String, dynamic>{
     if (point['send_dga'] != null) 'send_dga': point['send_dga'],
+    if (point['send_sma'] != null) 'send_sma': point['send_sma'],
+    if (point['sma_device_id'] != null) 'sma_device_id': point['sma_device_id'],
     if (point['code_dga'] != null) 'code_dga': point['code_dga'],
     if (point['type_dga'] != null) 'type_dga': point['type_dga'],
     if (point['standard'] != null) 'standard': point['standard'],
@@ -1713,6 +1813,7 @@ List<Map<String, dynamic>> dgaRowsOf(Map<String, dynamic> point) {
   }
   if (point['send_dga'] == true ||
       point['code_dga'] != null ||
+      point['sma_device_id'] != null ||
       point['flow_granted_dga'] != null ||
       point['authorized_flow'] != null) {
     return [point];

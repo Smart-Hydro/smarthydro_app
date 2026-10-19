@@ -1327,7 +1327,7 @@ class _NetworkPanel extends StatelessWidget {
       }
       final id = _int(point['id']);
       final item = complianceById[id];
-      if (item != null || DgaInfo.tryParse(_map(point['dga'])) != null) {
+      if (complianceAgencyOf(point, compliance: item) == 'DGA') {
         dgaPoints += 1;
       }
       switch (_complianceLevel(item)) {
@@ -2079,11 +2079,11 @@ void _openReadingSheet(
                     for (final field in info.fields)
                       _SheetFact(label: field.label, value: field.value),
                   if (info != null && info.fields.isEmpty && compliance == null)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 8),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
                       child: Text(
-                        'Obra DGA activa.',
-                        style: TextStyle(color: Color(0xFFD5E6E4)),
+                        'Obra ${info.agency} activa.',
+                        style: const TextStyle(color: Color(0xFFD5E6E4)),
                       ),
                     ),
                 ],
@@ -2357,8 +2357,7 @@ bool _matchesLens(
     _SummaryLens.all => true,
     _SummaryLens.attention => pointLinkOf(point) != PointLink.connected,
     _SummaryLens.dga =>
-      complianceById.containsKey(id) ||
-          DgaInfo.tryParse(_map(point['dga'])) != null,
+      complianceAgencyOf(point, compliance: complianceById[id]) == 'DGA',
     _SummaryLens.sla => _slasForPoint(tickets, id).isNotEmpty,
   };
 }
@@ -2435,8 +2434,8 @@ Color _statusColor(PointLink link) => switch (link) {
 
 String _complianceLabel(DgaInfo info) {
   final code = info.code;
-  if (code != null && code.length <= 16) return 'DGA $code';
-  return 'Cumplimiento';
+  if (code != null && code.length <= 16) return '${info.agency} $code';
+  return 'Cumplimiento ${info.agency}';
 }
 
 class _NotificationsTab extends StatelessWidget {
@@ -2874,7 +2873,7 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
                         title: title,
                         subtitle: subtitle,
                         link: pointLinkOf(data),
-                        dgaActive: loggerInfo.dga != null,
+                        agency: loggerInfo.dga?.agency,
                         playing: _replayTimer != null,
                         replayLabel: _replayLabel,
                         replayStamp: startedAt == null
@@ -3071,7 +3070,7 @@ class _PointGlassDock extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.link,
-    required this.dgaActive,
+    required this.agency,
     required this.playing,
     required this.replayLabel,
     this.replayStamp,
@@ -3094,7 +3093,9 @@ class _PointGlassDock extends StatelessWidget {
   final String title;
   final String subtitle;
   final PointLink link;
-  final bool dgaActive;
+
+  /// `DGA`, `SMA` o nulo sin cumplimiento.
+  final String? agency;
   final bool playing;
   final String replayLabel;
   final String? replayStamp;
@@ -3184,7 +3185,7 @@ class _PointGlassDock extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (dgaActive) ...[
+                if (agency != null) ...[
                   const SizedBox(width: 6),
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -3195,9 +3196,9 @@ class _PointGlassDock extends StatelessWidget {
                       color: IkoluColors.cyan.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(999),
                     ),
-                    child: const Text(
-                      'DGA',
-                      style: TextStyle(
+                    child: Text(
+                      agency!,
+                      style: const TextStyle(
                         color: IkoluColors.cyan,
                         fontSize: 10.5,
                         fontWeight: FontWeight.w800,

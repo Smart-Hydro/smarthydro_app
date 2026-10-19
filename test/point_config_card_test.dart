@@ -232,7 +232,7 @@ void main() {
     expect(find.text('Otro'), findsNothing);
   });
 
-  testWidgets('sin DGA el cumplimiento se nombra SMA', (tester) async {
+  testWidgets('sin código el punto queda sin cumplimiento', (tester) async {
     await tester.pumpWidget(
       _card(
         point: {
@@ -244,12 +244,38 @@ void main() {
       ),
     );
     await tester.pump();
+    expect(find.text('Cumplimiento SMA'), findsNothing);
+    expect(find.text('Cumplimiento DGA'), findsNothing);
+    expect(find.byKey(const ValueKey('capture-config-code')), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('capture-config-sma')));
+    await tester.pump();
     expect(find.text('Cumplimiento SMA'), findsOneWidget);
+    expect(_fieldText(tester, 'Código UF'), '');
     expect(
-      find.text('Sin envío DGA. El punto queda como SMA.'),
+      find.byKey(const ValueKey('capture-config-sma-device')),
       findsOneWidget,
     );
-    expect(find.byKey(const ValueKey('capture-config-code')), findsNothing);
+  });
+
+  testWidgets('un código sin OB abre como SMA', (tester) async {
+    await tester.pumpWidget(
+      _card(
+        point: {
+          'id': 3,
+          'title': 'Descarga',
+          'project': {'id': 9, 'name': 'Fundo'},
+          'dga': {'code_dga': '7511', 'send_dga': false},
+          'send_sma': true,
+          'sma_device_id': '12180',
+        },
+        initialPanel: 'compliance',
+      ),
+    );
+    await tester.pump();
+    expect(find.text('Cumplimiento SMA'), findsOneWidget);
+    expect(_fieldText(tester, 'Código UF'), '7511');
+    expect(_fieldText(tester, 'Dispositivo SMA'), '12180');
   });
 
   testWidgets('el esquema se elige o se crea para el punto', (tester) async {

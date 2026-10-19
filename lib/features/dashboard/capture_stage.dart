@@ -591,7 +591,10 @@ class _CaptureStageState extends State<CaptureStage>
               if (info != null && info.schemeFields.isNotEmpty)
                 (title: 'Variables del esquema', fields: info.schemeFields),
               if (info?.dga != null && info!.dga!.fields.isNotEmpty)
-                (title: 'Cumplimiento DGA', fields: info.dga!.fields),
+                (
+                  title: 'Cumplimiento ${info.dga!.agency}',
+                  fields: info.dga!.fields,
+                ),
             ];
         return _SceneInfo(
           title: 'Tablero eléctrico con datalogger',

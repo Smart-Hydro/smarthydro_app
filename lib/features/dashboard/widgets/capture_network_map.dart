@@ -1972,14 +1972,8 @@ double captureGridSpan(double width, {int minSteps = 2}) {
 
 /// El punto trae ficha DGA activa. Si no, no se dibuja el ícono.
 @visibleForTesting
-bool captureHasCompliance(Map<String, dynamic> point) {
-  final nested = point['dga'];
-  if (nested is Map) {
-    final info = DgaInfo.tryParse(Map<String, dynamic>.from(nested));
-    if (info != null) return true;
-  }
-  return DgaInfo.tryParse(point) != null;
-}
+bool captureHasCompliance(Map<String, dynamic> point) =>
+    complianceAgencyOf(point) != null;
 
 /// Nivel real de `compliance_warning`, si el punto lo trae.
 @visibleForTesting
@@ -5155,21 +5149,25 @@ class _BoardBriefState extends State<_BoardBrief> {
       widget.point,
       compliance: captureComplianceFor(widget.point, widget.compliance),
     );
+    // Sin cumplimiento no hay chip: se configura desde la ficha del punto.
+    final sections = [
+      for (final section in _configSections)
+        if (section.panel != 'compliance' || agency != null) section,
+    ];
     return SizedBox(
       height: 28,
       child: Row(
         children: [
-          for (var index = 0; index < _configSections.length; index++) ...[
+          for (var index = 0; index < sections.length; index++) ...[
             if (index > 0) const SizedBox(width: 3),
             Expanded(
               child: _SectionChip(
-                key: ValueKey(_configSections[index].token),
-                icon: _configSections[index].icon,
-                label: _configSections[index].panel == 'compliance'
-                    ? agency
-                    : _configSections[index].label,
-                onTap: () =>
-                    widget.onConfigurePanel(_configSections[index].panel),
+                key: ValueKey(sections[index].token),
+                icon: sections[index].icon,
+                label: sections[index].panel == 'compliance'
+                    ? agency!
+                    : sections[index].label,
+                onTap: () => widget.onConfigurePanel(sections[index].panel),
               ),
             ),
           ],

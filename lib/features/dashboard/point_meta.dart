@@ -141,9 +141,11 @@ bool _names(String provider, Set<String> names) {
   return false;
 }
 
-/// Ficha DGA del punto. Solo se arma si el cumplimiento está activo.
+/// Ficha de cumplimiento del punto, DGA o SMA. Nula si el punto no tiene
+/// cumplimiento según la regla del API.
 class DgaInfo {
   const DgaInfo({
+    this.agency = 'DGA',
     this.type,
     this.code,
     this.standard,
@@ -151,14 +153,19 @@ class DgaInfo {
     this.totalGranted,
     this.shac,
     this.region,
+    this.smaDevice,
   });
 
   static DgaInfo? tryParse(Map<String, dynamic> dga) {
     if (dga.isEmpty) return null;
-    final send = dga['send_dga'] == true;
     final code = _str(dga['code_dga'] ?? dga['code']);
-    if (!send && code == null) return null;
+    final agency = complianceAgencyForConfig({
+      'code_dga': code,
+      'sma_device_id': dga['sma_device_id'],
+    });
+    if (agency == null) return null;
     return DgaInfo(
+      agency: agency,
       type: _str(dga['type_dga']),
       code: code,
       standard: _str(dga['standard']),
@@ -166,28 +173,46 @@ class DgaInfo {
       totalGranted: _num(dga['total_granted_dga'] ?? dga['authorized_total']),
       shac: _str(dga['shac']),
       region: _str(dga['region_dga'] ?? dga['region']),
+      smaDevice: _str(dga['sma_device_id']),
     );
   }
 
+  /// `DGA` o `SMA`.
+  final String agency;
   final String? type;
   final String? code;
   final String? standard;
   final double? flowGranted;
+
+  /// En DGA es el volumen anual otorgado. En SMA el API lo usa como ID del
+  /// proceso, no como volumen.
   final double? totalGranted;
   final String? shac;
   final String? region;
+  final String? smaDevice;
 
-  List<({String label, String value})> get fields => [
-    if (type != null) (label: 'Tipo', value: type!),
-    if (code != null) (label: 'Código de obra', value: code!),
-    if (standard != null) (label: 'Estándar', value: standard!),
-    if (flowGranted != null)
-      (label: 'Caudal otorgado', value: '${_fmt(flowGranted!)} L/s'),
-    if (totalGranted != null)
-      (label: 'Total otorgado', value: '${_fmt(totalGranted!)} m³'),
-    if (shac != null) (label: 'SHAC', value: shac!),
-    if (region != null) (label: 'Región', value: region!),
-  ];
+  bool get isSma => agency == 'SMA';
+
+  List<({String label, String value})> get fields => isSma
+      ? [
+          if (code != null) (label: 'Código UF', value: code!),
+          if (smaDevice != null) (label: 'Dispositivo SMA', value: smaDevice!),
+          if (totalGranted != null)
+            (label: 'Proceso SMA', value: totalGranted!.toStringAsFixed(0)),
+          if (flowGranted != null)
+            (label: 'Caudal otorgado', value: '${_fmt(flowGranted!)} L/s'),
+        ]
+      : [
+          if (type != null) (label: 'Tipo', value: type!),
+          if (code != null) (label: 'Código de obra', value: code!),
+          if (standard != null) (label: 'Estándar', value: standard!),
+          if (flowGranted != null)
+            (label: 'Caudal otorgado', value: '${_fmt(flowGranted!)} L/s'),
+          if (totalGranted != null)
+            (label: 'Total otorgado', value: '${_fmt(totalGranted!)} m³'),
+          if (shac != null) (label: 'SHAC', value: shac!),
+          if (region != null) (label: 'Región', value: region!),
+        ];
 
   static String? _str(dynamic v) {
     if (v == null) return null;
@@ -204,8 +229,11 @@ class DgaInfo {
       v >= 100 ? v.toStringAsFixed(0) : v.toStringAsFixed(2);
 }
 
-/// DGA si el punto informa a la DGA. Si no, SMA.
-String complianceAgencyOf(
+/// `DGA`, `SMA` o nulo si el punto no tiene cumplimiento.
+///
+/// Usa `compliance_type` cuando la API lo manda; si no, la misma regla que
+/// `compliance_type_for_config` del API sobre la config del punto.
+String? complianceAgencyOf(
   Map<String, dynamic> point, {
   Map<String, dynamic>? compliance,
 }) {
@@ -217,11 +245,23 @@ String complianceAgencyOf(
   if (types.contains('SMA')) return 'SMA';
   final nested = point['dga'];
   if (nested is Map) {
-    final info = DgaInfo.tryParse(Map<String, dynamic>.from(nested));
-    if (info != null) return 'DGA';
+    final agency = complianceAgencyForConfig(Map<String, dynamic>.from(nested));
+    if (agency != null) return agency;
   }
-  if (DgaInfo.tryParse(point) != null) return 'DGA';
-  return 'SMA';
+  return complianceAgencyForConfig(point);
+}
+
+/// Regla del API: código de obra que empieza con OB es DGA; otro código o un
+/// dispositivo SMA es SMA. Sin código ni dispositivo no hay cumplimiento,
+/// aunque `send_dga` esté encendido.
+String? complianceAgencyForConfig(Map<String, dynamic> config) {
+  final code = '${config['code_dga'] ?? ''}'.trim();
+  if (code.isNotEmpty && code != 'null') {
+    return code.toUpperCase().startsWith('OB') ? 'DGA' : 'SMA';
+  }
+  final device = '${config['sma_device_id'] ?? ''}'.trim();
+  if (device.isNotEmpty && device != 'null') return 'SMA';
+  return null;
 }
 
 Set<String> _agencyTokens(dynamic raw) {

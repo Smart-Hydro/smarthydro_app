@@ -1797,7 +1797,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('la configuración esconde DGA hasta activarlo', (tester) async {
+  testWidgets('sin cumplimiento no hay chip y DGA se elige en la ficha', (
+    tester,
+  ) async {
     _useDesktopSurface(tester);
     await tester.pumpWidget(
       _wideApp(
@@ -1816,7 +1818,11 @@ void main() {
       find.byKey(const ValueKey('capture-config-section-point')),
       findsOneWidget,
     );
-    expect(find.text('SMA'), findsOneWidget);
+    expect(find.text('SMA'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('capture-config-section-compliance')),
+      findsNothing,
+    );
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('capture-board-brief')),

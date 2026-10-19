@@ -13,27 +13,35 @@ void main() {
     expect(vars.hasTotal, isTrue);
   });
 
-  test('sin send_dga ni código no hay ficha DGA', () {
+  test('sin código ni dispositivo no hay ficha de cumplimiento', () {
     expect(DgaInfo.tryParse({'type_dga': 'SUBTERRANEO'}), isNull);
-    expect(
-      DgaInfo.tryParse({
-        'send_dga': true,
-        'code_dga': 'X1',
-        'standard': 'MEDIO',
-      }),
-      isNotNull,
-    );
+    expect(DgaInfo.tryParse({'send_dga': true}), isNull);
+    final dga = DgaInfo.tryParse({
+      'send_dga': true,
+      'code_dga': 'OB-1603-392',
+      'standard': 'MEDIO',
+    });
+    expect(dga?.agency, 'DGA');
+    final sma = DgaInfo.tryParse({'code_dga': '7511', 'sma_device_id': '12'});
+    expect(sma?.agency, 'SMA');
+    expect(sma!.fields.map((f) => f.label), contains('Código UF'));
   });
 
-  test('si no es DGA el punto es SMA', () {
-    expect(complianceAgencyOf({'send_dga': true, 'code_dga': 'X1'}), 'DGA');
+  test('DGA, SMA o sin cumplimiento, con la regla del API', () {
+    expect(
+      complianceAgencyOf({'send_dga': true, 'code_dga': 'OB-1603-392'}),
+      'DGA',
+    );
     expect(
       complianceAgencyOf({
-        'dga': {'send_dga': true, 'code_dga': 'X1'},
+        'dga': {'send_dga': true, 'code_dga': 'ob-12'},
       }),
       'DGA',
     );
-    expect(complianceAgencyOf({'title': 'P6'}), 'SMA');
+    expect(complianceAgencyOf({'code_dga': '7511-123'}), 'SMA');
+    expect(complianceAgencyOf({'sma_device_id': '12180'}), 'SMA');
+    expect(complianceAgencyOf({'title': 'P6'}), isNull);
+    expect(complianceAgencyOf({'send_dga': true}), isNull);
     expect(
       complianceAgencyOf({
         'compliance_type': ['SMA'],
