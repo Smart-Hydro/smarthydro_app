@@ -1996,9 +1996,10 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('el inicio abre en el mapa, sin esquema ni botón para volver', (
+  testWidgets('el inicio abre en el modo guardado y avisa al cambiar', (
     tester,
   ) async {
+    final views = <bool>[];
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -2006,7 +2007,8 @@ void main() {
             width: 420,
             height: 640,
             child: _map(
-              mapOnly: true,
+              startOnMap: true,
+              onViewChanged: views.add,
               locationTiles: _QuietTiles(),
               points: [
                 _point(
@@ -2016,6 +2018,7 @@ void main() {
                   lat: -33.45,
                   lon: -70.66,
                 ),
+                _point(id: 9, title: 'Sin GPS', project: 'Fundo'),
               ],
               onPointSelected: (_) {},
             ),
@@ -2027,7 +2030,6 @@ void main() {
 
     expect(find.byType(CaptureLocationMap), findsOneWidget);
     expect(find.byKey(const ValueKey('capture-node-7')), findsNothing);
-    expect(find.byKey(const ValueKey('capture-location-toggle')), findsNothing);
     expect(find.byKey(const ValueKey('capture-new-point')), findsOneWidget);
     expect(find.byKey(const ValueKey('capture-zoom-in')), findsNothing);
 
@@ -2035,6 +2037,14 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 280));
     expect(find.text('Ver'), findsOneWidget);
+
+    // La red muestra también el punto sin ubicación.
+    await tester.tap(find.byKey(const ValueKey('capture-location-toggle')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 900));
+    expect(find.byType(CaptureLocationMap), findsNothing);
+    expect(find.byKey(const ValueKey('capture-node-9')), findsOneWidget);
+    expect(views, [false]);
     expect(tester.takeException(), isNull);
   });
 
@@ -2045,7 +2055,7 @@ void main() {
     await tester.pumpWidget(
       _wideApp(
         child: _map(
-          mapOnly: true,
+          startOnMap: true,
           locationTiles: _QuietTiles(),
           points: [
             _point(
@@ -2901,10 +2911,12 @@ CaptureNetworkMap _map({
   TileProvider? locationTiles,
   Widget? askBar,
   Widget? seatedWell,
-  bool mapOnly = false,
+  bool startOnMap = false,
+  ValueChanged<bool>? onViewChanged,
 }) {
   return CaptureNetworkMap(
-    mapOnly: mapOnly,
+    startOnMap: startOnMap,
+    onViewChanged: onViewChanged,
     points: points,
     onPointSelected: onPointSelected,
     openTickets: openTickets,

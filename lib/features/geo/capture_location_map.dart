@@ -48,9 +48,38 @@ class CaptureLocationMap extends StatefulWidget {
   State<CaptureLocationMap> createState() => _CaptureLocationMapState();
 }
 
-class _CaptureLocationMapState extends State<CaptureLocationMap> {
+class _CaptureLocationMapState extends State<CaptureLocationMap>
+    with SingleTickerProviderStateMixin {
   final MapController _map = MapController();
   var _ready = false;
+
+  /// La cámara viaja al punto elegido en vez de saltar.
+  late final AnimationController _fly =
+      AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 420),
+      )..addListener(() {
+        final from = _flyFrom;
+        final to = _flyTo;
+        if (from == null || to == null) return;
+        final t = Curves.easeInOutCubic.transform(_fly.value);
+        _map.move(
+          LatLng(
+            from.latitude + (to.latitude - from.latitude) * t,
+            from.longitude + (to.longitude - from.longitude) * t,
+          ),
+          _flyZoom,
+        );
+      });
+  LatLng? _flyFrom;
+  LatLng? _flyTo;
+  var _flyZoom = 0.0;
+
+  @override
+  void dispose() {
+    _fly.dispose();
+    super.dispose();
+  }
 
   List<({Map<String, dynamic> point, LatLng location})> get _located => [
     for (final point in widget.points)
@@ -94,9 +123,17 @@ class _CaptureLocationMapState extends State<CaptureLocationMap> {
 
   void _focus(LatLng location) {
     if (!_ready) return;
-    final zoom = _map.camera.zoom;
+    final camera = _map.camera;
+    final zoom = camera.zoom;
     if (!zoom.isFinite || zoom < 2) return;
-    _map.move(location, zoom);
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _map.move(location, zoom);
+      return;
+    }
+    _flyFrom = camera.center;
+    _flyTo = location;
+    _flyZoom = zoom;
+    _fly.forward(from: 0);
   }
 
   void _focusSelected() {
@@ -291,7 +328,10 @@ class _CaptureMarkers extends StatelessWidget {
       markers: [
         for (final group in groups)
           if (group.length == 1)
-            _loggerMarker(located[group.first])
+            _loggerMarker(
+              located[group.first],
+              motion: !MediaQuery.disableAnimationsOf(context),
+            )
           else
             _clusterMarker(context, camera, [
               for (final index in group) located[index],
@@ -300,19 +340,32 @@ class _CaptureMarkers extends StatelessWidget {
     );
   }
 
-  Marker _loggerMarker(_Located item) {
+  Marker _loggerMarker(_Located item, {required bool motion}) {
     final key = capturePointKey(item.point);
+    final selected = selectedKey != null && key == selectedKey;
+    final mark = CaptureLoggerMark(
+      point: item.point,
+      selected: selected,
+      onTap: onSelect == null ? null : () => onSelect!(item.point),
+      tapKey: ValueKey('capture-location-$key'),
+    );
     return Marker(
       point: item.location,
       width: captureLoggerMarkSize,
       height: captureLoggerMarkSize,
       alignment: Alignment.center,
-      child: CaptureLoggerMark(
-        point: item.point,
-        selected: selectedKey != null && key == selectedKey,
-        onTap: onSelect == null ? null : () => onSelect!(item.point),
-        tapKey: ValueKey('capture-location-$key'),
-      ),
+      // El mismo golpe corto que el nodo de la red al elegirlo.
+      child: !selected || !motion
+          ? mark
+          : TweenAnimationBuilder<double>(
+              key: ValueKey('capture-location-snap-$key'),
+              tween: Tween(begin: 0.8, end: 1),
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutBack,
+              builder: (context, scale, child) =>
+                  Transform.scale(scale: scale, child: child),
+              child: mark,
+            ),
     );
   }
 

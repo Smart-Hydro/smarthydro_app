@@ -9,6 +9,7 @@ import '../../core/api/smarthydro_api.dart';
 import '../../core/brand.dart';
 import '../../core/n1/n1_identity.dart';
 import '../../core/n1/n1_providers.dart';
+import '../../core/prefs/home_view.dart';
 import '../../core/session/session_provider.dart';
 import '../analysis/analysis_screen.dart';
 import '../assistant/assistant_screen.dart';
@@ -424,6 +425,10 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
             ? const _HomeLoading()
             : _DashboardTab(
                 refreshing: _loading,
+                startOnMap: ref.watch(homeViewProvider) == HomeView.map,
+                onViewChanged: (map) => ref
+                    .read(homeViewProvider.notifier)
+                    .set(map ? HomeView.map : HomeView.network),
                 points: _points,
                 openTickets: _openTickets,
                 compliance: _compliance,
@@ -734,6 +739,8 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
 class _DashboardTab extends StatefulWidget {
   const _DashboardTab({
     required this.refreshing,
+    required this.startOnMap,
+    required this.onViewChanged,
     required this.points,
     required this.openTickets,
     required this.compliance,
@@ -751,6 +758,8 @@ class _DashboardTab extends StatefulWidget {
   });
 
   final bool refreshing;
+  final bool startOnMap;
+  final ValueChanged<bool> onViewChanged;
   final List<Map<String, dynamic>> points;
   final List<Map<String, dynamic>> openTickets;
   final List<Map<String, dynamic>> compliance;
@@ -823,7 +832,8 @@ class _DashboardTabState extends State<_DashboardTab> {
         // lateral.
         RepaintBoundary(
           child: CaptureNetworkMap(
-            mapOnly: true,
+            startOnMap: widget.startOnMap,
+            onViewChanged: widget.onViewChanged,
             points: widget.points,
             openTickets: widget.openTickets,
             compliance: widget.compliance,
