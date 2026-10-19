@@ -25,6 +25,9 @@ class _FakeN1Api extends N1Api {
     required String text,
     String? sessionId,
     List<int>? pointsAllowed,
+    String? name,
+    String? client,
+    List<String>? clients,
   }) async {
     askCalls += 1;
     if (pendingAsk != null && askCalls == 1) return pendingAsk!;
@@ -86,6 +89,7 @@ void main() {
       ),
     );
 
+    expect(find.textContaining('Hola Ana'), findsOneWidget);
     expect(find.textContaining('SmartHydro N1'), findsOneWidget);
     expect(find.byType(N1Buddy), findsAtLeastNWidgets(1));
     expect(find.text('N1 · SmartHydro'), findsOneWidget);

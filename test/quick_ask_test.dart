@@ -21,6 +21,9 @@ class _FakeN1Api extends N1Api {
     required String text,
     String? sessionId,
     List<int>? pointsAllowed,
+    String? name,
+    String? client,
+    List<String>? clients,
   }) async {
     return const N1Response(ok: true, text: 'ok');
   }

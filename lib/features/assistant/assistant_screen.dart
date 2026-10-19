@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/api/smarthydro_api.dart';
 import '../../core/brand.dart';
 import '../../core/n1/n1_api.dart';
+import '../../core/n1/n1_identity.dart';
 import '../../core/n1/n1_models.dart';
 import '../../shared/ui/hydro_ui.dart';
 import 'n1_buddy.dart';
@@ -66,6 +67,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
   String get _token => widget.session.token;
   String get _email => widget.session.email.trim().toLowerCase();
+  String get _who => widget.session.fullName;
+  List<String> get _clients => n1ClientNamesOf(widget.points);
   List<int> get _pointIds => widget.points
       .map((p) => p['id'])
       .map((id) => id is int ? id : int.tryParse('$id'))
@@ -80,7 +83,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
       _ChatMessage(
         role: _ChatRole.system,
         text: widget.n1Api.isConfigured
-            ? 'Soy SmartHydro N1. Pregúntame por el estado de un punto, pide un reporte, lista archivos o crea un ticket.'
+            ? (_who.isEmpty
+                  ? 'Soy SmartHydro N1. Ya veo tu sesión y tus puntos. Pregúntame por el estado, un reporte, archivos o un ticket.'
+                  : 'Hola $_who. Soy SmartHydro N1. Ya sé quién eres y tus puntos; no hace falta presentarte. Pregúntame por el estado, un reporte, archivos o un ticket.')
             : 'N1 no está configurado. Compila con --dart-define=N1_WEB_APP_URL=<url /exec de la Web App>.',
       ),
     );
@@ -141,6 +146,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
         text: text,
         sessionId: _sessionId,
         pointsAllowed: _pointIds.isEmpty ? null : _pointIds,
+        name: _who,
+        clients: _clients,
       );
       _applyResult(pendingBubble, result);
     } on N1ApiException catch (error) {
@@ -400,6 +407,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
           text: '${payload['text'] ?? ''}',
           sessionId: _sessionId,
           pointsAllowed: _pointIds.isEmpty ? null : _pointIds,
+          name: _who,
+          clients: _clients,
         );
       } else if (op == 'report') {
         result = await widget.n1Api.report(
@@ -523,115 +532,115 @@ class _AssistantScreenState extends State<AssistantScreen> {
         ),
       ),
       body: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    _ActionChip(
-                      label: 'Pedir reporte',
-                      icon: Icons.description_outlined,
-                      enabled: canSend,
-                      onTap: _promptReport,
-                    ),
-                    const SizedBox(width: 8),
-                    _ActionChip(
-                      label: 'Listar archivos',
-                      icon: Icons.folder_outlined,
-                      enabled: canSend,
-                      onTap: _listFiles,
-                    ),
-                    const SizedBox(width: 8),
-                    _ActionChip(
-                      label: 'Crear ticket',
-                      icon: Icons.confirmation_number_outlined,
-                      enabled: canSend,
-                      onTap: _createTicketFlow,
-                    ),
-                  ],
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _ActionChip(
+                    label: 'Pedir reporte',
+                    icon: Icons.description_outlined,
+                    enabled: canSend,
+                    onTap: _promptReport,
+                  ),
+                  const SizedBox(width: 8),
+                  _ActionChip(
+                    label: 'Listar archivos',
+                    icon: Icons.folder_outlined,
+                    enabled: canSend,
+                    onTap: _listFiles,
+                  ),
+                  const SizedBox(width: 8),
+                  _ActionChip(
+                    label: 'Crear ticket',
+                    icon: Icons.confirmation_number_outlined,
+                    enabled: canSend,
+                    onTap: _createTicketFlow,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              controller: _scroll,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              itemCount: _messages.length,
+              itemBuilder: (context, index) {
+                final msg = _messages[index];
+                return _ChatBubble(
+                  message: msg,
+                  mood: _mood,
+                  onOpenUrl: _openUrl,
+                  onRequery: msg.pending && msg.requeryOp != null
+                      ? () => _requery(msg)
+                      : null,
+                );
+              },
+            ),
+          ),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: const Color(0xCC0E1A1E),
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.08),
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(6, 4, 4, 4),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _controller,
+                          enabled: canSend,
+                          minLines: 1,
+                          maxLines: 4,
+                          textInputAction: TextInputAction.send,
+                          onSubmitted: (_) => _sendAsk(),
+                          style: const TextStyle(color: Color(0xFFE8F2F1)),
+                          decoration: const InputDecoration(
+                            hintText: 'Pregunta a N1…',
+                            hintStyle: TextStyle(color: Color(0xFF7E9496)),
+                            border: InputBorder.none,
+                            contentPadding: EdgeInsets.fromLTRB(12, 10, 8, 10),
+                          ),
+                        ),
+                      ),
+                      IconButton.filled(
+                        tooltip: 'Enviar',
+                        style: IconButton.styleFrom(
+                          backgroundColor: IkoluColors.cyan,
+                          foregroundColor: const Color(0xFF062028),
+                          disabledBackgroundColor: const Color(0xFF1A3338),
+                        ),
+                        onPressed: canSend ? () => _sendAsk() : null,
+                        icon: _busy
+                            ? const SizedBox.square(
+                                dimension: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Color(0xFF062028),
+                                ),
+                              )
+                            : const Icon(Icons.send_rounded),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-            Expanded(
-              child: ListView.builder(
-                controller: _scroll,
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                itemCount: _messages.length,
-                itemBuilder: (context, index) {
-                  final msg = _messages[index];
-                  return _ChatBubble(
-                    message: msg,
-                    mood: _mood,
-                    onOpenUrl: _openUrl,
-                    onRequery: msg.pending && msg.requeryOp != null
-                        ? () => _requery(msg)
-                        : null,
-                  );
-                },
-              ),
-            ),
-            SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: const Color(0xCC0E1A1E),
-                    borderRadius: BorderRadius.circular(22),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.08),
-                    ),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(6, 4, 4, 4),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _controller,
-                            enabled: canSend,
-                            minLines: 1,
-                            maxLines: 4,
-                            textInputAction: TextInputAction.send,
-                            onSubmitted: (_) => _sendAsk(),
-                            style: const TextStyle(color: Color(0xFFE8F2F1)),
-                            decoration: const InputDecoration(
-                              hintText: 'Pregunta a N1…',
-                              hintStyle: TextStyle(color: Color(0xFF7E9496)),
-                              border: InputBorder.none,
-                              contentPadding: EdgeInsets.fromLTRB(12, 10, 8, 10),
-                            ),
-                          ),
-                        ),
-                        IconButton.filled(
-                          tooltip: 'Enviar',
-                          style: IconButton.styleFrom(
-                            backgroundColor: IkoluColors.cyan,
-                            foregroundColor: const Color(0xFF062028),
-                            disabledBackgroundColor: const Color(0xFF1A3338),
-                          ),
-                          onPressed: canSend ? () => _sendAsk() : null,
-                          icon: _busy
-                              ? const SizedBox.square(
-                                  dimension: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Color(0xFF062028),
-                                  ),
-                                )
-                              : const Icon(Icons.send_rounded),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -652,9 +661,7 @@ class _ActionChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: enabled
-          ? const Color(0x2212D4C8)
-          : const Color(0x14FFFFFF),
+      color: enabled ? const Color(0x2212D4C8) : const Color(0x14FFFFFF),
       borderRadius: BorderRadius.circular(18),
       child: InkWell(
         onTap: enabled ? onTap : null,
@@ -667,9 +674,7 @@ class _ActionChip extends StatelessWidget {
               Icon(
                 icon,
                 size: 16,
-                color: enabled
-                    ? IkoluColors.cyanSoft
-                    : const Color(0xFF7E9496),
+                color: enabled ? IkoluColors.cyanSoft : const Color(0xFF7E9496),
               ),
               const SizedBox(width: 6),
               Text(

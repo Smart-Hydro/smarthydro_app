@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/smarthydro_api.dart';
 import '../../core/brand.dart';
+import '../../core/n1/n1_identity.dart';
 import '../../core/n1/n1_providers.dart';
 import '../../core/session/session_provider.dart';
 import '../analysis/analysis_screen.dart';
@@ -331,6 +332,8 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
                           n1Api: ref.read(n1ApiProvider),
                           token: widget.session.token,
                           email: widget.session.email,
+                          name: widget.session.fullName,
+                          clients: n1ClientNamesOf(_points),
                           pointIds: _pointIds(_points),
                         ),
                       ),
@@ -389,6 +392,8 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
                   n1Api: ref.read(n1ApiProvider),
                   token: widget.session.token,
                   email: widget.session.email,
+                  name: widget.session.fullName,
+                  clients: n1ClientNamesOf(_points),
                   pointIds: _pointIds(_points),
                 ),
                 onRefresh: _loadDashboard,
@@ -2968,9 +2973,7 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
           _closePalette();
           if (created && mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Solicitud creada correctamente.'),
-              ),
+              const SnackBar(content: Text('Solicitud creada correctamente.')),
             );
           }
         },
@@ -2984,8 +2987,7 @@ class _PointDetailScreenState extends State<PointDetailScreen> {
   void _openComplianceForPoint() =>
       setState(() => _palette = _WellPalette.compliance);
 
-  void _openSystemForPoint() =>
-      setState(() => _palette = _WellPalette.system);
+  void _openSystemForPoint() => setState(() => _palette = _WellPalette.system);
 
   void _openReportsForPoint() =>
       setState(() => _palette = _WellPalette.reports);
@@ -3306,12 +3308,8 @@ class _ReplayPill extends StatelessWidget {
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: [
-                              accent.withValues(
-                                alpha: playing ? 0.48 : 0.32,
-                              ),
-                              accent.withValues(
-                                alpha: playing ? 0.22 : 0.14,
-                              ),
+                              accent.withValues(alpha: playing ? 0.48 : 0.32),
+                              accent.withValues(alpha: playing ? 0.22 : 0.14),
                             ],
                           ),
                         ),
@@ -3346,9 +3344,7 @@ class _ReplayPill extends StatelessWidget {
                                 : Icons.play_arrow_rounded,
                             key: ValueKey(playing),
                             size: 20,
-                            color: accent.withValues(
-                              alpha: enabled ? 1 : 0.4,
-                            ),
+                            color: accent.withValues(alpha: enabled ? 1 : 0.4),
                           ),
                         ),
                         const SizedBox(width: 6),

@@ -13,6 +13,8 @@ class QuickAsk extends StatefulWidget {
     required this.token,
     required this.email,
     required this.pointIds,
+    this.name = '',
+    this.clients = const [],
     this.peek = false,
     super.key,
   });
@@ -21,6 +23,8 @@ class QuickAsk extends StatefulWidget {
   final String token;
   final String email;
   final List<int> pointIds;
+  final String name;
+  final List<String> clients;
 
   /// Botón del buddy que abre el campo. En el inicio va en falso y se ve la barra.
   final bool peek;
@@ -88,6 +92,8 @@ class _QuickAskState extends State<QuickAsk> {
         text: text,
         sessionId: _sessionId,
         pointsAllowed: widget.pointIds.isEmpty ? null : widget.pointIds,
+        name: widget.name,
+        clients: widget.clients,
       );
       if (!mounted) return;
       final reply = result.text.trim();

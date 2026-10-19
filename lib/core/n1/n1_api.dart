@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'n1_config.dart';
+import 'n1_identity.dart';
 import 'n1_models.dart';
 
 /// Cliente HTTP del puente N1 App API (opción B: Token SmartHydro del usuario).
@@ -107,12 +108,25 @@ class N1Api {
     required String text,
     String? sessionId,
     List<int>? pointsAllowed,
+    String? name,
+    String? client,
+    List<String>? clients,
   }) {
+    final who = (name ?? '').trim();
+    final scope = <String>[
+      if (client != null && client.trim().isNotEmpty) client.trim(),
+      ...?clients?.map((c) => c.trim()).where((c) => c.isNotEmpty),
+    ];
+    final sent = n1DecorateAskText(text, name: who, clients: scope);
     final body = <String, dynamic>{
       'op': 'ask',
-      'text': text.trim(),
+      'text': sent,
       if (sessionId != null && sessionId.isNotEmpty) 'session_id': sessionId,
       'points_allowed': ?pointsAllowed,
+      if (who.isNotEmpty) 'name': who,
+      if (who.isNotEmpty) 'first_name': who.split(RegExp(r'\s+')).first,
+      if (scope.isNotEmpty) 'client': scope.first,
+      if (scope.length > 1) 'clients': scope,
     };
     return _post(token: token, requester: requester, body: body);
   }
@@ -231,10 +245,7 @@ class N1Api {
       options: Options(
         headers: _embedTokenInBody
             ? const <String, dynamic>{}
-            : {
-                'Accept': 'application/json',
-                'Authorization': 'Token $token',
-              },
+            : {'Accept': 'application/json', 'Authorization': 'Token $token'},
         contentType: _embedTokenInBody
             ? 'text/plain;charset=utf-8'
             : Headers.jsonContentType,

@@ -14,6 +14,14 @@ class SmartHydroSession {
     return (user['email'] as String? ?? 'Usuario SmartHydro').trim();
   }
 
+  String get fullName {
+    final first = (user['first_name'] as String? ?? '').trim();
+    final last = (user['last_name'] as String? ?? '').trim();
+    final both = '$first $last'.trim();
+    if (both.isNotEmpty) return both;
+    return displayName;
+  }
+
   String get email => user['email'] as String? ?? '';
 }
 

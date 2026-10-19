@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:smarthydro_app/core/n1/n1_api.dart';
 import 'package:smarthydro_app/core/n1/n1_config.dart';
+import 'package:smarthydro_app/core/n1/n1_identity.dart';
 import 'package:smarthydro_app/core/n1/n1_models.dart';
 
 class _Adapter implements HttpClientAdapter {
@@ -57,6 +58,39 @@ void main() {
       expect(
         N1Config.fromEnvironment().webAppUrl,
         N1Config.defaultProdWebAppUrl,
+      );
+    });
+  });
+
+  group('N1Identity', () {
+    test('n1DecorateAskText agrega cliente y nombre si faltan', () {
+      expect(
+        n1DecorateAskText(
+          'cómo están mis puntos',
+          name: 'Constanza Hidd',
+          clients: const ['Iansa'],
+        ),
+        'cómo están mis puntos (cliente Iansa; soy Constanza Hidd)',
+      );
+      expect(
+        n1DecorateAskText(
+          'estado Iansa P4',
+          name: 'Ana',
+          clients: const ['Iansa'],
+        ),
+        'estado Iansa P4 (soy Ana)',
+      );
+      expect(n1DecorateAskText('hola'), 'hola');
+    });
+
+    test('n1ClientNamesOf deduplica client_name', () {
+      expect(
+        n1ClientNamesOf([
+          {'client_name': 'Iansa'},
+          {'client_name': 'iansa'},
+          {'client': 'Dole'},
+        ]),
+        ['Iansa', 'Dole'],
       );
     });
   });
@@ -169,6 +203,33 @@ void main() {
       expect(body['points_allowed'], [4]);
     });
 
+    test(
+      'ask manda nombre y cliente para que N1 no pregunte quién es',
+      () async {
+        late Map<String, dynamic> body;
+        dio.httpClientAdapter = _Adapter((options) async {
+          body = options.data as Map<String, dynamic>;
+          return _json({'ok': true, 'text': 'ok'});
+        });
+
+        await api.ask(
+          token: 'tok-123',
+          requester: 'constanza.hidd@iansa.cl',
+          text: 'cómo están mis puntos',
+          name: 'Constanza Hidd',
+          clients: const ['Iansa'],
+        );
+
+        expect(body['name'], 'Constanza Hidd');
+        expect(body['first_name'], 'Constanza');
+        expect(body['client'], 'Iansa');
+        expect(
+          body['text'],
+          'cómo están mis puntos (cliente Iansa; soy Constanza Hidd)',
+        );
+      },
+    );
+
     test('report pending marca isPending', () async {
       dio.httpClientAdapter = _Adapter((options) async {
         return _json({
@@ -260,15 +321,17 @@ void main() {
 
     test('en web el token va en el cuerpo, sin Authorization', () async {
       late RequestOptions seen;
-      final dio = Dio(
-        BaseOptions(
-          connectTimeout: const Duration(seconds: 20),
-          headers: const {'Accept': 'application/json'},
-        ),
-      )..httpClientAdapter = _Adapter((options) async {
-          seen = options;
-          return _json({'ok': true, 'text': 'ok', 'via': 'token'});
-        });
+      final dio =
+          Dio(
+              BaseOptions(
+                connectTimeout: const Duration(seconds: 20),
+                headers: const {'Accept': 'application/json'},
+              ),
+            )
+            ..httpClientAdapter = _Adapter((options) async {
+              seen = options;
+              return _json({'ok': true, 'text': 'ok', 'via': 'token'});
+            });
       final api = N1Api(
         config: const N1Config(
           webAppUrl: 'https://script.google.com/macros/s/test/exec',
