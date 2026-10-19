@@ -50,3 +50,6 @@ app.*.map.json
 # Local git worktrees
 .worktrees/
 
+# Notas locales de agentes
+.superpowers/
+
