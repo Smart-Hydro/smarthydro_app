@@ -46,6 +46,10 @@ double _mercatorY(double latitude) {
 }
 
 /// Coordenada del punto. Cero o ausente no cuenta como GPS.
+///
+/// Igual que el observatorio (`_resolve_coords` del API): si el par no es
+/// geográfico pero parece UTM (`lat` = norte, `lon` = este) se convierte
+/// desde la zona 19S.
 LatLng? captureLatLng(Map<String, dynamic> point) {
   final lat =
       _coordinate(point['lat']) ??
@@ -58,8 +62,77 @@ LatLng? captureLatLng(Map<String, dynamic> point) {
       _nestedCoordinate(point, 'lon') ??
       _nestedCoordinate(point, 'lng');
   if (lat == null || lon == null || lat == 0 || lon == 0) return null;
-  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
-  return LatLng(lat, lon);
+  if (!lat.isFinite || !lon.isFinite) return null;
+  if (lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+    return LatLng(lat, lon);
+  }
+  final northing = lat;
+  final easting = lon;
+  if (northing < 0 || northing > 10000000) return null;
+  if (easting < 100000 || easting > 900000) return null;
+  final converted = utmToLatLng(easting, northing);
+  if (converted.latitude.abs() > 90 || converted.longitude.abs() > 180) {
+    return null;
+  }
+  return converted;
+}
+
+/// UTM WGS84 a lat/lon decimal. Por defecto zona 19S (Chile central).
+/// Serie estándar del USGS, la misma fórmula que usa el API.
+LatLng utmToLatLng(
+  double easting,
+  double northing, {
+  int zone = 19,
+  bool southern = true,
+}) {
+  const a = 6378137.0;
+  const f = 1 / 298.257223563;
+  const e2 = f * (2 - f);
+  const k0 = 0.9996;
+  const ep2 = e2 / (1 - e2);
+  final e1 = (1 - math.sqrt(1 - e2)) / (1 + math.sqrt(1 - e2));
+  final x = easting - 500000.0;
+  final y = northing - (southern ? 10000000.0 : 0.0);
+  final lon0 = (zone * 6 - 183) * math.pi / 180;
+  final m = y / k0;
+  final mu = m / (a * (1 - e2 / 4 - 3 * e2 * e2 / 64 - 5 * e2 * e2 * e2 / 256));
+  final phi1 =
+      mu +
+      (3 * e1 / 2 - 27 * math.pow(e1, 3) / 32) * math.sin(2 * mu) +
+      (21 * e1 * e1 / 16 - 55 * math.pow(e1, 4) / 32) * math.sin(4 * mu) +
+      (151 * math.pow(e1, 3) / 96) * math.sin(6 * mu);
+  final sin1 = math.sin(phi1);
+  final cos1 = math.cos(phi1);
+  final tan1 = math.tan(phi1);
+  final n1 = a / math.sqrt(1 - e2 * sin1 * sin1);
+  final t1 = tan1 * tan1;
+  final c1 = ep2 * cos1 * cos1;
+  final r1 = a * (1 - e2) / math.pow(1 - e2 * sin1 * sin1, 1.5);
+  final d = x / (n1 * k0);
+  final lat =
+      phi1 -
+      (n1 * tan1 / r1) *
+          (d * d / 2 -
+              (5 + 3 * t1 + 10 * c1 - 4 * c1 * c1 - 9 * ep2) *
+                  math.pow(d, 4) /
+                  24 +
+              (61 +
+                      90 * t1 +
+                      298 * c1 +
+                      45 * t1 * t1 -
+                      252 * ep2 -
+                      3 * c1 * c1) *
+                  math.pow(d, 6) /
+                  720);
+  final lon =
+      lon0 +
+      (d -
+              (1 + 2 * t1 + c1) * math.pow(d, 3) / 6 +
+              (5 - 2 * c1 + 28 * t1 - 3 * c1 * c1 + 8 * ep2 + 24 * t1 * t1) *
+                  math.pow(d, 5) /
+                  120) /
+          cos1;
+  return LatLng(lat * 180 / math.pi, lon * 180 / math.pi);
 }
 
 /// Clave estable para marcar el punto elegido en el mapa.

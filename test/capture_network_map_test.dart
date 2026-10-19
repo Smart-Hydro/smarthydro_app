@@ -42,6 +42,14 @@ void main() {
     expect(captureLatLng({'title': 'Pozo'}), isNull);
   });
 
+  test('UTM 19S se convierte como en el observatorio', () {
+    // Plaza de Armas de Santiago guardada como norte/este.
+    final plaza = captureLatLng({'lat': '6298836', 'lon': '346454'})!;
+    expect(plaza.latitude, closeTo(-33.4378, 0.003));
+    expect(plaza.longitude, closeTo(-70.6504, 0.003));
+    expect(captureLatLng({'lat': 6298836, 'lon': 50}), isNull);
+  });
+
   test('layoutPointWindows con 0 no emite rects', () {
     expect(layoutPointWindows(area: const Size(1200, 800), count: 0), isEmpty);
   });
