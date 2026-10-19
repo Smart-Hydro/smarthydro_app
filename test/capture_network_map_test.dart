@@ -8,6 +8,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 import 'package:smarthydro_app/features/dashboard/point_link.dart';
+import 'package:smarthydro_app/features/dashboard/widgets/capture_logger_plate.dart';
 import 'package:smarthydro_app/features/dashboard/widgets/capture_network_map.dart';
 import 'package:smarthydro_app/features/geo/capture_location_map.dart';
 
@@ -2114,6 +2115,20 @@ void main() {
 
     await pump(false);
     expect(pulses(), findsOneWidget);
+    // La onda nace en la luz de la antena, arriba al centro del logger.
+    final painter = tester.widget<CustomPaint>(pulses()).painter as dynamic;
+    final spot = (painter.spots as List<Offset>).single;
+    final mark = tester.getCenter(
+      find.byKey(const ValueKey('capture-location-7')),
+    );
+    expect(spot.dx, closeTo(mark.dx, 0.5));
+    expect(
+      spot.dy,
+      closeTo(
+        mark.dy - captureLoggerMarkSize / 2 + captureLoggerAntennaTipY,
+        0.5,
+      ),
+    );
     await pump(true);
     expect(pulses(), findsNothing);
   });
@@ -2159,7 +2174,7 @@ void main() {
     expect(find.byKey(const ValueKey('capture-location-7')), findsOneWidget);
   });
 
-  testWidgets('puntos cercanos se agrupan y al tocar se separan', (
+  testWidgets('sin agrupación los puntos cercanos quedan sueltos', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -2194,6 +2209,48 @@ void main() {
     );
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('capture-location-toggle')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('2'), findsNothing);
+    expect(find.byKey(const ValueKey('capture-location-7')), findsOneWidget);
+    expect(find.byKey(const ValueKey('capture-location-8')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('con agrupación los cercanos se juntan y al tocar se separan', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 420,
+            height: 640,
+            child: CaptureLocationMap(
+              cluster: true,
+              tileProvider: _QuietTiles(),
+              points: [
+                _point(
+                  id: 7,
+                  title: 'Pozo Norte',
+                  project: 'Fundo',
+                  lat: -33.450,
+                  lon: -70.660,
+                ),
+                _point(
+                  id: 8,
+                  title: 'Pozo Vecino',
+                  project: 'Fundo',
+                  lat: -33.451,
+                  lon: -70.661,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
     await tester.pump();
     await tester.pump();
 

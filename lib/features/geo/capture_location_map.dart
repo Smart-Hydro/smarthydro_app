@@ -23,8 +23,13 @@ class CaptureLocationMap extends StatefulWidget {
     this.tileProvider,
     this.fitPadding,
     this.publicPoints = const [],
+    this.cluster = false,
     super.key,
   });
+
+  /// Junta los puntos cercanos (80 px). Apagado por ahora: cada punto va
+  /// suelto con su logger.
+  final bool cluster;
 
   /// Aire del encuadre inicial. De borde a borde, el inicio deja libres el
   /// título, el rail y la barra de abajo.
@@ -219,12 +224,15 @@ class _CaptureLocationMapState extends State<CaptureLocationMap>
               selectedKey: widget.selectedKey,
               burst: widget.locateTick,
             ),
-            _ActivePulse(located: located),
             _CaptureMarkers(
+              cluster: widget.cluster,
               located: located,
               selectedKey: widget.selectedKey,
               onSelect: widget.onSelect,
             ),
+            // Encima del logger: la luz que late tapa la luz fija de la
+            // antena. No recibe toques.
+            _ActivePulse(located: located, cluster: widget.cluster),
             if (missing > 0)
               Align(
                 alignment: Alignment.topLeft,
@@ -303,13 +311,26 @@ class _WaterOnPoint extends StatelessWidget {
 
 const _waterSize = 220.0;
 
-/// Anillo que late bajo cada punto conectado, para verlos de un vistazo.
-/// Si el punto quedó dentro de un grupo, late el grupo. Es una sola capa
-/// de canvas: no hay un widget animado por punto.
+/// Onda que sale de la luz de la antena de cada punto conectado, para verlos
+/// de un vistazo. Si el punto quedó dentro de un grupo, late la antena del
+/// grupo. Es una sola capa de canvas: no hay un widget animado por punto.
 class _ActivePulse extends StatefulWidget {
-  const _ActivePulse({required this.located});
+  const _ActivePulse({required this.located, required this.cluster});
 
   final List<_Located> located;
+  final bool cluster;
+
+  /// Luz de la antena respecto del centro del dibujo del logger.
+  static const _tip = Offset(
+    0,
+    captureLoggerAntennaTipY - captureLoggerMarkSize / 2,
+  );
+
+  /// En el grupo el logger va a la izquierda del número.
+  static const _clusterTip = Offset(
+    captureLoggerMarkSize / 2 - _clusterWidth / 2,
+    captureLoggerAntennaTipY - captureLoggerMarkSize / 2,
+  );
 
   @override
   State<_ActivePulse> createState() => _ActivePulseState();
@@ -348,7 +369,9 @@ class _ActivePulseState extends State<_ActivePulse>
         camera.latLngToScreenOffset(item.location),
     ];
     final separate =
-        camera.zoom >= captureClusterSeparateZoom || !_cameraSized(camera);
+        !widget.cluster ||
+        camera.zoom >= captureClusterSeparateZoom ||
+        !_cameraSized(camera);
     final groups = separate
         ? [
             for (var index = 0; index < screen.length; index++) [index],
@@ -361,7 +384,10 @@ class _ActivePulseState extends State<_ActivePulse>
               pointLinkOf(widget.located[index].point) == PointLink.connected,
         ))
           group.map((index) => screen[index]).reduce((a, b) => a + b) /
-              group.length.toDouble(),
+                  group.length.toDouble() +
+              (group.length == 1
+                  ? _ActivePulse._tip
+                  : _ActivePulse._clusterTip),
     ];
     if (spots.isEmpty) return const SizedBox.shrink();
     return IgnorePointer(
@@ -387,20 +413,27 @@ class _PulsePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Dos ondas desfasadas: siempre hay una visible.
+    // Dos ondas desfasadas: siempre hay una visible. Nacen del tamaño de la
+    // luz (~2 px) y se abren poco, para no tapar el dibujo del logger.
     for (final phase in const [0.0, 0.5]) {
       final t = (beat.value + phase) % 1;
-      final radius = 9 + 19 * Curves.easeOutCubic.transform(t);
-      final alpha = (1 - t) * 0.7;
+      final radius = 2.5 + 11 * Curves.easeOutCubic.transform(t);
+      final alpha = (1 - t) * 0.85;
       final ring = Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 2
+        ..strokeWidth = 1.6
         ..color = _color.withValues(alpha: alpha);
-      final glow = Paint()..color = _color.withValues(alpha: alpha * 0.18);
+      final glow = Paint()..color = _color.withValues(alpha: alpha * 0.22);
       for (final spot in spots) {
         canvas.drawCircle(spot, radius, glow);
         canvas.drawCircle(spot, radius, ring);
       }
+    }
+    // La luz misma brilla al ritmo de la onda.
+    final light = 0.55 + 0.45 * math.sin(beat.value * 2 * math.pi * 2).abs();
+    final core = Paint()..color = _color.withValues(alpha: light);
+    for (final spot in spots) {
+      canvas.drawCircle(spot, 2.4, core);
     }
   }
 
@@ -411,11 +444,13 @@ class _PulsePainter extends CustomPainter {
 
 class _CaptureMarkers extends StatelessWidget {
   const _CaptureMarkers({
+    required this.cluster,
     required this.located,
     required this.selectedKey,
     required this.onSelect,
   });
 
+  final bool cluster;
   final List<_Located> located;
   final String? selectedKey;
   final ValueChanged<Map<String, dynamic>>? onSelect;
@@ -424,7 +459,9 @@ class _CaptureMarkers extends StatelessWidget {
   Widget build(BuildContext context) {
     final camera = MapCamera.of(context);
     final separate =
-        camera.zoom >= captureClusterSeparateZoom || !_cameraSized(camera);
+        !cluster ||
+        camera.zoom >= captureClusterSeparateZoom ||
+        !_cameraSized(camera);
     final groups = separate
         ? [
             for (var index = 0; index < located.length; index++) [index],

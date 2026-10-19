@@ -164,6 +164,9 @@ const captureLoggerPlateHeight = 32.0;
 /// Dibujo del logger, sin marco. Es la marca del punto en el mapa.
 const captureLoggerMarkSize = 28.0;
 
+/// Altura de la luz de la antena desde el borde superior del dibujo.
+const captureLoggerAntennaTipY = 3.2;
+
 /// El mismo logger de la placa, solo el dibujo. La ficha lo usa igual.
 class CaptureLoggerGlyph extends StatelessWidget {
   const CaptureLoggerGlyph({
@@ -375,7 +378,7 @@ class _BeaconPainter extends CustomPainter {
       );
       _antenna(
         canvas,
-        Offset(size.width / 2, 3.2),
+        Offset(size.width / 2, captureLoggerAntennaTipY),
         cell.top,
         tipColor,
         glow,
@@ -394,7 +397,7 @@ class _BeaconPainter extends CustomPainter {
     );
     canvas.drawRRect(housing, Paint()..color = const Color(0xFF1A282E));
     canvas.drawRRect(housing, stroke);
-    final tip = Offset(mouth.dx, 3.2);
+    final tip = Offset(mouth.dx, captureLoggerAntennaTipY);
     _antenna(
       canvas,
       tip,
