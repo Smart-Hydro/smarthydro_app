@@ -41,7 +41,7 @@ class _HydroEntranceState extends State<HydroEntrance> {
 
   @override
   Widget build(BuildContext context) {
-    final reduceMotion = MediaQuery.of(context).disableAnimations;
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final shown = reduceMotion || _visible;
     final duration = reduceMotion ? Duration.zero : widget.duration;
     return AnimatedOpacity(

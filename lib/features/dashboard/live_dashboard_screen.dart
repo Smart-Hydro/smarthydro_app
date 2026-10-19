@@ -308,7 +308,7 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 980;
-    final reduceMotion = MediaQuery.of(context).disableAnimations;
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final unreadCount = _ticketNotifications['unread_count'] as int? ?? 0;
     final tool = wide ? _shellTool : null;
     final page = tool == null ? _buildSelectedPage() : _shellToolPage(tool);
@@ -814,22 +814,26 @@ class _DashboardTabState extends State<_DashboardTab> {
       children: [
         // El painter del mapa pinta TODO el rect; solo el contenido
         // (puntos/tags) respeta safe top + bottom nav + rail desktop.
-        CaptureNetworkMap(
-          points: widget.points,
-          openTickets: widget.openTickets,
-          compliance: widget.compliance,
-          onPointSelected: widget.onSelectPoint,
-          onRequestSupport: widget.onRequestSupport,
-          askBar: widget.askBar,
-          token: widget.token,
-          userId: widget.userId,
-          onConfigured: widget.onConfigured,
-          seatedWell: wide ? widget.networkWell : null,
-          topInset: topSafe + 8,
-          leftInset: wide ? liquidNavRailExtent : 0,
-          bottomInset: widget.bottomInset + (toSummary == null ? 0 : 56),
-          // La ficha abierta queda 10 px sobre Resumen. En ancho no hay chip.
-          openBottomClearance: toSummary == null ? 8 : resumen.cardClearance,
+        // El mapa late siempre: su RepaintBoundary deja quietos el rail y el
+        // panel lateral.
+        RepaintBoundary(
+          child: CaptureNetworkMap(
+            points: widget.points,
+            openTickets: widget.openTickets,
+            compliance: widget.compliance,
+            onPointSelected: widget.onSelectPoint,
+            onRequestSupport: widget.onRequestSupport,
+            askBar: widget.askBar,
+            token: widget.token,
+            userId: widget.userId,
+            onConfigured: widget.onConfigured,
+            seatedWell: wide ? widget.networkWell : null,
+            topInset: topSafe + 8,
+            leftInset: wide ? liquidNavRailExtent : 0,
+            bottomInset: widget.bottomInset + (toSummary == null ? 0 : 56),
+            // La ficha abierta queda 10 px sobre Resumen. En ancho no hay chip.
+            openBottomClearance: toSummary == null ? 8 : resumen.cardClearance,
+          ),
         ),
         // Solo móvil: franja peek del resumen. Web usa el panel lateral.
         if (toSummary != null)

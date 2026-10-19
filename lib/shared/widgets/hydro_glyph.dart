@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
@@ -42,12 +43,17 @@ class HydroGlyph extends StatefulWidget {
   State<HydroGlyph> createState() => _HydroGlyphState();
 }
 
+/// El reloj no reconstruye el widget: solo repinta el [RepaintBoundary] del
+/// glifo. Hay ~15 a la vez (rail, Apps, N1) y el movimiento es lento, así que
+/// ~30 fps basta.
 class _HydroGlyphState extends State<HydroGlyph>
     with SingleTickerProviderStateMixin {
+  static const _frame = 1 / 30;
+
   Ticker? _ticker;
 
   /// Segundos acumulados (nunca vuelve a 0) → líquido continuo.
-  double _seconds = 0;
+  final _seconds = ValueNotifier<double>(0);
   bool _reduce = false;
 
   @override
@@ -59,19 +65,20 @@ class _HydroGlyphState extends State<HydroGlyph>
     _ticker?.dispose();
     _ticker = null;
     if (reduce) {
-      _seconds = 1.2;
+      _seconds.value = 1.2;
       return;
     }
     _ticker = createTicker((elapsed) {
       final next = elapsed.inMicroseconds / 1e6;
-      if ((next - _seconds).abs() < 0.008) return;
-      setState(() => _seconds = next);
+      if (next - _seconds.value < _frame) return;
+      _seconds.value = next;
     })..start();
   }
 
   @override
   void dispose() {
     _ticker?.dispose();
+    _seconds.dispose();
     super.dispose();
   }
 
@@ -82,11 +89,13 @@ class _HydroGlyphState extends State<HydroGlyph>
       key: ValueKey(keyName),
       width: widget.size,
       height: widget.size,
-      child: CustomPaint(
-        painter: HydroGlyphPainter(
-          kind: widget.kind,
-          color: widget.color,
-          seconds: _seconds,
+      child: RepaintBoundary(
+        child: CustomPaint(
+          painter: HydroGlyphPainter(
+            kind: widget.kind,
+            color: widget.color,
+            clock: _seconds,
+          ),
         ),
       ),
     );
@@ -97,17 +106,18 @@ class HydroGlyphPainter extends CustomPainter {
   HydroGlyphPainter({
     required this.kind,
     required this.color,
-    required this.seconds,
-  });
+    required this.clock,
+  }) : super(repaint: clock);
 
   final HydroGlyphKind kind;
   final Color color;
 
   /// Tiempo continuo en segundos (sin wrap 0→1).
-  final double seconds;
+  final ValueListenable<double> clock;
 
   @override
   void paint(Canvas canvas, Size size) {
+    final seconds = clock.value;
     final c = Offset(size.width / 2, size.height / 2);
     final r = size.shortestSide / 2;
     // Velocidades suaves distintas; sin periodo que “cierre” de golpe.
@@ -116,15 +126,22 @@ class HydroGlyphPainter extends CustomPainter {
 
     // Borde orgánico tipo gota/agua, flujo continuo.
     final blob = _waterBlobPath(c, r * 0.86, turn, drift);
-    final halo = _waterBlobPath(c, r * 0.94, turn + 0.4, drift + 0.2);
 
-    canvas.drawPath(
-      halo,
+    // Halo con gradiente: un MaskFilter.blur por glifo y por frame pesa
+    // demasiado en web y Android.
+    canvas.drawCircle(
+      c,
+      r,
       Paint()
-        ..color = color.withValues(alpha: 0.22)
-        ..maskFilter = MaskFilter.blur(
-          BlurStyle.normal,
-          math.max(2.4, r * 0.22),
+        ..shader = ui.Gradient.radial(
+          c,
+          r,
+          [
+            color.withValues(alpha: 0.24),
+            color.withValues(alpha: 0.24),
+            color.withValues(alpha: 0),
+          ],
+          const [0, 0.78, 1],
         ),
     );
 
@@ -412,7 +429,7 @@ class HydroGlyphPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant HydroGlyphPainter oldDelegate) =>
-      oldDelegate.seconds != seconds ||
+      oldDelegate.clock != clock ||
       oldDelegate.kind != kind ||
       oldDelegate.color != color;
 }

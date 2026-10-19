@@ -304,7 +304,7 @@ class _CaptureStageState extends State<CaptureStage>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final reduce = MediaQuery.of(context).disableAnimations;
+    final reduce = MediaQuery.disableAnimationsOf(context);
     if (reduce || widget.clearBackdrop) {
       _intro.value = 1;
     } else if (_intro.isDismissed) {

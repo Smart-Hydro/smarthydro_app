@@ -138,7 +138,7 @@ class LiquidNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final reduce = MediaQuery.of(context).disableAnimations;
+    final reduce = MediaQuery.disableAnimationsOf(context);
     return SafeArea(
       top: false,
       child: Padding(
@@ -237,7 +237,7 @@ class LiquidNavRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final reduce = MediaQuery.of(context).disableAnimations;
+    final reduce = MediaQuery.disableAnimationsOf(context);
     final destCount = liquidDestinations.length;
     final appCount = liquidDesktopApps.length;
 

@@ -73,38 +73,48 @@ class _HydraulicBoardState extends State<HydraulicBoard>
           animation: _board,
           builder: (context, _) {
             final rise = Curves.easeInOutCubic.transform(_board.value);
+            // Lo que queda tapado no anima: el mapa bajo el resumen abierto
+            // y el resumen fuera de pantalla.
+            final mapVisible = _board.value < 1;
+            final summaryVisible = _board.value > 0;
             return Stack(
               fit: StackFit.expand,
               clipBehavior: Clip.hardEdge,
               children: [
-                RepaintBoundary(child: map),
-                Transform.translate(
-                  offset: Offset(0, (1 - rise) * travel),
-                  child: NotificationListener<ScrollNotification>(
-                    onNotification: (notice) {
-                      if (notice.metrics.axis == Axis.vertical) {
-                        _atTop = notice.metrics.pixels <= 1;
-                      }
-                      return false;
-                    },
-                    child: Listener(
-                      onPointerSignal: (event) {
-                        if (event is! PointerScrollEvent) return;
-                        if (_board.value < 1 || !_atTop) return;
-                        if (event.scrollDelta.dy < -24) _toMap();
+                TickerMode(
+                  enabled: mapVisible,
+                  child: RepaintBoundary(child: map),
+                ),
+                TickerMode(
+                  enabled: summaryVisible,
+                  child: Transform.translate(
+                    offset: Offset(0, (1 - rise) * travel),
+                    child: NotificationListener<ScrollNotification>(
+                      onNotification: (notice) {
+                        if (notice.metrics.axis == Axis.vertical) {
+                          _atTop = notice.metrics.pixels <= 1;
+                        }
+                        return false;
                       },
-                      child: DecoratedBox(
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF102226),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Color(0x66000000),
-                              blurRadius: 28,
-                              offset: Offset(0, -10),
-                            ),
-                          ],
+                      child: Listener(
+                        onPointerSignal: (event) {
+                          if (event is! PointerScrollEvent) return;
+                          if (_board.value < 1 || !_atTop) return;
+                          if (event.scrollDelta.dy < -24) _toMap();
+                        },
+                        child: DecoratedBox(
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF102226),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Color(0x66000000),
+                                blurRadius: 28,
+                                offset: Offset(0, -10),
+                              ),
+                            ],
+                          ),
+                          child: summary,
                         ),
-                        child: summary,
                       ),
                     ),
                   ),

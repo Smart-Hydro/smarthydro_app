@@ -33,20 +33,17 @@ class CaptureLoggerPlate extends StatelessWidget {
     final kind = surface ? 'superficial' : 'pozo';
     final title = _title(point);
 
-    Widget plate(double glow, double seconds) {
-      final edge = selected ? 0.78 + 0.18 * glow : 0.22 + 0.28 * glow;
-      final antenna = captureLoggerAntennaGlow(
-        seconds,
-        motion: clock != null,
-        link: link,
-      );
-      return DecoratedBox(
+    // El reloj solo repinta el borde y la antena: el nombre, su medida y el
+    // fondo se arman una vez y no por frame.
+    final plate = CustomPaint(
+      foregroundPainter: _PlateEdgePainter(
+        color: color,
+        selected: selected,
+        clock: clock,
+      ),
+      child: DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: color.withValues(alpha: edge.clamp(0.0, 1.0).toDouble()),
-            width: selected ? 1.6 : 1,
-          ),
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
@@ -79,8 +76,13 @@ class CaptureLoggerPlate extends StatelessWidget {
                         color: color,
                         selected: selected,
                         surface: surface,
-                        antenna: antenna,
+                        antenna: captureLoggerAntennaGlow(
+                          0,
+                          motion: false,
+                          link: link,
+                        ),
                         link: link,
+                        clock: clock,
                       ),
                     ),
                   ),
@@ -105,8 +107,8 @@ class CaptureLoggerPlate extends StatelessWidget {
             },
           ),
         ),
-      );
-    }
+      ),
+    );
 
     return Semantics(
       button: true,
@@ -117,18 +119,42 @@ class CaptureLoggerPlate extends StatelessWidget {
         key: tapKey,
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
-        child: clock == null
-            ? plate(0.45, 0)
-            : ValueListenableBuilder<double>(
-                valueListenable: clock!,
-                builder: (context, seconds, _) {
-                  final glow = 0.5 + 0.5 * math.sin(seconds * 1.7);
-                  return plate(glow, seconds);
-                },
-              ),
+        child: clock == null ? plate : RepaintBoundary(child: plate),
       ),
     );
   }
+}
+
+/// Borde de la placa. Late con el reloj del esquema; sin reloj queda fijo.
+class _PlateEdgePainter extends CustomPainter {
+  _PlateEdgePainter({required this.color, required this.selected, this.clock})
+    : super(repaint: clock);
+
+  final Color color;
+  final bool selected;
+  final ValueNotifier<double>? clock;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final seconds = clock?.value;
+    final glow = seconds == null ? 0.45 : 0.5 + 0.5 * math.sin(seconds * 1.7);
+    final edge = selected ? 0.78 + 0.18 * glow : 0.22 + 0.28 * glow;
+    final width = selected ? 1.6 : 1.0;
+    final rect = (Offset.zero & size).deflate(width / 2);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, Radius.circular(8 - width / 2)),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = width
+        ..color = color.withValues(alpha: edge.clamp(0.0, 1.0).toDouble()),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _PlateEdgePainter oldDelegate) =>
+      oldDelegate.color != color ||
+      oldDelegate.selected != selected ||
+      oldDelegate.clock != clock;
 }
 
 /// Misma medida que la placa del esquema.
@@ -299,15 +325,17 @@ class _BeaconPainter extends CustomPainter {
     required this.surface,
     this.antenna = 0,
     this.link = PointLink.connected,
-  });
+    this.clock,
+  }) : super(repaint: clock);
 
   final Color color;
   final bool selected;
   final bool surface;
   final PointLink link;
 
-  /// 0 apaga la pelotita. 1 la deja encendida.
+  /// 0 apaga la pelotita. 1 la deja encendida. Con [clock] late solo.
   final double antenna;
+  final ValueNotifier<double>? clock;
 
   static const _hole = Color(0xFF0B1418);
   static const _metal = Color(0xFFD5E4E2);
@@ -321,7 +349,11 @@ class _BeaconPainter extends CustomPainter {
       ..color = selected
           ? color.withValues(alpha: 0.92)
           : _metal.withValues(alpha: 0.82);
-    final glow = antenna.clamp(0.0, 1.0).toDouble();
+    final seconds = clock?.value;
+    final level = seconds == null
+        ? antenna
+        : captureLoggerAntennaGlow(seconds, motion: true, link: link);
+    final glow = level.clamp(0.0, 1.0).toDouble();
     final steady = link != PointLink.connected;
     final tipColor = link == PointLink.gap ? _gap : color;
     if (surface) {
@@ -410,7 +442,8 @@ class _BeaconPainter extends CustomPainter {
       oldDelegate.selected != selected ||
       oldDelegate.surface != surface ||
       oldDelegate.link != link ||
-      oldDelegate.antenna != antenna;
+      oldDelegate.antenna != antenna ||
+      oldDelegate.clock != clock;
 }
 
 String _title(Map<String, dynamic> point) {

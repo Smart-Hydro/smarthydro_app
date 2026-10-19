@@ -112,7 +112,7 @@ class _HydroLoadingState extends State<HydroLoading>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (MediaQuery.of(context).disableAnimations) {
+    if (MediaQuery.disableAnimationsOf(context)) {
       _controller.stop();
       _controller.value = 0.5;
     } else if (!_controller.isAnimating) {
@@ -198,7 +198,7 @@ class _HydroLinearBarState extends State<HydroLinearBar>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (MediaQuery.of(context).disableAnimations) {
+    if (MediaQuery.disableAnimationsOf(context)) {
       _controller.stop();
       _controller.value = 0.5;
     } else if (!_controller.isAnimating) {
@@ -300,7 +300,7 @@ class _HydroSpinnerState extends State<HydroSpinner>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (MediaQuery.of(context).disableAnimations) {
+    if (MediaQuery.disableAnimationsOf(context)) {
       _controller.stop();
       _controller.value = 0.25;
     } else if (!_controller.isAnimating) {

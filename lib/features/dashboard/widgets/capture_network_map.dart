@@ -656,27 +656,29 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
               children: [
                 Positioned.fill(
                   child: IgnorePointer(
-                    child: ValueListenableBuilder<double>(
-                      valueListenable: _seconds,
-                      builder: (context, seconds, _) {
-                        return CustomPaint(
-                          painter: _HubLinkPainter(
-                            plates: [
-                              for (final plate in plates)
-                                plate.shift(Offset(0, -contentTop)),
-                            ],
-                            hub: hub.shift(Offset(0, -contentTop)),
-                            links: [
-                              for (final point in pagePoints)
-                                pointLinkOf(point),
-                            ],
-                            selected: selected,
-                            seconds: seconds,
-                            motion: _motion,
-                            appear: _motion ? _assemble.value : 1,
-                          ),
-                        );
-                      },
+                    child: RepaintBoundary(
+                      child: ValueListenableBuilder<double>(
+                        valueListenable: _seconds,
+                        builder: (context, seconds, _) {
+                          return CustomPaint(
+                            painter: _HubLinkPainter(
+                              plates: [
+                                for (final plate in plates)
+                                  plate.shift(Offset(0, -contentTop)),
+                              ],
+                              hub: hub.shift(Offset(0, -contentTop)),
+                              links: [
+                                for (final point in pagePoints)
+                                  pointLinkOf(point),
+                              ],
+                              selected: selected,
+                              seconds: seconds,
+                              motion: _motion,
+                              appear: _motion ? _assemble.value : 1,
+                            ),
+                          );
+                        },
+                      ),
                     ),
                   ),
                 ),
@@ -899,29 +901,33 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
           builder: (context, _) {
             final selected = selectedOnPage;
 
+            // Cada capa que late con el reloj lleva su RepaintBoundary: sin
+            // ellos, en escritorio cada frame repinta el shell entero.
             Widget waterLayer = Stack(
               fit: StackFit.expand,
               clipBehavior: Clip.hardEdge,
               children: [
                 Positioned.fill(
-                  child: ValueListenableBuilder<double>(
-                    valueListenable: _seconds,
-                    builder: (context, seconds, _) {
-                      return CustomPaint(
-                        painter: _LivingWaterPainter(
-                          seconds: seconds,
-                          motion: _motion,
-                          points: pagePoints,
-                          anchors: [for (final plate in plates) plate.center],
-                          plates: plates,
-                          hub: hub,
-                          selected: selected,
-                          maxFlow: maxFlow,
-                          pan: Offset.zero,
-                        ),
-                        child: const SizedBox.expand(),
-                      );
-                    },
+                  child: RepaintBoundary(
+                    child: ValueListenableBuilder<double>(
+                      valueListenable: _seconds,
+                      builder: (context, seconds, _) {
+                        return CustomPaint(
+                          painter: _LivingWaterPainter(
+                            seconds: seconds,
+                            motion: _motion,
+                            points: pagePoints,
+                            anchors: [for (final plate in plates) plate.center],
+                            plates: plates,
+                            hub: hub,
+                            selected: selected,
+                            maxFlow: maxFlow,
+                            pan: Offset.zero,
+                          ),
+                          child: const SizedBox.expand(),
+                        );
+                      },
+                    ),
                   ),
                 ),
               ],
@@ -980,26 +986,29 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                       children: [
                         Positioned.fill(
                           child: IgnorePointer(
-                            child: ValueListenableBuilder<double>(
-                              valueListenable: _seconds,
-                              builder: (context, seconds, _) {
-                                return CustomPaint(
-                                  painter: _LivingWaterPainter(
-                                    seconds: seconds,
-                                    motion: _motion,
-                                    points: pagePoints,
-                                    anchors: [
-                                      for (final plate in plates) plate.center,
-                                    ],
-                                    plates: plates,
-                                    hub: hub,
-                                    selected: selected,
-                                    maxFlow: maxFlow,
-                                    pan: Offset.zero,
-                                    lines: true,
-                                  ),
-                                );
-                              },
+                            child: RepaintBoundary(
+                              child: ValueListenableBuilder<double>(
+                                valueListenable: _seconds,
+                                builder: (context, seconds, _) {
+                                  return CustomPaint(
+                                    painter: _LivingWaterPainter(
+                                      seconds: seconds,
+                                      motion: _motion,
+                                      points: pagePoints,
+                                      anchors: [
+                                        for (final plate in plates)
+                                          plate.center,
+                                      ],
+                                      plates: plates,
+                                      hub: hub,
+                                      selected: selected,
+                                      maxFlow: maxFlow,
+                                      pan: Offset.zero,
+                                      lines: true,
+                                    ),
+                                  );
+                                },
+                              ),
                             ),
                           ),
                         ),
