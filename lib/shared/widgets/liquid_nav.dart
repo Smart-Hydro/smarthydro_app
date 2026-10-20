@@ -41,13 +41,6 @@ class LiquidAppShortcut {
 /// Apps del escritorio — mismo orden que el hub Apps.
 const liquidDesktopApps = <LiquidAppShortcut>[
   LiquidAppShortcut(
-    icon: Icons.public_rounded,
-    label: 'Ubicaciones',
-    subtitle: 'Mapa vivo de captaciones, loggers y enlaces de la red',
-    adornments: ['por punto', 'mapa', 'terreno'],
-    color: IkoluColors.cyan,
-  ),
-  LiquidAppShortcut(
     icon: Icons.query_stats_rounded,
     label: 'Análisis',
     subtitle: 'Caudal, tendencias y comparación entre pozos',

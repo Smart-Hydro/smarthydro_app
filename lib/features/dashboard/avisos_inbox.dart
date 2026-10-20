@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../core/brand.dart';
+import '../../shared/ui/hydro_ui.dart';
 import '../../shared/widgets/hydro_glass.dart';
 
 /// Corte de la consola: críticas o atención.
@@ -355,10 +356,11 @@ class _AvisosInboxState extends State<AvisosInbox> {
     final span = days < 1 ? 7 : days;
     final chartDays = _filledDays(scoped, limit: span);
     final failed = widget.eventsError != null;
+    final pending = widget.loading && widget.events.isEmpty && !failed;
     final onTab = widget.showHeading;
     final wide = MediaQuery.sizeOf(context).width >= 980;
 
-    final body = <Widget>[
+    final ready = <Widget>[
       if (critical + attention + other > 0) ...[
         _SampleChart(
           critical: critical,
@@ -401,9 +403,7 @@ class _AvisosInboxState extends State<AvisosInbox> {
           message: widget.eventsError!,
           onRetry: () => widget.onRefresh(),
         ),
-      if (clusters.isEmpty && widget.loading)
-        const _Bones()
-      else if (clusters.isEmpty && !failed)
+      if (clusters.isEmpty && !failed)
         _Calm(lens: shown)
       else
         for (final block in _byDay(clusters, clock)) ...[
@@ -434,6 +434,19 @@ class _AvisosInboxState extends State<AvisosInbox> {
             const SizedBox(height: 8),
           ],
         ],
+    ];
+
+    final body = <Widget>[
+      HydroSwap(
+        state: pending ? 'loading' : (failed ? 'error' : 'ready'),
+        child: pending
+            ? const _Bones()
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: ready,
+              ),
+      ),
     ];
 
     return RefreshIndicator(
@@ -1639,16 +1652,22 @@ class _Bones extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        for (var index = 0; index < 3; index++) ...[
-          HydroGlass(
-            radius: 16,
-            child: const SizedBox(height: 48, width: double.infinity),
-          ),
-          if (index != 2) const SizedBox(height: 8),
+    return const HydroShimmer(
+      child: Column(
+        key: ValueKey('aviso-skeleton'),
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          HydroBone(height: 132, radius: 18),
+          SizedBox(height: 14),
+          HydroBone(height: 52, radius: 26),
+          SizedBox(height: 14),
+          HydroBone(height: 56, radius: 16),
+          SizedBox(height: 8),
+          HydroBone(height: 56, radius: 16),
+          SizedBox(height: 8),
+          HydroBone(height: 56, radius: 16),
         ],
-      ],
+      ),
     );
   }
 }

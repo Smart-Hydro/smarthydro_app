@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smarthydro_app/core/api/smarthydro_api.dart';
 import 'package:smarthydro_app/core/n1/n1_api.dart';
 import 'package:smarthydro_app/core/n1/n1_config.dart';
+import 'package:smarthydro_app/core/n1/n1_memory.dart';
 import 'package:smarthydro_app/core/n1/n1_models.dart';
 import 'package:smarthydro_app/features/assistant/assistant_screen.dart';
 import 'package:smarthydro_app/features/assistant/n1_buddy.dart';
@@ -14,6 +16,7 @@ class _FakeN1Api extends N1Api {
   N1Response askResult = const N1Response(ok: true, text: 'Respuesta N1');
   N1Response? pendingAsk;
   int askCalls = 0;
+  List<String>? lastPointNames;
 
   @override
   bool get isConfigured => true;
@@ -28,8 +31,10 @@ class _FakeN1Api extends N1Api {
     String? name,
     String? client,
     List<String>? clients,
+    List<String>? pointNames,
   }) async {
     askCalls += 1;
+    lastPointNames = pointNames;
     if (pendingAsk != null && askCalls == 1) return pendingAsk!;
     return askResult;
   }
@@ -72,6 +77,10 @@ class _FakeN1Api extends N1Api {
 }
 
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   testWidgets('muestra chat y responde ask', (tester) async {
     final api = _FakeN1Api();
     await tester.pumpWidget(
@@ -90,6 +99,7 @@ void main() {
     );
 
     expect(find.textContaining('Hola Ana'), findsOneWidget);
+    expect(find.textContaining('Veo 1 punto'), findsOneWidget);
     expect(find.textContaining('SmartHydro N1'), findsOneWidget);
     expect(find.byType(N1Buddy), findsAtLeastNWidgets(1));
     expect(find.text('N1 · SmartHydro'), findsOneWidget);
@@ -105,6 +115,7 @@ void main() {
     expect(find.text('cómo está P4'), findsOneWidget);
     expect(find.text('Respuesta N1'), findsOneWidget);
     expect(api.askCalls, 1);
+    expect(api.lastPointNames, ['P4']);
   });
 
   testWidgets('job pending muestra estado ⏳ y permite reconsultar', (
@@ -137,11 +148,10 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    expect(find.textContaining('⏳'), findsWidgets);
+    expect(find.textContaining('Consultando tus puntos'), findsWidgets);
     expect(find.text('Reconsultar'), findsOneWidget);
 
-    // El auto-reconsulta programa un Timer de 8s.
-    await tester.pump(const Duration(seconds: 8));
+    await tester.pump(const Duration(seconds: 2));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
@@ -170,5 +180,81 @@ void main() {
 
     expect(find.textContaining('Archivos'), findsOneWidget);
     expect(find.textContaining('Iansa'), findsOneWidget);
+  });
+
+  testWidgets('recuerda la conversación al volver a abrir', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      N1Memory.storageKeyFor(7):
+          '[{"role":"user","text":"cómo está P4"},'
+          '{"role":"assistant","text":"P4 está en línea"}]',
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AssistantScreen(
+          n1Api: _FakeN1Api(),
+          session: const SmartHydroSession(
+            token: 'tok',
+            user: {
+              'id': 7,
+              'email': 'cliente@empresa.cl',
+              'first_name': 'Ana',
+            },
+          ),
+          points: const [],
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('cómo está P4'), findsOneWidget);
+    expect(find.text('P4 está en línea'), findsOneWidget);
+    expect(find.textContaining('Hola Ana'), findsNothing);
+  });
+
+  testWidgets('limpia el panel de puntos y no se queda reconsultando', (
+    tester,
+  ) async {
+    const dump = '''
+*Riego Chile* · 13 puntos
+• Riego Chile – Agricola Bayona – Matias Fischer · activo · sin ticket SLA
+… quedan 8 ítems · usa los botones de abajo o pídemelos en Excel
+_Panel: 2026-10-20 17:12 hora Chile_
+ℹ️ _DGA Mayor: nota larga._
+''';
+    final api = _FakeN1Api()
+      ..askResult = const N1Response(ok: true, async: true, text: dump);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AssistantScreen(
+          n1Api: api,
+          session: const SmartHydroSession(
+            token: 'tok',
+            user: {'email': 'cliente@empresa.cl', 'first_name': 'Ana'},
+          ),
+          points: const [
+            {'id': 1, 'title': 'Matias Fischer'},
+            {'id': 2, 'title': 'Lecheria'},
+          ],
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byType(TextField), 'cómo están mis puntos');
+    await tester.tap(find.byTooltip('Enviar'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.textContaining('Matias Fischer'), findsWidgets);
+    expect(find.textContaining('Riego Chile · 13 puntos'), findsOneWidget);
+    expect(find.textContaining('usa los botones'), findsNothing);
+    expect(find.textContaining('ℹ️'), findsNothing);
+    expect(find.textContaining('sin ticket SLA'), findsNothing);
+    expect(api.lastPointNames, ['Matias Fischer', 'Lecheria']);
+
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pump();
+    expect(api.askCalls, 1);
   });
 }

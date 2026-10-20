@@ -83,10 +83,13 @@ class N1Response {
   final Map<String, dynamic> raw;
 
   /// Job aún en curso (⏳): la app debe reconsultar.
+  /// Si ya vino un texto útil, no seguimos esperando aunque N1 marque async.
   bool get isPending {
-    if (pending || async) return true;
-    final t = text.trimLeft();
-    return t.startsWith('⏳');
+    final t = text.trim();
+    final hourglass = t.startsWith('⏳');
+    if (!pending && !async && !hourglass) return false;
+    if (t.length >= 40 && !hourglass) return false;
+    return pending || async || hourglass;
   }
 
   factory N1Response.fromJson(Map<String, dynamic> json) {

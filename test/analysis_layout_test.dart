@@ -59,6 +59,8 @@ void main() {
     final rendimiento = tester.getTopLeft(find.text('Rendimiento'));
     final serie = tester.getRect(find.text('Línea de tiempo'));
     final perfil = tester.getRect(find.text('Perfil horario'));
+    final timeline = tester.getRect(find.byKey(const Key('analysis-timeline')));
+    final hourly = tester.getRect(find.byKey(const Key('analysis-hourly')));
     final charts = tester.getRect(
       find.byKey(const Key('analysis-charts-wide')),
     );
@@ -68,6 +70,11 @@ void main() {
     expect(serie.top, greaterThan(rendimiento.dy));
     expect(perfil.left, greaterThan(serie.right));
     expect(perfil.top, greaterThan(rendimiento.dy));
+    expect(
+      (timeline.bottom - hourly.bottom).abs(),
+      lessThan(2),
+      reason: 'en escritorio las dos series deben compartir el mismo piso',
+    );
     expect(
       (serie.center.dx - (charts.left + charts.width / 4)).abs(),
       lessThan(48),

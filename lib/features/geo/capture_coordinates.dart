@@ -230,6 +230,20 @@ List<(int, int)> captureGeoEdges(List<LatLng> points, {int extraK = 2}) {
   return edges;
 }
 
+/// Red de cobertura: cada punto con todos los demás.
+List<(int, int)> captureMeshEdges(int count) => [
+  for (var a = 0; a < count; a++)
+    for (var b = a + 1; b < count; b++) (a, b),
+];
+
+/// Control del arco de un tramo de cobertura: se levanta poco hacia arriba
+/// en pantalla, para un relieve sutil y no un cable.
+Offset captureMeshApex(Offset a, Offset b) {
+  final along = b - a;
+  final lift = math.min(8.0, along.distance * 0.04);
+  return Offset((a.dx + b.dx) / 2, (a.dy + b.dy) / 2 - lift);
+}
+
 /// Radio de agrupación, el mismo de leaflet.markercluster en Ikolu.
 const captureClusterRadius = 80.0;
 

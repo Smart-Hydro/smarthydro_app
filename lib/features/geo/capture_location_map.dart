@@ -27,8 +27,48 @@ class CaptureLocationMap extends StatefulWidget {
     this.fitPadding,
     this.publicPoints = const [],
     this.cluster = false,
+    this.onSelectedSpot,
+    this.network = false,
+    this.mesh = false,
+    this.readoutOf,
+    this.readoutArea,
+    this.keepClearOf,
+    this.readoutBlocks = const [],
+    this.loggers = true,
+    this.markExtent = captureLoggerMarkSize,
     super.key,
   });
+
+  /// Lo que flota encima del mapa, como el panel de capas. Las tarjetas no
+  /// se meten ahí.
+  final List<Rect> readoutBlocks;
+
+  /// Apagada, no se dibuja ningún enlace entre equipos.
+  final bool network;
+
+  /// Red de cobertura: cada punto se une con todos. Si no, solo con los
+  /// vecinos más cercanos.
+  final bool mesh;
+
+  /// Tarjeta que flota junto a cada punto. Nula o sin variables, no hay.
+  final CaptureReadoutCard? Function(Map<String, dynamic> point)? readoutOf;
+
+  /// Dónde pueden ir las tarjetas, en coordenadas del mapa. Nulo, todo él.
+  final Rect? readoutArea;
+
+  /// Lo que ocupa la ficha del punto elegido, según dónde quedó el punto.
+  /// Las tarjetas no se meten ahí.
+  final Rect? Function(Offset spot)? keepClearOf;
+
+  /// Dónde queda en pantalla el punto marcado, con cada movimiento de la
+  /// cámara. Nulo sin punto marcado o sin coordenadas.
+  final ValueChanged<Offset?>? onSelectedSpot;
+
+  /// Dibujo del logger. Apagado, cada punto es un punto parpadeante.
+  final bool loggers;
+
+  /// Lado de la marca, en px. Solo chico o grande, a medida real.
+  final double markExtent;
 
   /// Junta los puntos cercanos (80 px). Apagado por ahora: cada punto va
   /// suelto con su logger.
@@ -100,6 +140,10 @@ class _CaptureLocationMapState extends State<CaptureLocationMap>
   @override
   void didUpdateWidget(covariant CaptureLocationMap oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.selectedKey != oldWidget.selectedKey ||
+        widget.points != oldWidget.points) {
+      _reportSpot();
+    }
     final chosen =
         widget.selectedKey != null &&
         widget.selectedKey != oldWidget.selectedKey;
@@ -107,27 +151,57 @@ class _CaptureLocationMapState extends State<CaptureLocationMap>
     if (!chosen && !again) return;
     for (final item in _located) {
       if (capturePointKey(item.point) == widget.selectedKey) {
-        _focus(item.location);
+        _focus(item.location, always: again);
         break;
       }
     }
   }
 
+  void _reportSpot([MapCamera? camera]) {
+    final report = widget.onSelectedSpot;
+    if (report == null) return;
+    // Quien escucha reconstruye: durante el build se avisa al terminar el
+    // frame, con la cámara de ese momento.
+    if (SchedulerBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _reportSpot();
+      });
+      return;
+    }
+    final key = widget.selectedKey;
+    Offset? spot;
+    if (key != null && _ready) {
+      final view = camera ?? _map.camera;
+      for (final item in _located) {
+        if (capturePointKey(item.point) != key) continue;
+        spot = view.latLngToScreenOffset(item.location);
+        break;
+      }
+    }
+    report(spot);
+  }
+
   List<LatLng>? _edgeSource;
+  var _edgeMesh = false;
   List<(int, int)> _edges = const [];
 
-  /// La red solo se recalcula si cambian las coordenadas.
+  /// La red solo se recalcula si cambian las coordenadas o el tipo de red.
   List<(int, int)> _edgesFor(List<_Located> located) {
     final coords = [for (final item in located) item.location];
     final same =
         _edgeSource != null &&
+        _edgeMesh == widget.mesh &&
         _edgeSource!.length == coords.length &&
         Iterable<int>.generate(
           coords.length,
         ).every((i) => _edgeSource![i] == coords[i]);
     if (!same) {
       _edgeSource = coords;
-      _edges = captureGeoEdges(coords);
+      _edgeMesh = widget.mesh;
+      _edges = widget.mesh
+          ? captureMeshEdges(coords.length)
+          : captureGeoEdges(coords);
     }
     return _edges;
   }
@@ -150,11 +224,24 @@ class _CaptureLocationMapState extends State<CaptureLocationMap>
     ];
   }
 
-  void _focus(LatLng location) {
+  /// Lleva la cámara al punto. Si ya se ve con aire, no la mueve: la ficha lo
+  /// sigue donde esté y el mapa no salta al elegir. [always] centra igual.
+  void _focus(LatLng location, {bool always = false}) {
     if (!_ready) return;
     final camera = _map.camera;
     final zoom = camera.zoom;
     if (!zoom.isFinite || zoom < 2) return;
+    if (!always) {
+      final pad =
+          widget.fitPadding ?? const EdgeInsets.fromLTRB(36, 28, 36, 36);
+      // El encuadre inicial deja los puntos extremos justo en el margen: con
+      // algo de holgura cuentan como visibles, sin llegar a los bordes.
+      final room = pad
+          .deflateRect(Offset.zero & camera.nonRotatedSize)
+          .inflate(24);
+      final spot = camera.latLngToScreenOffset(location);
+      if (!room.isEmpty && room.contains(spot)) return;
+    }
     if (MediaQuery.disableAnimationsOf(context)) {
       _map.move(location, zoom);
       return;
@@ -215,12 +302,28 @@ class _CaptureLocationMapState extends State<CaptureLocationMap>
             minZoom: 3,
             maxZoom: 16,
             backgroundColor: const Color(0xFF0B171B),
+            // Sin inercia: al soltar un arrastre rápido flutter_map corre
+            // la cámara una pantalla entera, aunque el gesto fuera corto.
             interactionOptions: const InteractionOptions(
-              flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+              flags:
+                  InteractiveFlag.all &
+                  ~InteractiveFlag.rotate &
+                  ~InteractiveFlag.flingAnimation,
             ),
             onMapReady: () {
               _ready = true;
               _focusSelected();
+              _reportSpot();
+            },
+            onMapEvent: (event) {
+              // Si el usuario toma el mapa, el viaje al punto se detiene y
+              // no le disputa la cámara.
+              if (_fly.isAnimating &&
+                  event.source != MapEventSource.mapController &&
+                  event.source != MapEventSource.nonRotatedSizeChange) {
+                _fly.stop();
+              }
+              _reportSpot(event.camera);
             },
           ),
           children: [
@@ -241,11 +344,12 @@ class _CaptureLocationMapState extends State<CaptureLocationMap>
               tileDisplay: const TileDisplay.instantaneous(),
             ),
             if (public.isNotEmpty) CircleLayer(circles: public),
-            if (located.length > 1)
+            if (widget.network && located.length > 1)
               _NetworkEdges(
                 located: located,
                 edges: _edgesFor(located),
                 selectedKey: widget.selectedKey,
+                solid: widget.mesh,
               ),
             _WaterOnPoint(
               located: located,
@@ -257,10 +361,28 @@ class _CaptureLocationMapState extends State<CaptureLocationMap>
               located: located,
               selectedKey: widget.selectedKey,
               onSelect: widget.onSelect,
+              loggers: widget.loggers,
+              markExtent: widget.markExtent,
             ),
             // Encima del logger: la luz que late tapa la luz fija de la
-            // antena. No recibe toques.
-            _ActivePulse(located: located, cluster: widget.cluster),
+            // antena. No recibe toques. Sin el dibujo, late el centro.
+            _ActivePulse(
+              located: located,
+              cluster: widget.cluster,
+              loggers: widget.loggers,
+              markExtent: widget.markExtent,
+            ),
+            if (widget.readoutOf case final readoutOf? when !widget.cluster)
+              _Readouts(
+                located: located,
+                selectedKey: widget.selectedKey,
+                readoutOf: readoutOf,
+                area: widget.readoutArea,
+                keepClearOf: widget.keepClearOf,
+                blocks: widget.readoutBlocks,
+                onSelect: widget.onSelect,
+                markExtent: widget.markExtent,
+              ),
             if (missing > 0)
               Align(
                 alignment: Alignment.topLeft,
@@ -347,11 +469,16 @@ class _NetworkEdges extends StatefulWidget {
     required this.located,
     required this.edges,
     required this.selectedKey,
+    this.solid = false,
   });
 
   final List<_Located> located;
   final List<(int, int)> edges;
   final String? selectedKey;
+
+  /// Trazo continuo y tenue para los enlaces quietos. Con la red de
+  /// cobertura son muchos: punteados taparían el mapa y pesarían.
+  final bool solid;
 
   static const minZoom = 4.0;
 
@@ -415,6 +542,7 @@ class _NetworkEdgesState extends State<_NetworkEdges>
               plain: plain,
               hot: hot,
               fine: camera.zoom >= _NetworkEdges.fineZoom,
+              solid: widget.solid,
               clock: _seconds,
             ),
           ),
@@ -430,17 +558,24 @@ class _EdgePainter extends CustomPainter {
     required this.hot,
     required this.fine,
     required this.clock,
+    this.solid = false,
   }) : super(repaint: clock);
 
   final List<(Offset, Offset)> plain;
   final List<(Offset, Offset)> hot;
   final bool fine;
+  final bool solid;
   final ValueListenable<double> clock;
 
   @override
   void paint(Canvas canvas, Size size) {
     final view = (Offset.zero & size).inflate(8);
     final seconds = clock.value;
+    if (solid) {
+      _ridges(canvas, view, plain, fine: fine, hot: false);
+      _ridges(canvas, view, hot, fine: true, hot: true);
+      return;
+    }
     // Mismas velocidades que el CSS del observatorio: 16 px en 4 s, y en
     // 2,2 s para los enlaces del punto elegido.
     _dashes(
@@ -468,6 +603,49 @@ class _EdgePainter extends CustomPainter {
         ..strokeWidth = 1.8
         ..color = const Color(0xC7B4D7EB),
     );
+  }
+
+  /// Malla de cobertura: grabado fino, sombra pegada y un filo apenas más
+  /// claro. El arco es bajo para no leerse como cable.
+  void _ridges(
+    Canvas canvas,
+    Rect view,
+    List<(Offset, Offset)> segments, {
+    required bool fine,
+    required bool hot,
+  }) {
+    if (segments.isEmpty) return;
+    final room = view.inflate(16);
+    final shadow = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = hot ? 2.0 : (fine ? 1.7 : 1.4)
+      ..color = const Color(0x2A041018)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.1);
+    final body = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = hot ? 1.35 : (fine ? 1.15 : 0.95)
+      ..color = hot
+          ? const Color(0xA3B4D7EB)
+          : (fine ? const Color(0x6B78B4DC) : const Color(0x5278AFD2));
+    final filo = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = hot ? 0.7 : 0.55
+      ..color = hot ? const Color(0x66D7EAF4) : const Color(0x3DC5E4F4);
+    const ground = Offset(0.7, 1.0);
+    const crest = Offset(-0.35, -0.45);
+    for (final (from, to) in segments) {
+      if (_clip(from, to, room) == null) continue;
+      final apex = captureMeshApex(from, to);
+      final path = Path()
+        ..moveTo(from.dx, from.dy)
+        ..quadraticBezierTo(apex.dx, apex.dy, to.dx, to.dy);
+      canvas.drawPath(path.shift(ground), shadow);
+      canvas.drawPath(path, body);
+      canvas.drawPath(path.shift(crest), filo);
+    }
   }
 
   void _dashes(
@@ -545,6 +723,7 @@ class _EdgePainter extends CustomPainter {
       oldDelegate.plain != plain ||
       oldDelegate.hot != hot ||
       oldDelegate.fine != fine ||
+      oldDelegate.solid != solid ||
       oldDelegate.clock != clock;
 }
 
@@ -552,21 +731,28 @@ class _EdgePainter extends CustomPainter {
 /// de un vistazo. Si el punto quedó dentro de un grupo, late la antena del
 /// grupo. Es una sola capa de canvas: no hay un widget animado por punto.
 class _ActivePulse extends StatefulWidget {
-  const _ActivePulse({required this.located, required this.cluster});
+  const _ActivePulse({
+    required this.located,
+    required this.cluster,
+    this.loggers = true,
+    this.markExtent = captureLoggerMarkSize,
+  });
 
   final List<_Located> located;
   final bool cluster;
+  final bool loggers;
+  final double markExtent;
 
   /// Luz de la antena respecto del centro del dibujo del logger.
-  static const _tip = Offset(
+  static Offset _tip(double markExtent) => Offset(
     0,
-    captureLoggerAntennaTipY - captureLoggerMarkSize / 2,
+    captureLoggerAntennaTipY - markExtent / 2,
   );
 
   /// En el grupo el logger va a la izquierda del número.
-  static const _clusterTip = Offset(
-    captureLoggerMarkSize / 2 - _clusterWidth / 2,
-    captureLoggerAntennaTipY - captureLoggerMarkSize / 2,
+  static Offset _clusterTip(double markExtent) => Offset(
+    markExtent / 2 - _clusterWidth / 2,
+    captureLoggerAntennaTipY - markExtent / 2,
   );
 
   @override
@@ -622,9 +808,11 @@ class _ActivePulseState extends State<_ActivePulse>
         ))
           group.map((index) => screen[index]).reduce((a, b) => a + b) /
                   group.length.toDouble() +
-              (group.length == 1
-                  ? _ActivePulse._tip
-                  : _ActivePulse._clusterTip),
+              (widget.loggers
+                  ? (group.length == 1
+                        ? _ActivePulse._tip(widget.markExtent)
+                        : _ActivePulse._clusterTip(widget.markExtent))
+                  : Offset.zero),
     ];
     if (spots.isEmpty) return const SizedBox.shrink();
     return IgnorePointer(
@@ -679,18 +867,665 @@ class _PulsePainter extends CustomPainter {
       oldDelegate.spots != spots || oldDelegate.beat != beat;
 }
 
+/// Una variable en la tarjeta del mapa, con su nombre para no confundir
+/// unidades: el consumo del día y el acumulado van ambos en m³.
+@immutable
+class CaptureReadout {
+  const CaptureReadout({
+    required this.label,
+    required this.short,
+    required this.value,
+    required this.unit,
+  });
+
+  /// Nombre bajo el número, en la tarjeta completa.
+  final String label;
+
+  /// Nombre delante del número, en la tarjeta de una línea.
+  final String short;
+  final String value;
+  final String unit;
+
+  @override
+  bool operator ==(Object other) =>
+      other is CaptureReadout &&
+      other.label == label &&
+      other.short == short &&
+      other.value == value &&
+      other.unit == unit;
+
+  @override
+  int get hashCode => Object.hash(label, short, value, unit);
+
+  @override
+  String toString() => '$label $value $unit';
+}
+
+@immutable
+class CaptureReadoutCard {
+  const CaptureReadoutCard({required this.items, this.title, this.code});
+
+  /// Nombre del punto. Nulo si la tarjeta va solo con el código de obra.
+  final String? title;
+
+  /// Código de obra (CO). Nulo si no se pide o el punto no lo tiene.
+  final String? code;
+  final List<CaptureReadout> items;
+}
+
+/// De qué lado del punto queda la tarjeta. La muesca mira al punto.
+enum _Side { above, below, right, left }
+
+/// Tarjetas junto a cada punto: la ficha que se abre, comprimida. El punto
+/// elegido no la lleva, porque ahí está la ficha. Ninguna se pisa con otra,
+/// con un logger ni con la ficha abierta: prueba los cuatro lados en
+/// completa, luego en una línea, y si nada cabe espera a que el zoom le
+/// haga aire.
+class _Readouts extends StatelessWidget {
+  const _Readouts({
+    required this.located,
+    required this.selectedKey,
+    required this.readoutOf,
+    required this.area,
+    required this.keepClearOf,
+    required this.blocks,
+    required this.onSelect,
+    this.markExtent = captureLoggerMarkSize,
+  });
+
+  final List<_Located> located;
+  final String? selectedKey;
+  final CaptureReadoutCard? Function(Map<String, dynamic> point) readoutOf;
+  final Rect? area;
+  final Rect? Function(Offset spot)? keepClearOf;
+  final List<Rect> blocks;
+  final ValueChanged<Map<String, dynamic>>? onSelect;
+  final double markExtent;
+
+  /// Aire entre el logger y la punta de la muesca.
+  static const _gap = 3.0;
+
+  /// Aire mínimo entre dos tarjetas.
+  static const _margin = 4.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final camera = MapCamera.of(context);
+    if (!_cameraSized(camera)) return const SizedBox.shrink();
+    final view = Offset.zero & camera.nonRotatedSize;
+    final bounds = area == null ? view : view.intersect(area!);
+    if (bounds.width <= 0 || bounds.height <= 0) {
+      return const SizedBox.shrink();
+    }
+    final base = DefaultTextStyle.of(context).style;
+    final screen = [
+      for (final item in located) camera.latLngToScreenOffset(item.location),
+    ];
+    final marks = [
+      for (final spot in screen)
+        Rect.fromCenter(
+          center: spot,
+          width: markExtent,
+          height: markExtent,
+        ),
+    ];
+    final cards = <Rect>[...blocks];
+    for (var index = 0; index < located.length; index++) {
+      if (capturePointKey(located[index].point) != selectedKey) continue;
+      final clear = keepClearOf?.call(screen[index]);
+      if (clear != null) cards.add(clear.inflate(_margin));
+    }
+
+    bool free(Rect footprint, int owner) {
+      if (footprint.left < bounds.left ||
+          footprint.top < bounds.top ||
+          footprint.right > bounds.right ||
+          footprint.bottom > bounds.bottom) {
+        return false;
+      }
+      for (var other = 0; other < marks.length; other++) {
+        if (other != owner && marks[other].overlaps(footprint)) return false;
+      }
+      for (final card in cards) {
+        if (card.overlaps(footprint)) return false;
+      }
+      return true;
+    }
+
+    final children = <Widget>[];
+    for (var index = 0; index < located.length; index++) {
+      final item = located[index];
+      final key = capturePointKey(item.point);
+      if (key == selectedKey) continue;
+      final card = readoutOf(item.point);
+      if (card == null) continue;
+      if (card.items.isEmpty && card.title == null && card.code == null) {
+        continue;
+      }
+      final spot = screen[index];
+      ({Rect rect, _Side side, _CardLayout layout})? slot;
+      final compactModes = card.items.isEmpty
+          ? const [false]
+          : const [false, true];
+      for (final compact in compactModes) {
+        final layout = _CardLayout.of(card, base, compact: compact);
+        for (final side in _Side.values) {
+          final rect = _cardRect(spot, layout.size, side, markExtent);
+          if (!free(_footprint(rect, spot, side), index)) continue;
+          slot = (rect: rect, side: side, layout: layout);
+          break;
+        }
+        if (slot != null) break;
+      }
+      if (slot == null) continue;
+      cards.add(_footprint(slot.rect, spot, slot.side).inflate(_margin));
+      children.add(
+        Positioned.fromRect(
+          rect: slot.rect,
+          child: _MiniCard(
+            key: ValueKey('capture-readout-$key'),
+            card: card,
+            layout: slot.layout,
+            side: slot.side,
+            edge: _cardEdge(item.point),
+            status: captureLinkColor(item.point),
+            onTap: onSelect == null ? null : () => onSelect!(item.point),
+          ),
+        ),
+      );
+    }
+    if (children.isEmpty) return const SizedBox.shrink();
+    return SizedBox.expand(
+      child: Stack(clipBehavior: Clip.none, children: children),
+    );
+  }
+
+  static Rect _cardRect(Offset spot, Size size, _Side side, double markExtent) {
+    final reach = markExtent / 2 + _gap + _notchDepth;
+    return switch (side) {
+      _Side.above => Rect.fromLTWH(
+        spot.dx - size.width / 2,
+        spot.dy - reach - size.height,
+        size.width,
+        size.height,
+      ),
+      _Side.below => Rect.fromLTWH(
+        spot.dx - size.width / 2,
+        spot.dy + reach,
+        size.width,
+        size.height,
+      ),
+      _Side.right => Rect.fromLTWH(
+        spot.dx + reach,
+        spot.dy - size.height / 2,
+        size.width,
+        size.height,
+      ),
+      _Side.left => Rect.fromLTWH(
+        spot.dx - reach - size.width,
+        spot.dy - size.height / 2,
+        size.width,
+        size.height,
+      ),
+    };
+  }
+
+  /// La tarjeta con su muesca.
+  static Rect _footprint(Rect card, Offset spot, _Side side) {
+    return switch (side) {
+      _Side.above => card.expandToInclude(
+        Rect.fromLTRB(
+          spot.dx - _notchHalf,
+          card.bottom,
+          spot.dx + _notchHalf,
+          card.bottom + _notchDepth,
+        ),
+      ),
+      _Side.below => card.expandToInclude(
+        Rect.fromLTRB(
+          spot.dx - _notchHalf,
+          card.top - _notchDepth,
+          spot.dx + _notchHalf,
+          card.top,
+        ),
+      ),
+      _Side.right => card.expandToInclude(
+        Rect.fromLTRB(
+          card.left - _notchDepth,
+          spot.dy - _notchHalf,
+          card.left,
+          spot.dy + _notchHalf,
+        ),
+      ),
+      _Side.left => card.expandToInclude(
+        Rect.fromLTRB(
+          card.right,
+          spot.dy - _notchHalf,
+          card.right + _notchDepth,
+          spot.dy + _notchHalf,
+        ),
+      ),
+    };
+  }
+}
+
+const _notchDepth = 6.0;
+const _notchHalf = 5.0;
+
+/// El mismo borde que la ficha abierta.
+Color _cardEdge(Map<String, dynamic> point) => switch (pointLinkOf(point)) {
+  PointLink.connected => const Color(0xFF7EE0D0),
+  PointLink.gap => const Color(0xFFFFC46B),
+  PointLink.incident => const Color(0xFFFF847A),
+};
+
+const _cardTitleStyle = TextStyle(
+  color: Color(0xFFF4FEFF),
+  fontSize: 10.5,
+  fontWeight: FontWeight.w700,
+  height: 1,
+);
+
+/// El mismo tono del código en la ficha abierta.
+const _cardCodeStyle = TextStyle(
+  color: Color(0xFF7EE0D0),
+  fontSize: 10,
+  fontWeight: FontWeight.w700,
+  height: 1,
+);
+const _cardValueStyle = TextStyle(
+  color: Color(0xFFF4FEFF),
+  fontSize: 12,
+  fontWeight: FontWeight.w700,
+  height: 1,
+  fontFeatures: [FontFeature.tabularFigures()],
+);
+const _cardUnitStyle = TextStyle(
+  color: Color(0xFF9FB4B3),
+  fontSize: 9,
+  fontWeight: FontWeight.w600,
+  height: 1,
+);
+const _cardLabelStyle = TextStyle(
+  color: Color(0xFF8FA3A4),
+  fontSize: 8.5,
+  fontWeight: FontWeight.w500,
+  height: 1,
+);
+
+final _cardWidths = <String, double>{};
+
+double _textWidth(String text, TextStyle style, TextStyle base) {
+  final key = '${base.fontFamily}|${style.fontSize}|${style.fontWeight}|$text';
+  final known = _cardWidths[key];
+  if (known != null) return known;
+  if (_cardWidths.length > 800) _cardWidths.clear();
+  final painter = TextPainter(
+    text: TextSpan(text: text, style: base.merge(style)),
+    textDirection: TextDirection.ltr,
+    maxLines: 1,
+  )..layout();
+  final width = painter.width.ceilToDouble() + 1;
+  painter.dispose();
+  return _cardWidths[key] = width;
+}
+
+/// Medidas de la tarjeta, calculadas antes de ubicarla.
+class _CardLayout {
+  const _CardLayout({
+    required this.size,
+    required this.compact,
+    required this.columns,
+  });
+
+  final Size size;
+  final bool compact;
+
+  /// Ancho de cada variable, en el orden de la tarjeta.
+  final List<double> columns;
+
+  static const padX = 8.0;
+  static const padY = 6.0;
+  static const columnGap = 10.0;
+  static const dot = 6.0;
+  static const dotGap = 5.0;
+
+  /// Tope del nombre: más largo, se corta con puntos suspensivos.
+  static const titleMax = 150.0;
+
+  /// Nombre y código en dos líneas, para que «Ambos» no ensanche la tarjeta.
+  static const stackedGap = 2.0;
+  static const codeLine = 10.0;
+
+  /// Borde y un píxel de aire, para que el redondeo no desborde la fila.
+  static const _slack = 3.0;
+  static const heading = 12.0;
+  static const compactHeight = 22.0;
+
+  static _CardLayout of(
+    CaptureReadoutCard card,
+    TextStyle base, {
+    required bool compact,
+  }) {
+    if (compact) {
+      final columns = [
+        for (final item in card.items)
+          _textWidth(item.short, _cardLabelStyle, base) +
+              4 +
+              _textWidth(item.value, _cardValueStyle, base) +
+              4 +
+              _textWidth(item.unit, _cardUnitStyle, base),
+      ];
+      final content =
+          dot +
+          dotGap +
+          columns.fold<double>(0, (sum, width) => sum + width) +
+          columnGap * (columns.length - 1);
+      return _CardLayout(
+        size: Size(content + padX * 2 + _slack, compactHeight),
+        compact: true,
+        columns: columns,
+      );
+    }
+    final columns = [
+      for (final item in card.items)
+        math.max(
+          _textWidth(item.value, _cardValueStyle, base) +
+              4 +
+              _textWidth(item.unit, _cardUnitStyle, base),
+          _textWidth(item.label, _cardLabelStyle, base),
+        ),
+    ];
+    final metrics = columns.isEmpty
+        ? 0.0
+        : columns.fold<double>(0, (sum, width) => sum + width) +
+              columnGap * (columns.length - 1);
+    final name = card.title;
+    final code = card.code;
+    final stacked = name != null && code != null;
+    final nameW = name == null
+        ? 0.0
+        : math.min(titleMax, _textWidth(name, _cardTitleStyle, base));
+    final codeW = code == null ? 0.0 : _textWidth(code, _cardCodeStyle, base);
+    final title = dot + dotGap + math.max(nameW, codeW);
+    final content = math.max(metrics, title);
+    final headingH = heading + (stacked ? stackedGap + codeLine : 0);
+    final metricsH = card.items.isEmpty ? 0.0 : 4 + 14 + 1 + 10;
+    return _CardLayout(
+      size: Size(
+        content + padX * 2 + _slack,
+        _slack + padY * 2 + headingH + metricsH,
+      ),
+      compact: false,
+      columns: columns,
+    );
+  }
+}
+
+class _MiniCard extends StatefulWidget {
+  const _MiniCard({
+    required this.card,
+    required this.layout,
+    required this.side,
+    required this.edge,
+    required this.status,
+    required this.onTap,
+    super.key,
+  });
+
+  final CaptureReadoutCard card;
+  final _CardLayout layout;
+  final _Side side;
+  final Color edge;
+  final Color status;
+  final VoidCallback? onTap;
+
+  @override
+  State<_MiniCard> createState() => _MiniCardState();
+}
+
+class _MiniCardState extends State<_MiniCard> {
+  var _hot = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final edge = widget.edge;
+    final layout = widget.layout;
+    final dot = DecoratedBox(
+      decoration: BoxDecoration(color: widget.status, shape: BoxShape.circle),
+      child: const SizedBox(width: _CardLayout.dot, height: _CardLayout.dot),
+    );
+    final Widget body;
+    if (layout.compact) {
+      body = Row(
+        children: [
+          dot,
+          const SizedBox(width: _CardLayout.dotGap),
+          for (var index = 0; index < widget.card.items.length; index++) ...[
+            if (index > 0) const SizedBox(width: _CardLayout.columnGap),
+            SizedBox(
+              width: layout.columns[index],
+              child: _line(widget.card.items[index], short: true),
+            ),
+          ],
+        ],
+      );
+    } else {
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 3),
+                child: dot,
+              ),
+              const SizedBox(width: _CardLayout.dotGap),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (widget.card.title case final name?)
+                      SizedBox(
+                        height: _CardLayout.heading,
+                        child: Text(
+                          name,
+                          maxLines: 1,
+                          softWrap: false,
+                          overflow: TextOverflow.ellipsis,
+                          textScaler: TextScaler.noScaling,
+                          style: _cardTitleStyle,
+                        ),
+                      ),
+                    if (widget.card.title != null && widget.card.code != null)
+                      const SizedBox(height: _CardLayout.stackedGap),
+                    if (widget.card.code case final code?)
+                      SizedBox(
+                        height: widget.card.title == null
+                            ? _CardLayout.heading
+                            : _CardLayout.codeLine,
+                        child: Text(
+                          code,
+                          maxLines: 1,
+                          softWrap: false,
+                          textScaler: TextScaler.noScaling,
+                          style: _cardCodeStyle,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (widget.card.items.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                for (
+                  var index = 0;
+                  index < widget.card.items.length;
+                  index++
+                ) ...[
+                  if (index > 0) const SizedBox(width: _CardLayout.columnGap),
+                  SizedBox(
+                    width: layout.columns[index],
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(
+                          height: 14,
+                          child: _line(widget.card.items[index], short: false),
+                        ),
+                        const SizedBox(height: 1),
+                        SizedBox(
+                          height: 10,
+                          child: Text(
+                            widget.card.items[index].label,
+                            maxLines: 1,
+                            softWrap: false,
+                            overflow: TextOverflow.clip,
+                            textScaler: TextScaler.noScaling,
+                            style: _cardLabelStyle,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ],
+      );
+    }
+    return MouseRegion(
+      cursor: widget.onTap == null
+          ? MouseCursor.defer
+          : SystemMouseCursors.click,
+      onEnter: (_) {
+        if (!_hot) setState(() => _hot = true);
+      },
+      onExit: (_) {
+        if (_hot) setState(() => _hot = false);
+      },
+      child: GestureDetector(
+        onTap: widget.onTap,
+        behavior: HitTestBehavior.opaque,
+        child: CustomPaint(
+          foregroundPainter: _MiniNotchPainter(
+            side: widget.side,
+            color: _hot ? edge : edge.withValues(alpha: 0.7),
+          ),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xEB1A3036), Color(0xEB0A1418)],
+              ),
+              borderRadius: BorderRadius.circular(9),
+              border: Border.all(
+                color: _hot ? edge : edge.withValues(alpha: 0.55),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: edge.withValues(alpha: _hot ? 0.28 : 0.12),
+                  blurRadius: _hot ? 14 : 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: _CardLayout.padX,
+                vertical: layout.compact ? 0 : _CardLayout.padY,
+              ),
+              child: body,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _line(CaptureReadout item, {required bool short}) {
+    return Text.rich(
+      TextSpan(
+        children: [
+          if (short) TextSpan(text: '${item.short} ', style: _cardLabelStyle),
+          TextSpan(text: item.value, style: _cardValueStyle),
+          TextSpan(text: ' ${item.unit}', style: _cardUnitStyle),
+        ],
+      ),
+      maxLines: 1,
+      softWrap: false,
+      overflow: TextOverflow.clip,
+      textScaler: TextScaler.noScaling,
+    );
+  }
+}
+
+/// Muesca hacia el punto, centrada en el borde que lo mira.
+class _MiniNotchPainter extends CustomPainter {
+  const _MiniNotchPainter({required this.side, required this.color});
+
+  final _Side side;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path();
+    switch (side) {
+      case _Side.above:
+        final x = size.width / 2;
+        path
+          ..moveTo(x - _notchHalf, size.height)
+          ..lineTo(x, size.height + _notchDepth)
+          ..lineTo(x + _notchHalf, size.height);
+      case _Side.below:
+        final x = size.width / 2;
+        path
+          ..moveTo(x - _notchHalf, 0)
+          ..lineTo(x, -_notchDepth)
+          ..lineTo(x + _notchHalf, 0);
+      case _Side.right:
+        final y = size.height / 2;
+        path
+          ..moveTo(0, y - _notchHalf)
+          ..lineTo(-_notchDepth, y)
+          ..lineTo(0, y + _notchHalf);
+      case _Side.left:
+        final y = size.height / 2;
+        path
+          ..moveTo(size.width, y - _notchHalf)
+          ..lineTo(size.width + _notchDepth, y)
+          ..lineTo(size.width, y + _notchHalf);
+    }
+    canvas.drawPath(path, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(covariant _MiniNotchPainter oldDelegate) =>
+      oldDelegate.side != side || oldDelegate.color != color;
+}
+
 class _CaptureMarkers extends StatelessWidget {
   const _CaptureMarkers({
     required this.cluster,
     required this.located,
     required this.selectedKey,
     required this.onSelect,
+    this.loggers = true,
+    this.markExtent = captureLoggerMarkSize,
   });
 
   final bool cluster;
   final List<_Located> located;
   final String? selectedKey;
   final ValueChanged<Map<String, dynamic>>? onSelect;
+  final bool loggers;
+  final double markExtent;
 
   @override
   Widget build(BuildContext context) {
@@ -726,16 +1561,23 @@ class _CaptureMarkers extends StatelessWidget {
   Marker _loggerMarker(_Located item, {required bool motion}) {
     final key = capturePointKey(item.point);
     final selected = selectedKey != null && key == selectedKey;
-    final mark = CaptureLoggerMark(
-      point: item.point,
-      selected: selected,
-      onTap: onSelect == null ? null : () => onSelect!(item.point),
-      tapKey: ValueKey('capture-location-$key'),
-    );
+    final mark = loggers
+        ? CaptureLoggerMark(
+            point: item.point,
+            selected: selected,
+            onTap: onSelect == null ? null : () => onSelect!(item.point),
+            tapKey: ValueKey('capture-location-$key'),
+          )
+        : CaptureDotMark(
+            point: item.point,
+            selected: selected,
+            onTap: onSelect == null ? null : () => onSelect!(item.point),
+            tapKey: ValueKey('capture-location-$key'),
+          );
     return Marker(
       point: item.location,
-      width: captureLoggerMarkSize,
-      height: captureLoggerMarkSize,
+      width: markExtent,
+      height: markExtent,
       alignment: Alignment.center,
       // El mismo golpe corto que el nodo de la red al elegirlo.
       child: !selected || !motion

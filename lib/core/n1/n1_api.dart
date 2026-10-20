@@ -111,13 +111,19 @@ class N1Api {
     String? name,
     String? client,
     List<String>? clients,
+    List<String>? pointNames,
   }) {
     final who = (name ?? '').trim();
     final scope = <String>[
       if (client != null && client.trim().isNotEmpty) client.trim(),
       ...?clients?.map((c) => c.trim()).where((c) => c.isNotEmpty),
     ];
-    final sent = n1DecorateAskText(text, name: who, clients: scope);
+    final sent = n1DecorateAskText(
+      text,
+      name: who,
+      clients: scope,
+      points: pointNames ?? const [],
+    );
     final body = <String, dynamic>{
       'op': 'ask',
       'text': sent,

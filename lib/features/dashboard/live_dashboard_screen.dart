@@ -10,13 +10,13 @@ import '../../core/brand.dart';
 import '../../core/n1/n1_identity.dart';
 import '../../core/n1/n1_providers.dart';
 import '../../core/prefs/home_view.dart';
+import '../../core/prefs/map_layers.dart';
 import '../../core/session/session_provider.dart';
 import '../analysis/analysis_screen.dart';
 import '../assistant/assistant_screen.dart';
 import '../profile/profile_screen.dart';
 import '../compliance/compliance_screen.dart';
 import '../compliance/point_compliance_screen.dart';
-import '../geo/geo_smart_screen.dart';
 import '../reports/reports_screen.dart';
 import '../support/customer_support_screen.dart';
 import '../../shared/navigation/hydro_page_route.dart';
@@ -49,7 +49,6 @@ class LiveDashboardScreen extends ConsumerStatefulWidget {
 /// Apps que en escritorio viven junto al rail, sin tapar el menú.
 /// Mismo orden que [liquidDesktopApps].
 enum _ShellTool {
-  ubicaciones,
   analisis,
   cumplimiento,
   asistente,
@@ -75,6 +74,10 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
   bool _notificationRequestInFlight = false;
   bool _fullNotificationsPending = false;
   Timer? _notificationPoll;
+
+  /// El mapa muestra la última lectura de cada punto: se vuelve a pedir
+  /// cada minuto, sin spinner ni aviso si falla.
+  Timer? _pointsPoll;
   bool _notifyEmail = true;
   bool _savingEmailPreference = false;
 
@@ -82,6 +85,8 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
   Map<String, dynamic>? _networkWell;
 
   SmartHydroApi get _api => ref.read(smartHydroApiProvider);
+
+  int? get _userId => int.tryParse('${widget.session.user['id']}');
 
   @override
   void initState() {
@@ -98,25 +103,41 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
     if (state == AppLifecycleState.resumed) {
       _startNotificationPolling();
       _loadNotifications();
+      _refreshPoints();
     } else if (state != AppLifecycleState.inactive) {
       // inactive en web es solo perder el foco: una sala de control en otro
       // monitor sigue recibiendo avisos.
       _notificationPoll?.cancel();
       _notificationPoll = null;
+      _pointsPoll?.cancel();
+      _pointsPoll = null;
     }
   }
 
   void _startNotificationPolling() {
-    if (_notificationPoll != null) return;
-    _notificationPoll = Timer.periodic(
+    _notificationPoll ??= Timer.periodic(
       const Duration(seconds: 30),
       (_) => _loadNotifications(),
     );
+    _pointsPoll ??= Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => _refreshPoints(),
+    );
+  }
+
+  Future<void> _refreshPoints() async {
+    if (_loading || _points.isEmpty) return;
+    try {
+      final points = await _api.pointsSummary(widget.session.token);
+      if (!mounted || _loading) return;
+      setState(() => _points = points);
+    } catch (_) {}
   }
 
   @override
   void dispose() {
     _notificationPoll?.cancel();
+    _pointsPoll?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -296,6 +317,10 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
       _shellTool = null;
       _selectedTab = index;
       _networkWell = null;
+      if (index == 1 && _systemEvents.isEmpty) {
+        _loadingNotifications = true;
+        _eventsError = null;
+      }
     });
     if (index == 1) _loadNotifications();
   }
@@ -344,6 +369,7 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
     );
 
     final isHome = tool == null && _selectedTab == 0;
+    final showAsk = tool != _ShellTool.asistente;
     return Scaffold(
       backgroundColor: Colors.transparent,
       // Home: el cuerpo pasa DETRÁS del menú glass (mapa full-bleed).
@@ -352,32 +378,34 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
         fit: StackFit.expand,
         children: [
           // Home: mapa edge-to-edge; el rail desktop flota encima.
-          // Otras pestañas: dejan hueco al rail y muestran QuickAsk.
+          // Otras pestañas: dejan hueco al rail.
           if (isHome)
             Positioned.fill(child: switcher)
           else
             SafeArea(
               child: Padding(
                 padding: EdgeInsets.only(left: wide ? liquidNavRailExtent : 0),
-                child: Stack(
-                  children: [
-                    Positioned.fill(child: switcher),
-                    if (tool != _ShellTool.ubicaciones &&
-                        tool != _ShellTool.asistente)
-                      Positioned(
-                        right: 12,
-                        bottom: 12,
-                        child: QuickAsk(
-                          peek: true,
-                          n1Api: ref.read(n1ApiProvider),
-                          token: widget.session.token,
-                          email: widget.session.email,
-                          name: widget.session.fullName,
-                          clients: n1ClientNamesOf(_points),
-                          pointIds: _pointIds(_points),
-                        ),
-                      ),
-                  ],
+                child: switcher,
+              ),
+            ),
+          if (showAsk)
+            Positioned(
+              right: 12,
+              bottom: isHome && !wide ? 88 : 12,
+              child: SafeArea(
+                left: false,
+                top: false,
+                bottom: !(isHome && !wide),
+                child: QuickAsk(
+                  peek: true,
+                  n1Api: ref.read(n1ApiProvider),
+                  token: widget.session.token,
+                  email: widget.session.email,
+                  name: widget.session.fullName,
+                  clients: n1ClientNamesOf(_points),
+                  pointNames: n1PointNamesOf(_points),
+                  pointIds: _pointIds(_points),
+                  userId: _userId,
                 ),
               ),
             ),
@@ -429,18 +457,13 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
                 onViewChanged: (map) => ref
                     .read(homeViewProvider.notifier)
                     .set(map ? HomeView.map : HomeView.network),
+                mapLayers: ref.watch(mapLayersProvider(_userId)),
+                onMapLayersChanged: (layers) =>
+                    ref.read(mapLayersProvider(_userId).notifier).set(layers),
                 points: _points,
                 openTickets: _openTickets,
                 compliance: _compliance,
                 bottomInset: wide ? 12 : 88,
-                askBar: QuickAsk(
-                  n1Api: ref.read(n1ApiProvider),
-                  token: widget.session.token,
-                  email: widget.session.email,
-                  name: widget.session.fullName,
-                  clients: n1ClientNamesOf(_points),
-                  pointIds: _pointIds(_points),
-                ),
                 onRefresh: _loadDashboard,
                 onOpenSupport: _openSupport,
                 onRequestSupport: _requestSupportFor,
@@ -519,18 +542,6 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
           n1Api: ref.read(n1ApiProvider),
           session: widget.session,
           points: _points,
-        ),
-      ),
-    );
-  }
-
-  void _openGeo() {
-    Navigator.of(context).push<void>(
-      hydroPageRoute(
-        GeoSmartScreen(
-          points: _points,
-          onSelectPoint: _openPoint,
-          loadPublicPoints: _api.observatoryPublicPoints,
         ),
       ),
     );
@@ -615,13 +626,6 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
 
   Widget _shellToolPage(_ShellTool tool) {
     switch (tool) {
-      case _ShellTool.ubicaciones:
-        return GeoSmartScreen(
-          points: _points,
-          onSelectPoint: _openPoint,
-          showBack: false,
-          loadPublicPoints: _api.observatoryPublicPoints,
-        );
       case _ShellTool.analisis:
         return AnalysisScreen(
           api: _api,
@@ -693,16 +697,14 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
     }
     switch (index) {
       case 0:
-        _openGeo();
-      case 1:
         _openAnalysis();
-      case 2:
+      case 1:
         _openCompliance();
-      case 3:
+      case 2:
         _openAssistant();
-      case 4:
+      case 3:
         _openSupport();
-      case 5:
+      case 4:
         _openReports();
     }
   }
@@ -741,11 +743,12 @@ class _DashboardTab extends StatefulWidget {
     required this.refreshing,
     required this.startOnMap,
     required this.onViewChanged,
+    required this.mapLayers,
+    required this.onMapLayersChanged,
     required this.points,
     required this.openTickets,
     required this.compliance,
     required this.bottomInset,
-    required this.askBar,
     required this.onRefresh,
     required this.onOpenSupport,
     required this.onRequestSupport,
@@ -760,11 +763,12 @@ class _DashboardTab extends StatefulWidget {
   final bool refreshing;
   final bool startOnMap;
   final ValueChanged<bool> onViewChanged;
+  final MapLayers mapLayers;
+  final ValueChanged<MapLayers> onMapLayersChanged;
   final List<Map<String, dynamic>> points;
   final List<Map<String, dynamic>> openTickets;
   final List<Map<String, dynamic>> compliance;
   final double bottomInset;
-  final Widget askBar;
   final Future<void> Function() onRefresh;
   final VoidCallback onOpenSupport;
   final ValueChanged<Map<String, dynamic>> onRequestSupport;
@@ -834,12 +838,13 @@ class _DashboardTabState extends State<_DashboardTab> {
           child: CaptureNetworkMap(
             startOnMap: widget.startOnMap,
             onViewChanged: widget.onViewChanged,
+            mapLayers: widget.mapLayers,
+            onMapLayersChanged: widget.onMapLayersChanged,
             points: widget.points,
             openTickets: widget.openTickets,
             compliance: widget.compliance,
             onPointSelected: widget.onSelectPoint,
             onRequestSupport: widget.onRequestSupport,
-            askBar: widget.askBar,
             token: widget.token,
             userId: widget.userId,
             onConfigured: widget.onConfigured,

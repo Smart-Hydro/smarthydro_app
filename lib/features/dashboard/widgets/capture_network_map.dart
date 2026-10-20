@@ -10,6 +10,7 @@ import 'package:flutter_map/flutter_map.dart';
 
 import '../../../core/api/smarthydro_api.dart';
 import '../../../core/brand.dart';
+import '../../../core/prefs/map_layers.dart';
 import '../../../shared/ui/hydro_ui.dart';
 import '../../../shared/ui/point_tool_sheet.dart';
 import '../../../shared/widgets/workstation_backdrop.dart';
@@ -96,11 +97,19 @@ class CaptureNetworkMap extends StatelessWidget {
     this.seatedWell,
     this.startOnMap = false,
     this.onViewChanged,
+    this.mapLayers,
+    this.onMapLayersChanged,
     super.key,
   });
 
   final List<Map<String, dynamic>> points;
   final ValueChanged<Map<String, dynamic>> onPointSelected;
+
+  /// Capas del mapa guardadas del usuario. Nulas, las de por defecto.
+  final MapLayers? mapLayers;
+
+  /// Avisa cada cambio del panel de capas, para guardarlo.
+  final ValueChanged<MapLayers>? onMapLayersChanged;
 
   /// Abre en el mapa de ubicaciones, como el observatorio, en vez de la red.
   /// Si cambia después (la preferencia llegó del disco), la vista lo sigue.
@@ -173,6 +182,8 @@ class CaptureNetworkMap extends StatelessWidget {
       seatedWell: seatedWell,
       startOnMap: startOnMap,
       onViewChanged: onViewChanged,
+      mapLayers: mapLayers,
+      onMapLayersChanged: onMapLayersChanged,
     );
   }
 }
@@ -197,12 +208,16 @@ class _WaterView extends StatefulWidget {
     this.seatedWell,
     this.startOnMap = false,
     this.onViewChanged,
+    this.mapLayers,
+    this.onMapLayersChanged,
   });
 
   final List<Map<String, dynamic>> points;
   final ValueChanged<Map<String, dynamic>> onOpen;
   final bool startOnMap;
   final ValueChanged<bool>? onViewChanged;
+  final MapLayers? mapLayers;
+  final ValueChanged<MapLayers>? onMapLayersChanged;
   final List<Map<String, dynamic>> openTickets;
   final List<Map<String, dynamic>> compliance;
   final ValueChanged<Map<String, dynamic>>? onRequestSupport;
@@ -244,6 +259,32 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
   bool? _apiOnline;
   bool _showLocations = false;
 
+  /// Tarjetas y variables del panel de capas.
+  late MapLayers _layers = widget.mapLayers ?? const MapLayers();
+
+  void _setLayers(MapLayers next) {
+    if (next == _layers) return;
+    setState(() => _layers = next);
+    widget.onMapLayersChanged?.call(next);
+  }
+
+  /// En el teléfono el panel tapa medio mapa: abre recogido y no se guarda.
+  bool _phonePanelOpen = false;
+
+  static const _panelRight = 16.0;
+  static const _panelTop = 8.0;
+  final GlobalKey _panelKey = GlobalKey();
+
+  /// Lo que ocupa el panel de capas. Las tarjetas no se meten debajo.
+  Size _panelSize = Size.zero;
+
+  void _syncPanel() {
+    final box = _panelKey.currentContext?.findRenderObject() as RenderBox?;
+    final next = box != null && box.hasSize ? box.size : Size.zero;
+    if (next == _panelSize) return;
+    setState(() => _panelSize = next);
+  }
+
   /// Zoom pedido. El que se ve va detrás, para que crezca y no salte.
   double _zoomTarget = captureSchemeZoomMin;
   double _shownZoom = captureSchemeZoomMin;
@@ -269,6 +310,10 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
   final GlobalKey _stackKey = GlobalKey();
   final GlobalKey _headerKey = GlobalKey();
   double _askBand = 0;
+
+  /// Punto elegido en la pantalla del mapa. Cambia con cada arrastre: la
+  /// ficha lo sigue sin reconstruir la red.
+  final ValueNotifier<Offset?> _mapSpot = ValueNotifier<Offset?>(null);
 
   bool _isWide(BuildContext context) => MediaQuery.sizeOf(context).width >= 980;
 
@@ -365,6 +410,19 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
         _assemble.value = 1;
       }
     }
+    // El refresco puede traer los puntos en otro orden: el elegido se busca
+    // por su id, para no saltar a otro punto ni mover el mapa hacia él.
+    final chosen = _selected;
+    if (chosen != null &&
+        !identical(widget.points, oldWidget.points) &&
+        chosen >= 0 &&
+        chosen < oldWidget.points.length) {
+      final key = capturePointKey(oldWidget.points[chosen]);
+      final next = widget.points.indexWhere(
+        (point) => capturePointKey(point) == key,
+      );
+      _selected = next < 0 ? null : next;
+    }
     if (_selected != null &&
         (_selected! < 0 || _selected! >= widget.points.length)) {
       _selected = null;
@@ -372,6 +430,8 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
     if (widget.startOnMap != oldWidget.startOnMap) {
       _setView(map: widget.startOnMap, notify: false);
     }
+    final layers = widget.mapLayers;
+    if (layers != null && layers != oldWidget.mapLayers) _layers = layers;
     if ((widget.seatedWell != null) == (oldWidget.seatedWell != null)) return;
     _syncTicker();
   }
@@ -397,6 +457,7 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
     _seconds.dispose();
     _assemble.dispose();
     _seat.dispose();
+    _mapSpot.dispose();
     super.dispose();
   }
 
@@ -797,7 +858,9 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
     return LayoutBuilder(
       builder: (context, constraints) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _syncHeader();
+          if (!mounted) return;
+          _syncHeader();
+          _syncPanel();
         });
         final size = Size(constraints.maxWidth, constraints.maxHeight);
         // El encabezado ocupa la franja de arriba. La red empieza debajo.
@@ -948,16 +1011,6 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
               pan: zoomFrozen ? Offset.zero : _shownPan,
               zoom: zoomFrozen ? captureSchemeZoomMin : _shownZoom,
             );
-            // En el mapa, el punto elegido queda al centro: la ficha sale de
-            // ahí con la misma muesca que en la red.
-            final mapBrief = captureBriefSlot(
-              plate: Rect.fromCenter(
-                center: size.center(Offset.zero),
-                width: captureLoggerMarkSize + 12,
-                height: captureLoggerMarkSize + 12,
-              ),
-              bounds: stage,
-            );
             return Stack(
               key: _stackKey,
               fit: StackFit.expand,
@@ -1059,16 +1112,60 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                       points: widget.points,
                       selectedKey: _locationSelectionKey(),
                       tileProvider: widget.locationTiles,
+                      // Con el panel de capas abierto, el encuadre deja
+                      // sus puntos a la izquierda de él.
                       fitPadding: EdgeInsets.fromLTRB(
                         contentLeft + 36,
                         contentTop + 28,
-                        36,
+                        wide && _layers.panelOpen
+                            ? _panelRight + _MapLayersPanel.width + 24
+                            : 36,
                         fieldBottom + captureStatsBand + 36,
                       ),
                       onSelect: (point) {
                         final index = widget.points.indexOf(point);
                         if (index >= 0) _select(index);
                       },
+                      onSelectedSpot: (spot) => _mapSpot.value = spot,
+                      network: false,
+                      loggers: _layers.loggers,
+                      markExtent: captureMapMarkExtent(
+                        loggers: _layers.loggers,
+                        size: _layers.markSize,
+                      ),
+                      readoutOf: _layers.cards
+                          ? (point) => captureMapReadout(point, _layers)
+                          : null,
+                      readoutArea: stage,
+                      keepClearOf: focus != null && wide
+                          ? (spot) => captureBriefSlot(
+                              plate: Rect.fromCenter(
+                                center: spot,
+                                width:
+                                    captureMapMarkExtent(
+                                      loggers: _layers.loggers,
+                                      size: _layers.markSize,
+                                    ) +
+                                    12,
+                                height:
+                                    captureMapMarkExtent(
+                                      loggers: _layers.loggers,
+                                      size: _layers.markSize,
+                                    ) +
+                                    12,
+                              ),
+                              bounds: stage,
+                            ).rect
+                          : null,
+                      readoutBlocks: [
+                        if (_panelSize != Size.zero)
+                          Rect.fromLTWH(
+                            size.width - _panelRight - _panelSize.width,
+                            contentTop + _panelTop,
+                            _panelSize.width,
+                            _panelSize.height,
+                          ).inflate(6),
+                      ],
                     ),
                   ),
                 // Después del mapa: con el mapa de borde a borde, el título
@@ -1161,23 +1258,57 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                     ),
                   ),
                 if (focus != null && !viewingScheme && wide)
-                  Positioned(
-                    key: const ValueKey('capture-board-brief'),
-                    left: mapBrief.rect.left,
-                    top: mapBrief.rect.top,
-                    width: captureBriefWidth,
-                    height: captureBriefHeight,
-                    child: _BriefPop(
-                      reveal: _seat,
-                      motion: _motion,
-                      side: mapBrief.side,
-                      aim: mapBrief.aim,
-                      child: _briefFor(
-                        focus,
-                        side: mapBrief.side,
-                        aim: mapBrief.aim,
-                      ),
-                    ),
+                  ValueListenableBuilder<Offset?>(
+                    valueListenable: _mapSpot,
+                    builder: (context, spot, _) {
+                      // La ficha sale del punto con la misma muesca que en la
+                      // red. Hasta saber dónde quedó, se asume al centro.
+                      final center = spot ?? size.center(Offset.zero);
+                      final mark =
+                          captureMapMarkExtent(
+                            loggers: _layers.loggers,
+                            size: _layers.markSize,
+                          ) +
+                          12;
+                      final mapBrief = captureBriefSlot(
+                        plate: Rect.fromCenter(
+                          center: center,
+                          width: mark,
+                          height: mark,
+                        ),
+                        bounds: stage,
+                      );
+                      // Si el punto sale de la vista, la ficha se esconde
+                      // sin perder lo que ya cargó.
+                      final hidden = spot != null && !stage.contains(spot);
+                      return Positioned(
+                        key: const ValueKey('capture-board-brief'),
+                        left: mapBrief.rect.left,
+                        top: mapBrief.rect.top,
+                        width: captureBriefWidth,
+                        height: captureBriefHeight,
+                        child: IgnorePointer(
+                          ignoring: hidden,
+                          child: AnimatedOpacity(
+                            opacity: hidden ? 0 : 1,
+                            duration: _motion
+                                ? const Duration(milliseconds: 140)
+                                : Duration.zero,
+                            child: _BriefPop(
+                              reveal: _seat,
+                              motion: _motion,
+                              side: mapBrief.side,
+                              aim: mapBrief.aim,
+                              child: _briefFor(
+                                focus,
+                                side: mapBrief.side,
+                                aim: mapBrief.aim,
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 if (focus != null && !wide)
                   Positioned(
@@ -1246,6 +1377,29 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                           ),
                         ],
                       ],
+                    ),
+                  ),
+                if (_showLocations && widget.points.isNotEmpty)
+                  Positioned(
+                    right: _panelRight,
+                    top: contentTop + _panelTop,
+                    child: KeyedSubtree(
+                      key: _panelKey,
+                      child: _MapLayersPanel(
+                        layers: _layers,
+                        open: wide ? _layers.panelOpen : _phonePanelOpen,
+                        onOpen: (open) {
+                          if (wide) {
+                            _setLayers(_layers.copyWith(panelOpen: open));
+                          } else {
+                            setState(() => _phonePanelOpen = open);
+                          }
+                        },
+                        onChanged: _setLayers,
+                        hasCodes: widget.points.any(
+                          (point) => captureWorkCode(point) != null,
+                        ),
+                      ),
                     ),
                   ),
                 if (_statsOpen)
@@ -4249,6 +4403,509 @@ class _SchemeMode extends StatelessWidget {
   }
 }
 
+/// Panel de capas del mapa, a la derecha: tarjetas, dibujo del logger
+/// y qué variables llevan. Recogido queda en un botón.
+class _MapLayersPanel extends StatelessWidget {
+  const _MapLayersPanel({
+    required this.layers,
+    required this.open,
+    required this.onOpen,
+    required this.onChanged,
+    this.hasCodes = false,
+  });
+
+  final MapLayers layers;
+  final bool open;
+  final ValueChanged<bool> onOpen;
+  final ValueChanged<MapLayers> onChanged;
+
+  /// Algún punto trae código de obra. Si ninguno, CO y Ambos no se eligen.
+  final bool hasCodes;
+
+  static const width = 224.0;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!open) {
+      return Tooltip(
+        message: 'Mostrar las capas del mapa',
+        child: Material(
+          key: const ValueKey('capture-layers-toggle'),
+          color: const Color(0xD6081216),
+          borderRadius: BorderRadius.circular(17),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(17),
+            onTap: () => onOpen(true),
+            child: const SizedBox(
+              height: 34,
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.layers_outlined,
+                      size: 16,
+                      color: IkoluColors.connected,
+                    ),
+                    SizedBox(width: 6),
+                    Text(
+                      'Capas',
+                      style: TextStyle(
+                        color: Color(0xFFE7F4F2),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        height: 1,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    final cards = layers.cards;
+    return Material(
+      type: MaterialType.transparency,
+      child: Container(
+        key: const ValueKey('capture-layers-panel'),
+        width: width,
+        padding: const EdgeInsets.fromLTRB(12, 8, 6, 10),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xF21A3036), Color(0xF20A1418)],
+          ),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0x597EE0D0)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x2E7EE0D0),
+              blurRadius: 16,
+              offset: Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.layers_outlined,
+                  size: 15,
+                  color: IkoluColors.connected,
+                ),
+                const SizedBox(width: 6),
+                const Expanded(
+                  child: Text(
+                    'Capas del mapa',
+                    style: TextStyle(
+                      color: Color(0xFFF4FEFF),
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Tooltip(
+                  message: 'Recoger las capas',
+                  child: InkWell(
+                    key: const ValueKey('capture-layers-toggle'),
+                    customBorder: const CircleBorder(),
+                    onTap: () => onOpen(false),
+                    child: const SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: Icon(
+                        Icons.close_rounded,
+                        size: 16,
+                        color: Color(0xFF8FA3A4),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            _LayerSwitch(
+              key: const ValueKey('capture-layer-cards'),
+              icon: Icons.sticky_note_2_outlined,
+              label: 'Tarjetas de los puntos',
+              on: cards,
+              onChanged: (on) => onChanged(layers.copyWith(cards: on)),
+            ),
+            _LayerSwitch(
+              key: const ValueKey('capture-layer-loggers'),
+              icon: Icons.cell_tower_outlined,
+              label: 'Dibujo del logger',
+              on: layers.loggers,
+              onChanged: (on) => onChanged(layers.copyWith(loggers: on)),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(0, 8, 6, 4),
+              child: Text(
+                'Tamaño de la marca',
+                style: TextStyle(
+                  color: Color(0xFF8FA3A4),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.2,
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: _MarkSizeChoice(
+                value: layers.markSize,
+                onChanged: (size) => onChanged(layers.copyWith(markSize: size)),
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(0, 8, 6, 4),
+              child: Text(
+                'Título de las tarjetas',
+                style: TextStyle(
+                  color: Color(0xFF8FA3A4),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.2,
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: _TitleChoice(
+                value: hasCodes ? layers.title : MapCardTitle.name,
+                enabled: cards,
+                hasCodes: hasCodes,
+                onChanged: (title) => onChanged(layers.copyWith(title: title)),
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(0, 8, 6, 2),
+              child: Text(
+                'Variables en las tarjetas',
+                style: TextStyle(
+                  color: Color(0xFF8FA3A4),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.2,
+                ),
+              ),
+            ),
+            _LayerSwitch(
+              key: const ValueKey('capture-layer-flow'),
+              label: 'Caudal',
+              unit: 'L/s',
+              on: layers.flow,
+              enabled: cards,
+              onChanged: (on) => onChanged(layers.copyWith(flow: on)),
+            ),
+            _LayerSwitch(
+              key: const ValueKey('capture-layer-level'),
+              label: 'Nivel',
+              unit: 'm',
+              on: layers.level,
+              enabled: cards,
+              onChanged: (on) => onChanged(layers.copyWith(level: on)),
+            ),
+            _LayerSwitch(
+              key: const ValueKey('capture-layer-today'),
+              label: 'Consumo de hoy',
+              unit: 'm³',
+              on: layers.today,
+              enabled: cards,
+              onChanged: (on) => onChanged(layers.copyWith(today: on)),
+            ),
+            _LayerSwitch(
+              key: const ValueKey('capture-layer-total'),
+              label: 'Acumulado',
+              unit: 'm³',
+              on: layers.total,
+              enabled: cards,
+              onChanged: (on) => onChanged(layers.copyWith(total: on)),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(0, 6, 6, 0),
+              child: Text(
+                'Cada tarjeta muestra solo las variables activas de su punto.',
+                style: TextStyle(
+                  color: Color(0xFF6F8384),
+                  fontSize: 9.5,
+                  height: 1.3,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Nombre, código de obra (CO) o ambos en el título de cada tarjeta.
+class _TitleChoice extends StatelessWidget {
+  const _TitleChoice({
+    required this.value,
+    required this.enabled,
+    required this.hasCodes,
+    required this.onChanged,
+  });
+
+  final MapCardTitle value;
+  final bool enabled;
+  final bool hasCodes;
+  final ValueChanged<MapCardTitle> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 28,
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0B171B),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          _option(MapCardTitle.name, 'Nombre', 'Nombre del punto'),
+          _option(MapCardTitle.code, 'CO', 'Código de obra'),
+          _option(MapCardTitle.both, 'Ambos', 'Nombre y código de obra'),
+        ],
+      ),
+    );
+  }
+
+  Widget _option(MapCardTitle option, String label, String hint) {
+    final needsCode = option != MapCardTitle.name;
+    final usable = enabled && (!needsCode || hasCodes);
+    final active = enabled && value == option;
+    return Expanded(
+      child: Tooltip(
+        message: needsCode && !hasCodes
+            ? 'Ningún punto tiene código de obra'
+            : hint,
+        child: Semantics(
+          button: true,
+          selected: active,
+          enabled: usable,
+          label: hint,
+          child: InkWell(
+            key: ValueKey('capture-layer-title-${option.name}'),
+            borderRadius: BorderRadius.circular(12),
+            onTap: usable ? () => onChanged(option) : null,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: active ? const Color(0xFF14343C) : null,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Center(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: active
+                        ? const Color(0xFF7EE0D0)
+                        : usable
+                        ? const Color(0xFFB7C8C6)
+                        : const Color(0xFF4F6163),
+                    fontSize: 11,
+                    fontWeight: active ? FontWeight.w700 : FontWeight.w600,
+                    height: 1,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Chico o grande, a medida real. No hay escalas intermedias.
+class _MarkSizeChoice extends StatelessWidget {
+  const _MarkSizeChoice({required this.value, required this.onChanged});
+
+  final MapMarkSize value;
+  final ValueChanged<MapMarkSize> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 28,
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0B171B),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          _option(MapMarkSize.compact, 'Chico', 'Marca chica'),
+          _option(MapMarkSize.full, 'Grande', 'Marca grande'),
+        ],
+      ),
+    );
+  }
+
+  Widget _option(MapMarkSize option, String label, String hint) {
+    final active = value == option;
+    return Expanded(
+      child: Tooltip(
+        message: hint,
+        child: Semantics(
+          button: true,
+          selected: active,
+          label: hint,
+          child: InkWell(
+            key: ValueKey('capture-layer-mark-${option.name}'),
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => onChanged(option),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: active ? const Color(0xFF14343C) : null,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Center(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: active
+                        ? const Color(0xFFE7F4F2)
+                        : const Color(0xFF8FA3A4),
+                    fontSize: 11,
+                    fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                    height: 1,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LayerSwitch extends StatelessWidget {
+  const _LayerSwitch({
+    required this.label,
+    required this.on,
+    required this.onChanged,
+    this.icon,
+    this.unit,
+    this.enabled = true,
+    super.key,
+  });
+
+  final String label;
+  final bool on;
+  final ValueChanged<bool> onChanged;
+  final IconData? icon;
+  final String? unit;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final active = enabled && on;
+    final text = enabled ? const Color(0xFFE7F4F2) : const Color(0xFF5C6E70);
+    return Semantics(
+      toggled: on,
+      enabled: enabled,
+      label: unit == null ? label : '$label en $unit',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: enabled ? () => onChanged(!on) : null,
+        child: SizedBox(
+          height: 30,
+          child: Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: Row(
+              children: [
+                if (icon != null) ...[
+                  Icon(
+                    icon,
+                    size: 15,
+                    color: active
+                        ? IkoluColors.connected
+                        : const Color(0xFF8FA3A4),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                Expanded(
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: text,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      if (unit != null) ...[
+                        const SizedBox(width: 6),
+                        Text(
+                          unit!,
+                          style: TextStyle(
+                            color: text.withValues(alpha: 0.6),
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _MiniSwitch(on: active),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MiniSwitch extends StatelessWidget {
+  const _MiniSwitch({required this.on});
+
+  final bool on;
+
+  @override
+  Widget build(BuildContext context) {
+    final motion = !MediaQuery.disableAnimationsOf(context);
+    return AnimatedContainer(
+      duration: motion ? const Duration(milliseconds: 160) : Duration.zero,
+      width: 26,
+      height: 14,
+      padding: const EdgeInsets.all(2),
+      alignment: on ? Alignment.centerRight : Alignment.centerLeft,
+      decoration: BoxDecoration(
+        color: on
+            ? IkoluColors.connected.withValues(alpha: 0.35)
+            : const Color(0xFF1B2B30),
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: on ? IkoluColors.connected : const Color(0xFF8FA3A4),
+          shape: BoxShape.circle,
+        ),
+        child: const SizedBox(width: 10, height: 10),
+      ),
+    );
+  }
+}
+
 /// Pasa un rect del esquema (coordenadas del tablero) a la pantalla.
 /// `pantalla = ancla + pan + (contenido - ancla) * zoom`.
 @visibleForTesting
@@ -5957,7 +6614,6 @@ class _PointConfigLayer extends StatelessWidget {
               child: GestureDetector(
                 onTap: onClose,
                 behavior: HitTestBehavior.opaque,
-                child: const ColoredBox(color: Color(0xB3081216)),
               ),
             ),
             Center(
@@ -6547,6 +7203,118 @@ String captureVariableLabel(Map<String, dynamic> point) {
   ];
   if (found.isEmpty) return 'Sin variables';
   return found.join(' · ');
+}
+
+/// Consumo del día en m³. Prefiere `total_today_diff` de la última
+/// telemetría; si el resumen no lo trae, se estima con el caudal de hoy
+/// (L/s × 3,6 × horas desde medianoche).
+@visibleForTesting
+double? captureTodayVolume(Map<String, dynamic> point, {DateTime? now}) {
+  final telemetry = point['latest_telemetry'];
+  final direct = _briefNum(
+    telemetry is Map
+        ? telemetry['total_today_diff'] ?? telemetry['consumption_m3']
+        : null,
+  );
+  if (direct != null) return direct;
+  final fromPoint = _briefNum(point['consumption_m3']);
+  if (fromPoint != null) return fromPoint;
+  if (telemetry is! Map) return null;
+  final flow = captureFlowOf(point);
+  final at = DateTime.tryParse(
+    '${telemetry['date_time_medition']}',
+  )?.toLocal();
+  final clock = now ?? DateTime.now();
+  if (flow == null || at == null || !_sameDay(at, clock)) return null;
+  final start = DateTime(clock.year, clock.month, clock.day);
+  final hours = clock.difference(start).inSeconds / 3600.0;
+  if (hours <= 0) return 0;
+  return flow * 3.6 * hours;
+}
+
+/// Tarjeta del mapa: la última lectura de cada variable activa del punto,
+/// solo las que el panel de capas deja encendidas. Cada número lleva su
+/// nombre: consumo de hoy y acumulado van ambos en m³.
+@visibleForTesting
+CaptureReadoutCard? captureMapReadout(
+  Map<String, dynamic> point, [
+  MapLayers layers = const MapLayers(),
+  DateTime? now,
+]) {
+  final telemetry = point['latest_telemetry'];
+  final channels = captureBriefChannels(point);
+  final items = <CaptureReadout>[];
+  if (telemetry is Map) {
+    if (channels.flow && layers.flow) {
+      final flow = captureFlowOf(point);
+      if (flow != null) {
+        items.add(
+          CaptureReadout(
+            label: 'Caudal',
+            short: 'Caudal',
+            value: captureBriefNumber(flow),
+            unit: 'L/s',
+          ),
+        );
+      }
+    }
+    if (channels.level && layers.level) {
+      final level = _briefNum(telemetry['water_table'] ?? telemetry['nivel']);
+      if (level != null) {
+        items.add(
+          CaptureReadout(
+            label: 'Nivel',
+            short: 'Nivel',
+            value: captureBriefNumber(level),
+            unit: 'm',
+          ),
+        );
+      }
+    }
+    if (layers.today) {
+      final today = captureTodayVolume(point, now: now);
+      if (today != null) {
+        items.add(
+          CaptureReadout(
+            label: 'Consumo hoy',
+            short: 'Hoy',
+            value: captureBriefNumber(today),
+            unit: 'm³',
+          ),
+        );
+      }
+    }
+    if (channels.total && layers.total) {
+      final total = _briefNum(telemetry['total'] ?? telemetry['total_raw']);
+      if (total != null) {
+        items.add(
+          CaptureReadout(
+            label: 'Acumulado',
+            short: 'Acum.',
+            value: captureBriefNumber(total),
+            unit: 'm³',
+          ),
+        );
+      }
+    }
+  }
+  final code = captureWorkCode(point);
+  final card = switch (layers.title) {
+    MapCardTitle.code when code != null => CaptureReadoutCard(
+      code: code,
+      items: items,
+    ),
+    MapCardTitle.both => CaptureReadoutCard(
+      title: _title(point),
+      code: code,
+      items: items,
+    ),
+    _ => CaptureReadoutCard(title: _title(point), items: items),
+  };
+  if (card.items.isEmpty && card.title == null && card.code == null) {
+    return null;
+  }
+  return card;
 }
 
 /// Medición corta junto al nombre: caudal, o la hora si no hay caudal.

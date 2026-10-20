@@ -8,9 +8,12 @@ import '../../core/api/smarthydro_api.dart';
 import '../../core/brand.dart';
 import '../../core/n1/n1_api.dart';
 import '../../core/n1/n1_identity.dart';
+import '../../core/n1/n1_memory.dart';
 import '../../core/n1/n1_models.dart';
+import '../../core/n1/n1_present.dart';
 import '../../shared/ui/hydro_ui.dart';
 import 'n1_buddy.dart';
+import 'n1_message_body.dart';
 
 enum _ChatRole { user, assistant, system }
 
@@ -34,6 +37,7 @@ class _ChatMessage {
   /// Para reconsultar jobs ⏳ (ask / report / list_files).
   final String? requeryOp;
   final Map<String, dynamic>? requeryPayload;
+  int polls = 0;
 }
 
 /// Pantalla Asistente N1 (chat) — ask, report, list_files, create_ticket.
@@ -63,12 +67,17 @@ class _AssistantScreenState extends State<AssistantScreen> {
   final _messages = <_ChatMessage>[];
   late final String _sessionId;
   bool _busy = false;
+  bool _polling = false;
   Timer? _pollTimer;
+  static const _pollEvery = Duration(seconds: 2);
+  static const _maxPolls = 8;
 
   String get _token => widget.session.token;
   String get _email => widget.session.email.trim().toLowerCase();
   String get _who => widget.session.fullName;
+  int? get _userId => int.tryParse('${widget.session.user['id']}');
   List<String> get _clients => n1ClientNamesOf(widget.points);
+  List<String> get _pointNames => n1PointNamesOf(widget.points);
   List<int> get _pointIds => widget.points
       .map((p) => p['id'])
       .map((id) => id is int ? id : int.tryParse('$id'))
@@ -78,17 +87,54 @@ class _AssistantScreenState extends State<AssistantScreen> {
   @override
   void initState() {
     super.initState();
-    _sessionId = 'sh-app-${DateTime.now().millisecondsSinceEpoch}';
-    _messages.add(
-      _ChatMessage(
-        role: _ChatRole.system,
-        text: widget.n1Api.isConfigured
-            ? (_who.isEmpty
-                  ? 'Soy SmartHydro N1. Ya veo tu sesión y tus puntos. Pregúntame por el estado, un reporte, archivos o un ticket.'
-                  : 'Hola $_who. Soy SmartHydro N1. Ya sé quién eres y tus puntos; no hace falta presentarte. Pregúntame por el estado, un reporte, archivos o un ticket.')
-            : 'N1 no está configurado. Compila con --dart-define=N1_WEB_APP_URL=<url /exec de la Web App>.',
-      ),
-    );
+    _sessionId = N1Memory.sessionId(userId: _userId, email: _email);
+    _messages.add(_ChatMessage(role: _ChatRole.system, text: _hello()));
+    unawaited(_restore());
+  }
+
+  String _hello() {
+    if (!widget.n1Api.isConfigured) {
+      return 'N1 no está configurado. Compila con --dart-define=N1_WEB_APP_URL=<url /exec de la Web App>.';
+    }
+    final n = widget.points.length;
+    final clientBit = _clients.isEmpty ? '' : ' de ${_clients.join(', ')}';
+    final pointsBit = n <= 0
+        ? ''
+        : n == 1
+        ? ' Veo 1 punto$clientBit.'
+        : ' Veo $n puntos$clientBit.';
+    if (_who.isEmpty) {
+      return 'Soy SmartHydro N1.$pointsBit Pregúntame cuando quieras; esta conversación queda aquí.';
+    }
+    return 'Hola $_who. Soy SmartHydro N1.$pointsBit Recuerdo este hilo y tus puntos; no hace falta presentarte.';
+  }
+
+  Future<void> _restore() async {
+    final saved = await N1Memory.load(_userId);
+    if (!mounted || saved.isEmpty) return;
+    setState(() {
+      _messages
+        ..clear()
+        ..addAll([
+          for (final turn in saved)
+            _ChatMessage(
+              role: _ChatRole.values.firstWhere(
+                (role) => role.name == turn.role,
+                orElse: () => _ChatRole.assistant,
+              ),
+              text: turn.text,
+            ),
+        ]);
+    });
+    _scrollToEnd();
+  }
+
+  Future<void> _persist() async {
+    await N1Memory.save(_userId, [
+      for (final message in _messages)
+        if (!message.pending)
+          N1ChatTurn(role: message.role.name, text: message.text),
+    ]);
   }
 
   @override
@@ -131,7 +177,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
     final pendingBubble = _ChatMessage(
       role: _ChatRole.assistant,
-      text: '…',
+      text: 'Consultando tus puntos…',
       pending: true,
       requeryOp: 'ask',
       requeryPayload: {'text': text},
@@ -148,6 +194,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
         pointsAllowed: _pointIds.isEmpty ? null : _pointIds,
         name: _who,
         clients: _clients,
+        pointNames: _pointNames.isEmpty ? null : _pointNames,
       );
       _applyResult(pendingBubble, result);
     } on N1ApiException catch (error) {
@@ -258,7 +305,10 @@ class _AssistantScreenState extends State<AssistantScreen> {
     } on N1ApiException catch (error) {
       _failBubble(bubble, error);
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() => _busy = false);
+        unawaited(_persist());
+      }
       _scrollToEnd();
     }
   }
@@ -338,9 +388,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
     }.toList(growable: false);
     setState(() {
       bubble.pending = result.isPending;
-      bubble.text = result.text.trim().isEmpty
-          ? (result.note ?? 'Sin texto de respuesta.')
-          : result.text;
+      bubble.text = _shownReply(result);
       bubble.links = urls;
       bubble.ticketId = result.ticketId;
     });
@@ -348,7 +396,18 @@ class _AssistantScreenState extends State<AssistantScreen> {
       _scheduleRequery(bubble);
     } else {
       _pollTimer?.cancel();
+      unawaited(_persist());
     }
+  }
+
+  String _shownReply(N1Response result) {
+    final raw = result.text.trim();
+    if (result.isPending && (raw.isEmpty || raw.startsWith('⏳'))) {
+      return 'Consultando tus puntos…';
+    }
+    final shown = n1PresentText(raw);
+    if (shown.isEmpty) return result.note ?? 'Sin texto de respuesta.';
+    return shown;
   }
 
   void _failBubble(_ChatMessage bubble, N1ApiException error) {
@@ -360,6 +419,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
           ? error.message
           : '${error.message} (${error.code})';
     });
+    unawaited(_persist());
   }
 
   void _appendError(String message) {
@@ -372,6 +432,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
         ),
       );
     });
+    unawaited(_persist());
     _scrollToEnd();
   }
 
@@ -387,15 +448,18 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
   void _scheduleRequery(_ChatMessage bubble) {
     _pollTimer?.cancel();
-    _pollTimer = Timer(const Duration(seconds: 8), () {
+    if (bubble.polls >= _maxPolls) return;
+    _pollTimer = Timer(_pollEvery, () {
       if (!mounted || bubble.requeryOp == null) return;
-      _requery(bubble);
+      unawaited(_requery(bubble));
     });
   }
 
-  Future<void> _requery(_ChatMessage bubble) async {
-    if (_busy || bubble.requeryOp == null) return;
-    setState(() => _busy = true);
+  Future<void> _requery(_ChatMessage bubble, {bool fromUser = false}) async {
+    if (bubble.requeryOp == null || _polling) return;
+    if (_busy && !fromUser) return;
+    if (fromUser) bubble.polls = 0;
+    _polling = true;
     try {
       final op = bubble.requeryOp!;
       final payload = bubble.requeryPayload ?? const {};
@@ -409,6 +473,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
           pointsAllowed: _pointIds.isEmpty ? null : _pointIds,
           name: _who,
           clients: _clients,
+          pointNames: _pointNames.isEmpty ? null : _pointNames,
         );
       } else if (op == 'report') {
         result = await widget.n1Api.report(
@@ -423,35 +488,31 @@ class _AssistantScreenState extends State<AssistantScreen> {
       } else {
         return;
       }
+      bubble.polls += 1;
       _applyResult(bubble, result);
-      if (result.isPending) {
-        // Tras un ⏳ de reporte, también consultar list_files por si ya hay link.
-        if (op == 'report') {
-          try {
-            final files = await widget.n1Api.listFiles(
-              token: _token,
-              requester: _email,
-            );
-            final links = files.files
-                .where((f) => f.hasUrl)
-                .map((f) => f.url)
-                .toList(growable: false);
-            if (links.isNotEmpty && mounted) {
-              setState(() {
-                bubble.links = {...bubble.links, ...links}.toList();
-                if (!result.isPending) bubble.pending = false;
-              });
-            }
-          } on N1ApiException {
-            // list_files opcional en el ciclo de reconsulta
+      if (result.isPending && op == 'report') {
+        try {
+          final files = await widget.n1Api.listFiles(
+            token: _token,
+            requester: _email,
+          );
+          final links = files.files
+              .where((f) => f.hasUrl)
+              .map((f) => f.url)
+              .toList(growable: false);
+          if (links.isNotEmpty && mounted) {
+            setState(() {
+              bubble.links = {...bubble.links, ...links}.toList();
+            });
           }
+        } on N1ApiException {
+          // list_files opcional en el ciclo de reconsulta
         }
-        _scheduleRequery(bubble);
       }
     } on N1ApiException catch (error) {
       _failBubble(bubble, error);
     } finally {
-      if (mounted) setState(() => _busy = false);
+      _polling = false;
       _scrollToEnd();
     }
   }
@@ -524,7 +585,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
         mood: _mood,
       ),
       subtitle: const Text(
-        'Asistente',
+        'Conversación continua',
         style: TextStyle(
           color: Color(0xFF9AB0B1),
           fontSize: 11,
@@ -575,7 +636,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                   mood: _mood,
                   onOpenUrl: _openUrl,
                   onRequery: msg.pending && msg.requeryOp != null
-                      ? () => _requery(msg)
+                      ? () => _requery(msg, fromUser: true)
                       : null,
                 );
               },
@@ -601,7 +662,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                       Expanded(
                         child: TextField(
                           controller: _controller,
-                          enabled: canSend,
+                          enabled: widget.n1Api.isConfigured,
                           minLines: 1,
                           maxLines: 4,
                           textInputAction: TextInputAction.send,
@@ -757,7 +818,7 @@ class _ChatBubble extends StatelessWidget {
                     ),
                     SizedBox(width: 8),
                     Text(
-                      '⏳ En curso…',
+                      'Consultando tus puntos…',
                       style: TextStyle(
                         color: Color(0xFFFFC46B),
                         fontSize: 12,
@@ -767,15 +828,21 @@ class _ChatBubble extends StatelessWidget {
                   ],
                 ),
               ),
-            SelectableText(
-              message.text,
-              style: TextStyle(
-                color: message.errorCode != null
-                    ? const Color(0xFFFFA39B)
-                    : const Color(0xFFE8F2F1),
-                height: 1.4,
-              ),
-            ),
+            if (!_isPendingPlaceholder(message))
+              isUser || isSystem
+                  ? SelectableText(
+                      message.text,
+                      style: TextStyle(
+                        color: message.errorCode != null
+                            ? const Color(0xFFFFA39B)
+                            : const Color(0xFFE8F2F1),
+                        height: 1.45,
+                      ),
+                    )
+                  : N1MessageBody(
+                      text: message.text,
+                      error: message.errorCode != null,
+                    ),
             if (message.ticketId != null) ...[
               const SizedBox(height: 8),
               Row(
@@ -857,6 +924,15 @@ class _ChatBubble extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  static bool _isPendingPlaceholder(_ChatMessage message) {
+    if (!message.pending) return false;
+    final text = message.text.trim();
+    return text.isEmpty ||
+        text == 'Consultando tus puntos…' ||
+        text == '…' ||
+        text.startsWith('⏳');
   }
 
   static String _shortUrl(String url) {

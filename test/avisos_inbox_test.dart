@@ -30,6 +30,7 @@ void main() {
     String? eventsError,
     ValueChanged<int>? onOpenPoint,
     int? lockedPointId,
+    bool loading = false,
   }) {
     return tester.pumpWidget(
       MaterialApp(
@@ -37,7 +38,7 @@ void main() {
           body: AvisosInbox(
             summary: summary,
             events: events,
-            loading: false,
+            loading: loading,
             eventsError: eventsError,
             onRefresh: () async {},
             onOpenPoint: onOpenPoint,
@@ -326,6 +327,42 @@ void main() {
     expect(find.text('Sin enlace'), findsOneWidget);
     expect(find.text('Salto de caudal'), findsNothing);
     expect(find.text('Punto de captación'), findsNothing);
+  });
+
+  testWidgets('en carga no aparecen críticas ni calma', (tester) async {
+    await pump(tester, loading: true);
+
+    expect(find.byKey(const ValueKey('aviso-skeleton')), findsOneWidget);
+    expect(find.text('Críticas'), findsNothing);
+    expect(find.text('Atención'), findsNothing);
+    expect(find.text('No hay críticas'), findsNothing);
+    expect(find.text('La consola está en calma'), findsNothing);
+  });
+
+  testWidgets('al llegar solo advertencias no queda el corte de críticas', (
+    tester,
+  ) async {
+    await pump(tester, loading: true);
+    expect(find.text('No hay críticas'), findsNothing);
+
+    await pump(
+      tester,
+      events: [
+        event(
+          id: 4,
+          severity: 'WARNING',
+          title: 'Salto de caudal',
+          type: 'MASSIVE_JUMP_BLOCKED',
+        ),
+      ],
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.byKey(const ValueKey('aviso-skeleton')), findsNothing);
+    expect(find.text('Salto de caudal'), findsOneWidget);
+    expect(find.text('No hay críticas'), findsNothing);
+    expect(find.byKey(const ValueKey('aviso-lens-attention')), findsOneWidget);
   });
 
   testWidgets('un error no se disfraza de calma', (tester) async {

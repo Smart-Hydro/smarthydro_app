@@ -360,6 +360,7 @@ class _AnalysisScreenState extends State<AnalysisScreen>
         final timeline = !(hasFlowSeries || hasLevelSeries)
             ? null
             : Column(
+                key: const Key('analysis-timeline'),
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -408,6 +409,7 @@ class _AnalysisScreenState extends State<AnalysisScreen>
         final hourly = !hasFlowSeries
             ? null
             : Column(
+                key: const Key('analysis-hourly'),
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -485,7 +487,7 @@ class _AnalysisScreenState extends State<AnalysisScreen>
                   reveal(
                     Row(
                       key: const Key('analysis-charts-wide'),
-                      crossAxisAlignment: CrossAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Expanded(child: timeline),
                         const SizedBox(width: 32),

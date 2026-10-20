@@ -81,6 +81,15 @@ void main() {
         'estado Iansa P4 (soy Ana)',
       );
       expect(n1DecorateAskText('hola'), 'hola');
+      expect(
+        n1DecorateAskText(
+          'cómo están mis puntos',
+          name: 'Felipe',
+          clients: const ['Riego Chile'],
+          points: const ['Matias Fischer', 'Lecheria'],
+        ),
+        contains('puntos Matias Fischer, Lecheria'),
+      );
     });
 
     test('n1ClientNamesOf deduplica client_name', () {
@@ -229,6 +238,28 @@ void main() {
         );
       },
     );
+
+    test('ask incluye los nombres de los puntos del usuario', () async {
+      late Map<String, dynamic> body;
+      dio.httpClientAdapter = _Adapter((options) async {
+        body = options.data as Map<String, dynamic>;
+        return _json({'ok': true, 'text': 'ok'});
+      });
+
+      await api.ask(
+        token: 'tok-123',
+        requester: 'felipe@riegochile.cl',
+        text: 'cómo están mis puntos',
+        name: 'Felipe',
+        clients: const ['Riego Chile'],
+        pointNames: const ['Matias Fischer', 'Lecheria'],
+      );
+
+      expect(
+        body['text'],
+        contains('puntos Matias Fischer, Lecheria'),
+      );
+    });
 
     test('report pending marca isPending', () async {
       dio.httpClientAdapter = _Adapter((options) async {

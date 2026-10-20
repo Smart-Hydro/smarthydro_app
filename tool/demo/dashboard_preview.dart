@@ -148,7 +148,6 @@ class _PreviewHome extends StatelessWidget {
                           'Avisos',
                           'Tickets',
                         ),
-                        (Icons.map_outlined, 'Ubicaciones', 'Mapa'),
                         (Icons.query_stats_rounded, 'Análisis', '7/30 días'),
                       ])
                         Padding(

@@ -9,7 +9,6 @@ import '../../core/brand.dart';
 
 /// Glifo hidráulico animado. Mismo orden que los atajos de [liquidDesktopApps].
 enum HydroGlyphKind {
-  ubicaciones,
   analisis,
   cumplimiento,
   asistente,
@@ -201,8 +200,6 @@ class HydroGlyphPainter extends CustomPainter {
     final fillInk = Paint()..color = glyph.withValues(alpha: 0.96);
 
     switch (kind) {
-      case HydroGlyphKind.ubicaciones:
-        _paintNetwork(canvas, c, r, ink, fillInk, turn);
       case HydroGlyphKind.analisis:
         _paintWaveBars(canvas, c, r, ink, turn);
       case HydroGlyphKind.cumplimiento:
@@ -251,33 +248,6 @@ class HydroGlyphPainter extends CustomPainter {
     }
     path.close();
     return path;
-  }
-
-  void _paintNetwork(
-    Canvas canvas,
-    Offset c,
-    double r,
-    Paint ink,
-    Paint fill,
-    double turn,
-  ) {
-    final bob = 0.03 * math.sin(turn);
-    final hubs = [
-      Offset(c.dx, c.dy - r * (0.28 + bob)),
-      Offset(c.dx - r * 0.34, c.dy + r * (0.22 - bob * 0.5)),
-      Offset(c.dx + r * 0.34, c.dy + r * (0.22 + bob * 0.5)),
-    ];
-    for (final h in hubs.skip(1)) {
-      canvas.drawLine(hubs.first, h, ink);
-    }
-    final rim = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = ink.strokeWidth
-      ..color = ink.color;
-    for (final h in hubs) {
-      canvas.drawCircle(h, r * 0.11, fill);
-      canvas.drawCircle(h, r * 0.11, rim);
-    }
   }
 
   void _paintWaveBars(

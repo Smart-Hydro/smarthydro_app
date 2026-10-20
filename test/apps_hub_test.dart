@@ -38,6 +38,7 @@ void main() {
 
     expect(find.text('Herramientas para tu red hídrica'), findsOneWidget);
     expect(find.text('Apps'), findsNothing);
+    expect(find.text('Ubicaciones'), findsNothing);
     expect(find.byIcon(Icons.water_drop_outlined), findsNothing);
     expect(find.byKey(const ValueKey('apps-hub-tip')), findsOneWidget);
     expect(find.textContaining('filtrable por punto'), findsWidgets);
@@ -61,10 +62,6 @@ void main() {
     expect(find.textContaining('2 en vigilancia'), findsOneWidget);
     expect(find.textContaining('4 abiertos'), findsOneWidget);
     expect(find.byKey(const ValueKey('apps-hub-wide')), findsOneWidget);
-    expect(
-      find.textContaining('Mapa vivo de captaciones'),
-      findsOneWidget,
-    );
     expect(find.text('por punto'), findsWidgets);
     expect(find.text('DGA'), findsOneWidget);
   });
@@ -83,7 +80,6 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.byKey(const ValueKey('hydro-glyph-ubicaciones')), findsOneWidget);
     expect(find.byKey(const ValueKey('hydro-glyph-analisis')), findsOneWidget);
     expect(find.byType(Icon), findsNothing);
   });

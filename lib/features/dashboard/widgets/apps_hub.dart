@@ -157,19 +157,18 @@ class AppsHub extends StatelessWidget {
   }
 
   static String _metricFor(int index, AppsHubSummary s) => switch (index) {
-    0 => '${s.pointCount} puntos · red completa',
-    1 => '${s.onlineCount} en línea · ${s.attentionCount} con aviso',
-    2 =>
+    0 => '${s.onlineCount} en línea · ${s.attentionCount} con aviso',
+    1 =>
       s.complianceWatchCount == 0
           ? 'Sin alertas DGA'
           : '${s.complianceWatchCount} en vigilancia',
-    3 => 'N1 · contexto de tus puntos',
-    4 =>
+    2 => 'N1 · contexto de tus puntos',
+    3 =>
       s.openTicketCount == 0
           ? 'Sin tickets abiertos'
           : '${s.openTicketCount} abiertos',
-    5 => '${s.pointCount} puntos · export CSV',
-    6 => 'Pronto · reportes de red',
+    4 => '${s.pointCount} puntos · export CSV',
+    5 => 'Pronto · reportes de red',
     _ => '',
   };
 }

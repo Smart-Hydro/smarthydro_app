@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../core/brand.dart';
+import '../../../core/prefs/map_layers.dart';
 import '../point_link.dart';
 
 /// Placa del logger, la misma del esquema del inicio.
@@ -163,6 +164,24 @@ const captureLoggerPlateHeight = 32.0;
 
 /// Dibujo del logger, sin marco. Es la marca del punto en el mapa.
 const captureLoggerMarkSize = 28.0;
+const captureLoggerMarkCompact = 22.0;
+
+/// Punto parpadeante cuando se oculta el dibujo del logger.
+const captureDotMarkSize = 18.0;
+const captureDotMarkCompact = 12.0;
+
+/// Medida real de la marca: dibujo del logger o punto, chico o grande.
+double captureMapMarkExtent({
+  required bool loggers,
+  required MapMarkSize size,
+}) {
+  if (loggers) {
+    return size == MapMarkSize.full
+        ? captureLoggerMarkSize
+        : captureLoggerMarkCompact;
+  }
+  return size == MapMarkSize.full ? captureDotMarkSize : captureDotMarkCompact;
+}
 
 /// Altura de la luz de la antena desde el borde superior del dibujo.
 const captureLoggerAntennaTipY = 3.2;
@@ -199,6 +218,82 @@ class CaptureLoggerGlyph extends StatelessWidget {
   }
 }
 
+/// Punto de estado cuando el dibujo del logger está apagado.
+class CaptureDotMark extends StatelessWidget {
+  const CaptureDotMark({
+    required this.point,
+    required this.selected,
+    required this.onTap,
+    this.tapKey,
+    super.key,
+  });
+
+  final Map<String, dynamic> point;
+  final bool selected;
+  final VoidCallback? onTap;
+  final Key? tapKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _linkColor(point);
+    final surface = _isSurface(point);
+    final kind = surface ? 'superficial' : 'pozo';
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '${_title(point)}, $kind, ${pointLinkLabel(pointLinkOf(point))}',
+      child: MouseRegion(
+        cursor: onTap == null ? MouseCursor.defer : SystemMouseCursors.click,
+        child: GestureDetector(
+          key: tapKey,
+          onTap: onTap,
+          behavior: HitTestBehavior.opaque,
+          child: CustomPaint(
+            painter: _DotPainter(color: color, selected: selected),
+            child: const SizedBox.expand(),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DotPainter extends CustomPainter {
+  const _DotPainter({required this.color, required this.selected});
+
+  final Color color;
+  final bool selected;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = math.min(size.width, size.height) / 2;
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()..color = const Color(0xCC041018),
+    );
+    canvas.drawCircle(
+      center,
+      radius - 1.2,
+      Paint()..color = color.withValues(alpha: selected ? 0.38 : 0.22),
+    );
+    canvas.drawCircle(center, radius * 0.42, Paint()..color = color);
+    canvas.drawCircle(
+      center,
+      radius * 0.42,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = selected ? 1.6 : 1.1
+        ..color = const Color(0xE6F4FEFF).withValues(alpha: selected ? 0.9 : 0.55),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _DotPainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.selected != selected;
+}
+
 class CaptureLoggerMark extends StatelessWidget {
   const CaptureLoggerMark({
     required this.point,
@@ -222,22 +317,28 @@ class CaptureLoggerMark extends StatelessWidget {
       button: true,
       selected: selected,
       label: '${_title(point)}, $kind, ${pointLinkLabel(pointLinkOf(point))}',
-      child: GestureDetector(
-        key: tapKey,
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: CustomPaint(
-          painter: _BeaconPainter(
-            color: color,
-            selected: selected,
-            surface: surface,
+      child: MouseRegion(
+        cursor: onTap == null ? MouseCursor.defer : SystemMouseCursors.click,
+        child: GestureDetector(
+          key: tapKey,
+          onTap: onTap,
+          behavior: HitTestBehavior.opaque,
+          child: CustomPaint(
+            painter: _BeaconPainter(
+              color: color,
+              selected: selected,
+              surface: surface,
+            ),
+            child: const SizedBox.expand(),
           ),
-          child: const SizedBox.expand(),
         ),
       ),
     );
   }
 }
+
+/// Color del estado del enlace: conectado, sin datos o con incidencia.
+Color captureLinkColor(Map<String, dynamic> point) => _linkColor(point);
 
 const captureLoggerNameStyle = TextStyle(
   color: Color(0xFFF4F8F6),

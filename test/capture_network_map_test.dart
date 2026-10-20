@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart' hide Path;
+import 'package:smarthydro_app/core/prefs/map_layers.dart';
 import 'package:smarthydro_app/features/dashboard/point_link.dart';
 import 'package:smarthydro_app/features/dashboard/widgets/capture_logger_plate.dart';
 import 'package:smarthydro_app/features/dashboard/widgets/capture_network_map.dart';
@@ -79,6 +80,34 @@ void main() {
     );
   });
 
+  test('el apex de la malla queda arriba del tramo', () {
+    const a = Offset(0, 40);
+    const b = Offset(200, 40);
+    final apex = captureMeshApex(a, b);
+    expect(apex.dx, closeTo(100, 0.01));
+    expect(apex.dy, lessThan(a.dy));
+    expect(a.dy - apex.dy, closeTo(8, 0.01));
+  });
+
+  test('un tramo corto casi no se levanta; el largo no pasa de 8', () {
+    const shortA = Offset(0, 10);
+    const shortB = Offset(20, 10);
+    final short = captureMeshApex(shortA, shortB);
+    expect(shortA.dy - short.dy, lessThan(3));
+    expect(shortA.dy - short.dy, greaterThan(0));
+
+    const longA = Offset(0, 80);
+    const longB = Offset(400, 80);
+    final long = captureMeshApex(longA, longB);
+    expect(longA.dy - long.dy, closeTo(8, 0.01));
+
+    const midA = Offset(0, 50);
+    const midB = Offset(100, 50);
+    final mid = captureMeshApex(midA, midB);
+    expect(midA.dy - mid.dy, closeTo(4, 0.01));
+    expect(midA.dy - mid.dy, greaterThan(shortA.dy - short.dy));
+  });
+
   testWidgets('el mapa dibuja la red entre equipos', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -88,6 +117,7 @@ void main() {
             height: 640,
             child: CaptureLocationMap(
               tileProvider: _QuietTiles(),
+              network: true,
               selectedKey: '7',
               points: [
                 _point(
@@ -1976,6 +2006,43 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('nuevo punto no cubre el mapa con una sombra', (tester) async {
+    _useDesktopSurface(tester);
+    await tester.pumpWidget(
+      _wideApp(
+        child: _map(
+          locationTiles: _QuietTiles(),
+          points: [
+            _point(
+              id: 7,
+              title: 'Pozo Norte',
+              project: 'Fundo',
+              lat: -33.45,
+              lon: -70.66,
+            ),
+          ],
+          onPointSelected: (_) {},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('capture-location-toggle')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('capture-new-point')));
+    await tester.pump();
+
+    expect(find.text('Nuevo punto'), findsOneWidget);
+    expect(find.byType(CaptureLocationMap), findsOneWidget);
+    expect(find.byType(FlutterMap), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is ColoredBox && widget.color == const Color(0xB3081216),
+      ),
+      findsNothing,
+    );
+  });
+
   testWidgets('con GPS muestra el mapa de la red', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -2157,6 +2224,663 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.byKey(const ValueKey('capture-board-brief')), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('en el mapa la ficha sigue al punto al arrastrar', (
+    tester,
+  ) async {
+    _useDesktopSurface(tester);
+    await tester.pumpWidget(
+      _wideApp(
+        child: _map(
+          startOnMap: true,
+          locationTiles: _QuietTiles(),
+          points: [
+            _point(
+              id: 7,
+              title: 'Pozo Norte',
+              project: 'Fundo',
+              lat: -33.45,
+              lon: -70.66,
+            ),
+            _point(
+              id: 8,
+              title: 'Pozo Sur',
+              project: 'Fundo',
+              lat: -33.60,
+              lon: -70.70,
+            ),
+          ],
+          onPointSelected: (_) {},
+        ),
+      ),
+    );
+    await tester.pump();
+    final mark = find.byKey(const ValueKey('capture-location-7'));
+    final brief = find.byKey(const ValueKey('capture-board-brief'));
+    await tester.tap(mark);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+    final markBefore = tester.getCenter(mark);
+    final briefBefore = tester.getTopLeft(brief);
+
+    await tester.dragFrom(const Offset(900, 600), const Offset(-90, 50));
+    await tester.pump();
+    await tester.pump();
+
+    final moved = tester.getCenter(mark) - markBefore;
+    expect(moved.distance, greaterThan(20));
+    final briefMoved = tester.getTopLeft(brief) - briefBefore;
+    expect(briefMoved.dx, closeTo(moved.dx, 1));
+    expect(briefMoved.dy, closeTo(moved.dy, 1));
+    expect(tester.takeException(), isNull);
+  });
+
+  test(
+    'la tarjeta del mapa nombra cada variable activa y respeta las capas',
+    () {
+      List<String> read(Map<String, dynamic> point, [MapLayers? layers]) => [
+        for (final item
+            in captureMapReadout(point, layers ?? const MapLayers())?.items ??
+                const <CaptureReadout>[])
+          '$item',
+      ];
+
+      expect(
+        read({
+          'title': 'Santa Macarena',
+          'latest_telemetry': {
+            'flow': 2.5,
+            'water_table': 1.8,
+            'total': 170398,
+          },
+        }),
+        ['Caudal 2.50 L/s', 'Nivel 1.80 m', 'Acumulado 170.398 m³'],
+      );
+      expect(
+        captureMapReadout({
+          'title': 'Santa Macarena',
+          'latest_telemetry': {'flow': 2.5},
+        })?.title,
+        'Santa Macarena',
+      );
+      // Solo caudal configurado: el nivel que llegue no se muestra.
+      expect(
+        read({
+          'variables': [
+            {'type': 'CAUDAL'},
+          ],
+          'latest_telemetry': {'flow': 3, 'water_table': 1.8},
+        }),
+        ['Caudal 3.00 L/s'],
+      );
+      // Los dos m³ van con su nombre.
+      expect(
+        read({
+          'latest_telemetry': {'total': 900, 'total_today_diff': 12.5},
+        }),
+        ['Consumo hoy 12.5 m³', 'Acumulado 900 m³'],
+      );
+      expect(
+        read({
+          'latest_telemetry': {'flow': 1, 'total': 900},
+        }, const MapLayers(flow: false)),
+        ['Acumulado 900 m³'],
+      );
+      // El resumen a veces no trae total_today_diff: se estima con el caudal
+      // del día para que la capa no quede vacía.
+      final thisMorning = DateTime(2026, 10, 20, 10);
+      expect(
+        captureMapReadout({
+          'latest_telemetry': {
+            'flow': 10,
+            'total': 900,
+            'date_time_medition': thisMorning.toIso8601String(),
+          },
+        }, const MapLayers(flow: false, total: false), thisMorning)?.items,
+        [
+          const CaptureReadout(
+            label: 'Consumo hoy',
+            short: 'Hoy',
+            value: '360',
+            unit: 'm³',
+          ),
+        ],
+      );
+      expect(
+        captureTodayVolume({
+          'latest_telemetry': {
+            'flow': 10,
+            'total_today_diff': 12.5,
+            'date_time_medition': thisMorning.toIso8601String(),
+          },
+        }, now: thisMorning),
+        12.5,
+      );
+      expect(
+        captureTodayVolume({
+          'latest_telemetry': {
+            'flow': 10,
+            'date_time_medition': DateTime(2026, 10, 19, 10).toIso8601String(),
+          },
+        }, now: thisMorning),
+        isNull,
+      );
+      expect(
+        captureMapReadout({
+          'latest_telemetry': {'flow': 1},
+        }, const MapLayers(flow: false))?.items,
+        isEmpty,
+      );
+    },
+  );
+
+  test('sin variables la tarjeta queda con nombre y código de obra', () {
+    final named = captureMapReadout({'title': 'Sin datos'});
+    expect(named?.title, 'Sin datos');
+    expect(named?.items, isEmpty);
+
+    final both = captureMapReadout(
+      {'title': 'Pozo Norte', 'code_dga': 'OB-1603-849'},
+      const MapLayers(title: MapCardTitle.both),
+    );
+    expect(both?.title, 'Pozo Norte');
+    expect(both?.code, 'OB-1603-849');
+    expect(both?.items, isEmpty);
+  });
+
+  test('el título de la tarjeta va con nombre, código de obra o ambos', () {
+    final withCode = {
+      'title': 'Santa Macarena',
+      'code_dga': 'OB-1603-849',
+      'latest_telemetry': {'flow': 1},
+    };
+    final withoutCode = {
+      'title': 'Pozo Sur',
+      'latest_telemetry': {'flow': 1},
+    };
+    ({String? title, String? code}) head(
+      Map<String, dynamic> point,
+      MapCardTitle title,
+    ) {
+      final card = captureMapReadout(point, MapLayers(title: title))!;
+      return (title: card.title, code: card.code);
+    }
+
+    expect(head(withCode, MapCardTitle.name), (
+      title: 'Santa Macarena',
+      code: null,
+    ));
+    expect(head(withCode, MapCardTitle.code), (
+      title: null,
+      code: 'OB-1603-849',
+    ));
+    expect(head(withCode, MapCardTitle.both), (
+      title: 'Santa Macarena',
+      code: 'OB-1603-849',
+    ));
+    // Sin código, el punto sigue nombrado.
+    expect(head(withoutCode, MapCardTitle.code), (
+      title: 'Pozo Sur',
+      code: null,
+    ));
+    expect(head(withoutCode, MapCardTitle.both), (
+      title: 'Pozo Sur',
+      code: null,
+    ));
+  });
+
+  testWidgets('CO solo se elige si algún punto tiene código de obra', (
+    tester,
+  ) async {
+    _useDesktopSurface(tester);
+    Future<List<MapLayers>> pump(List<Map<String, dynamic>> points) async {
+      final saved = <MapLayers>[];
+      await tester.pumpWidget(
+        _wideApp(
+          child: _map(
+            key: ValueKey(points.length),
+            startOnMap: true,
+            locationTiles: _QuietTiles(),
+            onMapLayersChanged: saved.add,
+            points: points,
+            onPointSelected: (_) {},
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      return saved;
+    }
+
+    final plain = [
+      _point(
+        id: 7,
+        title: 'Pozo Norte',
+        project: 'Fundo',
+        lat: -33.45,
+        lon: -70.66,
+        flow: 2.5,
+      ),
+      _point(
+        id: 8,
+        title: 'Pozo Sur',
+        project: 'Fundo',
+        lat: -33.60,
+        lon: -70.70,
+        flow: 1,
+      ),
+    ];
+    var saved = await pump(plain);
+    await tester.tap(find.byKey(const ValueKey('capture-layer-title-code')));
+    await tester.pump();
+    expect(saved, isEmpty);
+    expect(find.text('OB-1603-849'), findsNothing);
+
+    saved = await pump([
+      {...plain.first, 'code_dga': 'OB-1603-849'},
+      plain.last,
+      _point(
+        id: 9,
+        title: 'Pozo Este',
+        project: 'Fundo',
+        lat: -33.50,
+        lon: -70.40,
+        flow: 0,
+      ),
+    ]);
+    await tester.tap(find.byKey(const ValueKey('capture-layer-title-both')));
+    await tester.pump();
+    expect(saved.last.title, MapCardTitle.both);
+    final card = find.byKey(const ValueKey('capture-readout-7'));
+    expect(
+      find.descendant(of: card, matching: find.text('OB-1603-849')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: card, matching: find.text('Pozo Norte')),
+      findsOneWidget,
+    );
+    final nameRect = tester.getRect(
+      find.descendant(of: card, matching: find.text('Pozo Norte')),
+    );
+    final codeRect = tester.getRect(
+      find.descendant(of: card, matching: find.text('OB-1603-849')),
+    );
+    expect(codeRect.top, greaterThanOrEqualTo(nameRect.bottom));
+    expect(codeRect.left, closeTo(nameRect.left, 2));
+
+    await tester.tap(find.byKey(const ValueKey('capture-layer-title-code')));
+    await tester.pump();
+    expect(
+      find.descendant(of: card, matching: find.text('Pozo Norte')),
+      findsNothing,
+    );
+    // El que no tiene código sigue con su nombre.
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('capture-readout-8')),
+        matching: find.text('Pozo Sur'),
+      ),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('el mapa HOME no muestra red de cobertura; la tarjeta se quita '
+      'al elegir el punto', (tester) async {
+    _useDesktopSurface(tester);
+    Finder edges() => find.byWidgetPredicate(
+      (widget) =>
+          widget is CustomPaint &&
+          widget.painter.runtimeType.toString() == '_EdgePainter',
+    );
+    Finder readouts() => find.byWidgetPredicate(
+      (widget) =>
+          widget.key is ValueKey<String> &&
+          (widget.key! as ValueKey<String>).value.startsWith(
+            'capture-readout-',
+          ),
+    );
+    final saved = <MapLayers>[];
+    await tester.pumpWidget(
+      _wideApp(
+        child: _map(
+          startOnMap: true,
+          locationTiles: _QuietTiles(),
+          onMapLayersChanged: saved.add,
+          points: [
+            _point(
+              id: 7,
+              title: 'Pozo Norte',
+              project: 'Fundo',
+              lat: -33.45,
+              lon: -70.66,
+              flow: 2.5,
+            ),
+            _point(
+              id: 8,
+              title: 'Pozo Sur',
+              project: 'Fundo',
+              lat: -33.60,
+              lon: -70.70,
+              flow: 1,
+            ),
+            _point(
+              id: 9,
+              title: 'Pozo Este',
+              project: 'Fundo',
+              lat: -33.50,
+              lon: -70.40,
+              flow: 0,
+            ),
+          ],
+          onPointSelected: (_) {},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Red de cobertura'), findsNothing);
+    expect(find.byKey(const ValueKey('capture-layer-coverage')), findsNothing);
+    expect(edges(), findsNothing);
+    expect(find.byKey(const ValueKey('capture-readout-7')), findsOneWidget);
+    expect(find.text('2.50 L/s'), findsOneWidget);
+
+    // Sin caudal sigue el consumo de hoy; sin números queda el nombre.
+    await tester.tap(find.byKey(const ValueKey('capture-layer-flow')));
+    await tester.pump();
+    expect(readouts(), findsNWidgets(3));
+    expect(saved.last.flow, isFalse);
+    await tester.tap(find.byKey(const ValueKey('capture-layer-today')));
+    await tester.pump();
+    expect(readouts(), findsNWidgets(3));
+    expect(saved.last.today, isFalse);
+    expect(find.text('2.50 L/s'), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('capture-readout-7')),
+        matching: find.text('Pozo Norte'),
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('capture-layer-flow')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('capture-layer-today')));
+    await tester.pump();
+    expect(readouts(), findsNWidgets(3));
+
+    await tester.tap(find.byKey(const ValueKey('capture-location-7')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.byKey(const ValueKey('capture-readout-7')), findsNothing);
+    expect(edges(), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('capture-layer-cards')));
+    await tester.pump();
+    expect(readouts(), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('capture-layers-toggle')));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('capture-layers-panel')), findsNothing);
+    expect(saved.last.panelOpen, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('las capas guardadas llegan al mapa', (tester) async {
+    _useDesktopSurface(tester);
+    await tester.pumpWidget(
+      _wideApp(
+        child: _map(
+          startOnMap: true,
+          locationTiles: _QuietTiles(),
+          mapLayers: const MapLayers(cards: false, panelOpen: false),
+          points: [
+            _point(
+              id: 7,
+              title: 'Pozo Norte',
+              project: 'Fundo',
+              lat: -33.45,
+              lon: -70.66,
+              flow: 2.5,
+            ),
+            _point(
+              id: 8,
+              title: 'Pozo Sur',
+              project: 'Fundo',
+              lat: -33.60,
+              lon: -70.70,
+              flow: 1,
+            ),
+          ],
+          onPointSelected: (_) {},
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.byKey(const ValueKey('capture-readout-7')), findsNothing);
+    expect(find.byKey(const ValueKey('capture-layers-panel')), findsNothing);
+    expect(find.byKey(const ValueKey('capture-layers-toggle')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('se oculta el dibujo del logger y quedan dos tamaños de punto', (
+    tester,
+  ) async {
+    _useDesktopSurface(tester);
+    final saved = <MapLayers>[];
+    await tester.pumpWidget(
+      _wideApp(
+        child: _map(
+          startOnMap: true,
+          locationTiles: _QuietTiles(),
+          onMapLayersChanged: saved.add,
+          points: [
+            _point(
+              id: 7,
+              title: 'Pozo Norte',
+              project: 'Fundo',
+              lat: -33.45,
+              lon: -70.66,
+              flow: 2.5,
+            ),
+            _point(
+              id: 8,
+              title: 'Pozo Sur',
+              project: 'Fundo',
+              lat: -33.60,
+              lon: -70.70,
+              flow: 1,
+            ),
+          ],
+          onPointSelected: (_) {},
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.byType(CaptureLoggerMark), findsNWidgets(2));
+    expect(
+      tester.getSize(find.byKey(const ValueKey('capture-location-7'))),
+      const Size(captureLoggerMarkSize, captureLoggerMarkSize),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('capture-layer-mark-compact')));
+    await tester.pump();
+    expect(saved.last.markSize, MapMarkSize.compact);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('capture-location-7'))),
+      const Size(captureLoggerMarkCompact, captureLoggerMarkCompact),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('capture-layer-loggers')));
+    await tester.pump();
+    expect(saved.last.loggers, isFalse);
+    expect(find.byType(CaptureLoggerMark), findsNothing);
+    expect(find.byType(CaptureDotMark), findsNWidgets(2));
+    expect(
+      tester.getSize(find.byKey(const ValueKey('capture-location-7'))),
+      const Size(captureDotMarkCompact, captureDotMarkCompact),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('capture-layer-mark-full')));
+    await tester.pump();
+    expect(saved.last.markSize, MapMarkSize.full);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('capture-location-7'))),
+      const Size(captureDotMarkSize, captureDotMarkSize),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('las tarjetas nunca se pisan entre sí ni con los loggers', (
+    tester,
+  ) async {
+    _useDesktopSurface(tester);
+    final points = [
+      for (var index = 0; index < 12; index++)
+        _point(
+          id: 100 + index,
+          title: 'Pozo ${index + 1}',
+          project: 'Fundo',
+          lat: -33.45 - (index % 4) * 0.012,
+          lon: -70.66 + (index ~/ 4) * 0.02,
+          flow: 1.0 + index,
+        ),
+    ];
+    await tester.pumpWidget(
+      _wideApp(
+        child: _map(
+          startOnMap: true,
+          locationTiles: _QuietTiles(),
+          points: points,
+          onPointSelected: (_) {},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final cards = <Rect>[];
+    final marks = <Rect>[];
+    for (final point in points) {
+      final id = point['id'];
+      marks.add(tester.getRect(find.byKey(ValueKey('capture-location-$id'))));
+      final card = find.byKey(ValueKey('capture-readout-$id'));
+      if (card.evaluate().isNotEmpty) cards.add(tester.getRect(card));
+    }
+    expect(cards, isNotEmpty);
+    for (var a = 0; a < cards.length; a++) {
+      for (var b = a + 1; b < cards.length; b++) {
+        expect(cards[a].overlaps(cards[b]), isFalse);
+      }
+      for (final mark in marks) {
+        expect(cards[a].overlaps(mark), isFalse);
+      }
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  group('el mapa no se mueve solo', () {
+    List<Map<String, dynamic>> twoPoints() => [
+      _point(
+        id: 7,
+        title: 'Pozo Norte',
+        project: 'Fundo',
+        lat: -33.45,
+        lon: -70.66,
+      ),
+      _point(
+        id: 8,
+        title: 'Pozo Sur',
+        project: 'Fundo',
+        lat: -33.60,
+        lon: -70.70,
+      ),
+    ];
+
+    Future<void> pumpMap(
+      WidgetTester tester,
+      List<Map<String, dynamic>> points,
+    ) async {
+      await tester.pumpWidget(
+        _wideApp(
+          child: _map(
+            startOnMap: true,
+            locationTiles: _QuietTiles(),
+            mapLayers: const MapLayers(cards: false, panelOpen: false),
+            points: points,
+            onPointSelected: (_) {},
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('un arrastre corto y rápido no lanza el mapa', (tester) async {
+      _useDesktopSurface(tester);
+      await pumpMap(tester, twoPoints());
+      final mark = find.byKey(const ValueKey('capture-location-7'));
+      final before = tester.getCenter(mark);
+
+      await tester.flingFrom(
+        const Offset(700, 500),
+        const Offset(-60, 0),
+        4000,
+      );
+      for (var i = 0; i < 30; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+
+      final moved = tester.getCenter(mark) - before;
+      expect(moved.dx, closeTo(-60, 20));
+      expect(moved.dy.abs(), lessThan(4));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('elegir un punto que ya se ve no mueve la cámara', (
+      tester,
+    ) async {
+      _useDesktopSurface(tester);
+      await pumpMap(tester, twoPoints());
+      final mark = find.byKey(const ValueKey('capture-location-8'));
+      final before = tester.getCenter(mark);
+
+      await tester.tap(mark);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+
+      expect(find.byKey(const ValueKey('capture-board-brief')), findsOneWidget);
+      expect((tester.getCenter(mark) - before).distance, lessThan(1));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('el refresco con otro orden mantiene el punto elegido', (
+      tester,
+    ) async {
+      _useDesktopSurface(tester);
+      final points = twoPoints();
+      await pumpMap(tester, points);
+      await tester.tap(find.byKey(const ValueKey('capture-location-7')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      final mark = find.byKey(const ValueKey('capture-location-7'));
+      final before = tester.getCenter(mark);
+
+      await pumpMap(tester, [
+        for (final point in points.reversed) Map.of(point),
+      ]);
+      await tester.pump(const Duration(milliseconds: 600));
+
+      final brief = find.byKey(const ValueKey('capture-board-brief'));
+      expect(
+        find.descendant(of: brief, matching: find.text('Pozo Norte')),
+        findsOneWidget,
+      );
+      expect((tester.getCenter(mark) - before).distance, lessThan(1));
+      expect(tester.takeException(), isNull);
+    });
   });
 
   testWidgets('en el mapa late solo el punto conectado', (tester) async {
@@ -2494,6 +3218,24 @@ void main() {
     expect(find.text('Pregunta rápida'), findsOneWidget);
     expect(find.text('Conectado'), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('sin barra de pregunta el mapa muestra el título de la red', (
+    tester,
+  ) async {
+    _useDesktopSurface(tester);
+    await tester.pumpWidget(
+      _wideApp(
+        child: _map(
+          points: [_point(id: 1, title: 'Pozo Norte', project: 'Fundo')],
+          onPointSelected: (_) {},
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('Esquema de telemetría'), findsOneWidget);
+    expect(find.text('Pregunta rápida'), findsNothing);
+    expect(find.byKey(const ValueKey('n1-quick-buddy')), findsNothing);
   });
 
   testWidgets('pasar el cursor o hacer zoom no abre el estado de la red', (
@@ -3086,10 +3828,16 @@ CaptureNetworkMap _map({
   Widget? seatedWell,
   bool startOnMap = false,
   ValueChanged<bool>? onViewChanged,
+  MapLayers? mapLayers,
+  ValueChanged<MapLayers>? onMapLayersChanged,
+  Key? key,
 }) {
   return CaptureNetworkMap(
+    key: key,
     startOnMap: startOnMap,
     onViewChanged: onViewChanged,
+    mapLayers: mapLayers,
+    onMapLayersChanged: onMapLayersChanged,
     points: points,
     onPointSelected: onPointSelected,
     openTickets: openTickets,

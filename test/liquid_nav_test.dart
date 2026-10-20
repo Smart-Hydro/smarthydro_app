@@ -123,6 +123,11 @@ void main() {
     }
     expect(find.byKey(const ValueKey('liquid-nav-rail-apps')), findsOneWidget);
     expect(find.text('Ver todas'), findsNothing);
+    expect(find.text('Ubicaciones'), findsNothing);
+    expect(
+      liquidDesktopApps.map((app) => app.label),
+      isNot(contains('Ubicaciones')),
+    );
   });
 
   testWidgets('el rail desktop abre la app al tocar su icono', (tester) async {
@@ -148,13 +153,13 @@ void main() {
 
     await tester.tap(find.text('Análisis'));
     await tester.pump();
-    expect(opened, 1);
+    expect(opened, 0);
 
     await tester.ensureVisible(find.text('Asistente'));
     await tester.pump();
     await tester.tap(find.text('Asistente'));
     await tester.pump();
-    expect(opened, 3);
+    expect(opened, 2);
   });
 
   testWidgets('si el rail no cabe muestra Ver todas y no hace scroll', (
@@ -232,7 +237,7 @@ void main() {
           home: Scaffold(
             body: LiquidNavRail(
               selectedIndex: 0,
-              selectedAppIndex: 2,
+              selectedAppIndex: 1,
               unreadCount: 0,
               onSelect: (_) {},
               onOpenApp: (_) {},
@@ -322,7 +327,7 @@ void main() {
 
     expect(find.text('HOME_MAP'), findsOneWidget);
     expect(find.byKey(const ValueKey('liquid-nav-rail')), findsOneWidget);
-    expect(find.text('Ubicaciones'), findsOneWidget);
+    expect(find.text('Análisis'), findsOneWidget);
 
     await tester.tap(find.text('Eventos'));
     await tester.pump();
