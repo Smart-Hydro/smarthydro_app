@@ -154,6 +154,40 @@ void main() {
     expect(card.right, closeTo(screen.right, 2));
     expect(card.top, greaterThan(screen.top + 40));
   });
+
+  testWidgets('la paleta del punto no pone velo oscuro detrás', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            fit: StackFit.expand,
+            children: [
+              ColoredBox(
+                color: Color(0xFF081216),
+                child: Center(child: Text('POZO')),
+              ),
+              PointToolSheet(
+                title: 'Historial',
+                onClose: _noop,
+                child: Center(child: Text('cuerpo')),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('POZO'), findsOneWidget);
+    expect(find.text('Historial'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate((widget) {
+        if (widget is! ColoredBox) return false;
+        final c = widget.color;
+        return c.a > 0 && c.r == 0 && c.g == 0 && c.b == 0;
+      }),
+      findsNothing,
+    );
+  });
 }
 
 void _noop() {}

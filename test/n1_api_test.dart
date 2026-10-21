@@ -88,7 +88,30 @@ void main() {
           clients: const ['Riego Chile'],
           points: const ['Matias Fischer', 'Lecheria'],
         ),
-        contains('puntos Matias Fischer, Lecheria'),
+        'cómo están mis puntos (cliente Riego Chile; soy Felipe)',
+      );
+      expect(
+        n1DecorateAskText(
+          'cómo están mis puntos',
+          name: 'Riego Chile',
+          clients: const ['Riego Chile'],
+          points: const [
+            'Selva Negra',
+            'Matias Fischer',
+            'San Jose 2',
+            'Pomuyeto',
+            'Pivote',
+            'Lecheria',
+            'Santa Marta',
+            'Santa Cecilia',
+            'Santa Macarena',
+            'Santa Clara',
+            'Tata',
+            'Santa Adriana',
+            'Y1',
+          ],
+        ),
+        'cómo están mis puntos (cliente Riego Chile)',
       );
     });
 
@@ -239,7 +262,7 @@ void main() {
       },
     );
 
-    test('ask incluye los nombres de los puntos del usuario', () async {
+    test('ask no pega los nombres de puntos en el texto', () async {
       late Map<String, dynamic> body;
       dio.httpClientAdapter = _Adapter((options) async {
         body = options.data as Map<String, dynamic>;
@@ -252,13 +275,13 @@ void main() {
         text: 'cómo están mis puntos',
         name: 'Felipe',
         clients: const ['Riego Chile'],
+        pointsAllowed: const [4, 9],
         pointNames: const ['Matias Fischer', 'Lecheria'],
       );
 
-      expect(
-        body['text'],
-        contains('puntos Matias Fischer, Lecheria'),
-      );
+      expect(body['text'], 'cómo están mis puntos (cliente Riego Chile; soy Felipe)');
+      expect(body['text'], isNot(contains('Matias Fischer')));
+      expect(body['points_allowed'], [4, 9]);
     });
 
     test('report pending marca isPending', () async {

@@ -69,9 +69,7 @@ class PointToolSheet extends StatelessWidget {
             GestureDetector(
               onTap: onClose,
               behavior: HitTestBehavior.opaque,
-              child: ColoredBox(
-                color: Colors.black.withValues(alpha: fromBottom ? 0.55 : 0.38),
-              ),
+              child: const ColoredBox(color: Colors.transparent),
             ),
             fromBottom
                 ? _bottomSheet(constraints)

@@ -77,7 +77,7 @@ _Panel: 2026-10-20 17:12 hora Chile_
     expect(done.isPending, isFalse);
   });
 
-  test('la pregunta lleva los puntos del usuario activo', () {
+  test('la pregunta no pega los nombres de puntos: N1 los toma como un solo punto', () {
     expect(
       n1DecorateAskText(
         'cómo están mis puntos',
@@ -85,7 +85,7 @@ _Panel: 2026-10-20 17:12 hora Chile_
         clients: const ['Riego Chile'],
         points: const ['Matias Fischer', 'Lecheria', 'Pivote'],
       ),
-      contains('puntos Matias Fischer, Lecheria, Pivote'),
+      'cómo están mis puntos (cliente Riego Chile; soy Felipe)',
     );
     expect(
       n1PointNamesOf([

@@ -5,8 +5,11 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/smarthydro_api.dart';
 import '../../core/files/save_file.dart';
+import '../../core/brand.dart';
+import '../../shared/ui/capture_point_picker.dart';
 import '../../shared/ui/hydro_ui.dart';
 import '../../shared/widgets/hydro_glass.dart';
+import '../../shared/widgets/hydro_glyph.dart';
 import '../dashboard/capture_stage.dart' show formatCl;
 import '../dashboard/point_meta.dart';
 
@@ -15,6 +18,36 @@ const _monthsShort = [
   'ene', 'feb', 'mar', 'abr', 'may', 'jun', //
   'jul', 'ago', 'sep', 'oct', 'nov', 'dic',
 ];
+
+const _recordsGlyphColor = Color(0xFFC5D5D4);
+
+DateTime reportsDateOf(Map<String, dynamic> r) =>
+    DateTime.tryParse(
+      '${r['date_time'] ?? r['date_time_medition'] ?? ''}',
+    )?.toLocal() ??
+    DateTime.fromMillisecondsSinceEpoch(0);
+
+List<MapEntry<DateTime, List<Map<String, dynamic>>>> reportsGroupByDay(
+  List<Map<String, dynamic>> records,
+) {
+  final groups = <DateTime, List<Map<String, dynamic>>>{};
+  for (final r in records) {
+    final t = reportsDateOf(r);
+    groups.putIfAbsent(DateTime(t.year, t.month, t.day), () => []).add(r);
+  }
+  return groups.entries.toList(growable: false);
+}
+
+double? reportsMeanFlow(List<Map<String, dynamic>> records) {
+  final values = <double>[];
+  for (final r in records) {
+    final raw = r['flow'];
+    final n = raw is num ? raw.toDouble() : double.tryParse('${raw ?? ''}');
+    if (n != null) values.add(n);
+  }
+  if (values.isEmpty) return null;
+  return values.reduce((a, b) => a + b) / values.length;
+}
 
 /// Registros del punto: lecturas del período y descarga en Excel.
 class ReportsScreen extends StatefulWidget {
@@ -229,7 +262,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   Widget _refreshButton() => IconButton(
     tooltip: 'Actualizar registros',
     onPressed: _busy != null ? null : () => _load(),
-    icon: const Icon(Icons.refresh_rounded),
+    icon: const Icon(Icons.refresh_rounded, color: HydroTone.faint),
   );
 
   @override
@@ -249,197 +282,333 @@ class _ReportsScreenState extends State<ReportsScreen> {
       );
     }
     return HydroPage(
-    title: 'Registros',
-    showBack: widget.showBack,
-    subtitle: widget.points.length > 1
-        ? PopupMenuButton<int>(
-            tooltip: 'Cambiar punto',
-            color: HydroTone.menu,
-            onSelected: (id) {
-              setState(() => _pointId = id);
-              _load(reloadVariables: true);
-            },
-            itemBuilder: (_) => [
-              for (final p in widget.points)
-                PopupMenuItem<int>(
-                  value: _toInt(p['id']),
-                  child: Text(
-                    '${p['title'] ?? 'Punto'}',
-                    style: TextStyle(
-                      color: _toInt(p['id']) == _pointId
-                          ? HydroTone.accent
-                          : HydroTone.fog,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-            ],
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(
-                  child: Text(
-                    _title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: HydroTone.accent,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                const Icon(
-                  Icons.expand_more_rounded,
-                  color: HydroTone.accent,
-                  size: 16,
-                ),
-              ],
+      title: 'Registros',
+      showBack: widget.showBack,
+      maxWidth: 1180,
+      titleLeading: const HydroGlyph(
+        kind: HydroGlyphKind.registros,
+        color: _recordsGlyphColor,
+        size: 40,
+        keyPrefix: 'reports-glyph',
+      ),
+      subtitle: widget.points.length > 1
+          ? CapturePointFilter(
+              points: widget.points,
+              selectedId: _pointId,
+              onChanged: (id) {
+                setState(() => _pointId = id);
+                _load(reloadVariables: true);
+              },
+            )
+          : Text(
+              _title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: HydroText.subtitle,
             ),
-          )
-        : Text(
-            _title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: HydroText.subtitle,
-          ),
-    trailing: _refreshButton(),
-    body: _body(),
-  );
+      trailing: _refreshButton(),
+      body: _body(),
+    );
   }
 
   Widget _body() {
     if (_pointId == null) {
-      return const HydroMessage(
-        icon: Icons.water_drop_outlined,
-        title: 'Sin puntos',
-        message: 'Tu cuenta todavía no tiene puntos asignados.',
+      return const Padding(
+        padding: EdgeInsets.fromLTRB(20, 24, 20, 32),
+        child: _ReportsEmpty(
+          title: 'Sin puntos',
+          message: 'Tu cuenta todavía no tiene puntos asignados.',
+        ),
       );
     }
-    final v = _variables;
-    final groups = <DateTime, List<Map<String, dynamic>>>{};
-    for (final r in _records) {
-      final t = _dateOf(r);
-      groups.putIfAbsent(DateTime(t.year, t.month, t.day), () => []).add(r);
-    }
-    final children = <Widget>[
-      _PeriodTabs(selected: _period, onChanged: _choosePeriod),
-      const SizedBox(height: 14),
-      Text(
-        '${_short(_range.start)} – ${_short(_range.end)}',
-        style: const TextStyle(
-          color: HydroTone.fog,
-          fontSize: 15,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-      const SizedBox(height: 2),
-      Text(
-        _loading
-            ? 'Cargando lecturas…'
-            : '${formatCl(_records.length.toDouble(), 0)} lecturas'
-                  '${_records.length >= 500 ? ' · se muestran las 500 más recientes, el Excel trae todas' : ''}',
-        style: const TextStyle(
-          color: HydroTone.faint,
-          fontSize: 11.5,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      const SizedBox(height: 14),
-      Row(
+    final wide = MediaQuery.sizeOf(context).width >= 980;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+      child: Column(
         children: [
-          Expanded(
-            child: FilledButton.icon(
-              onPressed: _busy != null ? null : _downloadXlsx,
-              style: FilledButton.styleFrom(
-                backgroundColor: HydroTone.accent,
-                foregroundColor: const Color(0xFF06222B),
-                padding: const EdgeInsets.symmetric(vertical: 13),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              icon: _busy == 'xlsx'
-                  ? const HydroSpinner(size: 16, strokeWidth: 2)
-                  : const Icon(Icons.download_rounded, size: 18),
-              label: const Text(
-                'Descargar Excel',
-                style: TextStyle(fontWeight: FontWeight.w800),
-              ),
-            ),
+          _ReportsToolbar(
+            period: _period,
+            range: _range,
+            onChanged: _choosePeriod,
           ),
-          const SizedBox(width: 10),
-          TextButton(
-            onPressed: _busy != null || _records.isEmpty ? null : _downloadCsv,
-            style: TextButton.styleFrom(
-              foregroundColor: HydroTone.accent,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-            ),
-            child: _busy == 'csv'
-                ? const HydroSpinner(size: 16, strokeWidth: 2)
-                : const Text('CSV'),
+          const SizedBox(height: 12),
+          Expanded(
+            child: wide
+                ? Row(
+                    key: const ValueKey('reports-layout-wide'),
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(width: 300, child: _sidebar()),
+                      const SizedBox(width: 14),
+                      Expanded(child: _tablePane()),
+                    ],
+                  )
+                : Column(
+                    key: const ValueKey('reports-layout-narrow'),
+                    children: [
+                      _sidebar(),
+                      const SizedBox(height: 12),
+                      Expanded(child: _tablePane()),
+                    ],
+                  ),
           ),
         ],
       ),
-      const SizedBox(height: 22),
-    ];
+    );
+  }
 
-    final Widget content;
+  Widget _sidebar() {
+    final mean = reportsMeanFlow(_records);
+    DateTime? last;
+    for (final r in _records) {
+      final t = reportsDateOf(r);
+      if (last == null || t.isAfter(last)) last = t;
+    }
+    return HydroGlassLight(
+      key: const ValueKey('reports-pulse'),
+      radius: 16,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              _PulseStat(
+                label: 'Lecturas',
+                value: _loading
+                    ? '…'
+                    : formatCl(_records.length.toDouble(), 0),
+                tone: IkoluColors.cyan,
+              ),
+              _PulseStat(
+                label: 'Última',
+                value: last == null
+                    ? '—'
+                    : '${_two(last.hour)}:${_two(last.minute)}',
+                tone: HydroTone.fog,
+              ),
+              if (_variables.hasFlow)
+                _PulseStat(
+                  label: 'Caudal',
+                  value: mean == null ? '—' : formatCl(mean, 1),
+                  tone: IkoluColors.connected,
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          FilledButton(
+            onPressed: _busy != null ? null : _downloadXlsx,
+            style: FilledButton.styleFrom(
+              backgroundColor: IkoluColors.cyan,
+              foregroundColor: const Color(0xFF041014),
+              minimumSize: const Size.fromHeight(42),
+              shape: const StadiumBorder(),
+            ),
+            child: _busy == 'xlsx'
+                ? HydroSpinner(size: 16, strokeWidth: 2)
+                : const Text(
+                    'Descargar Excel',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+          ),
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: _busy != null || _records.isEmpty ? null : _downloadCsv,
+            style: TextButton.styleFrom(
+              foregroundColor: HydroTone.fog,
+              backgroundColor: Colors.white.withValues(alpha: 0.06),
+              minimumSize: const Size.fromHeight(40),
+              shape: const StadiumBorder(),
+            ),
+            child: _busy == 'csv'
+                ? HydroSpinner(size: 16, strokeWidth: 2)
+                : const Text('CSV', style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
+          if (_records.length >= 500) ...[
+            const SizedBox(height: 10),
+            const HydroHint(
+              'Se muestran las 500 más recientes. El Excel trae todas.',
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _tablePane() {
+    final v = _variables;
+    final lines = <_TableLine>[
+      for (final entry in reportsGroupByDay(_records)) ...[
+        _TableLine.day(entry.key, entry.value.length),
+        for (final r in entry.value) _TableLine.row(r),
+      ],
+    ];
+    Widget inner;
     if (_loading) {
-      content = const HydroSkeleton(
-        inline: true,
-        hero: false,
-        kpis: 0,
-        chart: false,
-        rows: 8,
+      inner = const Padding(
+        padding: EdgeInsets.all(16),
+        child: HydroSkeleton(
+          inline: true,
+          hero: false,
+          kpis: 0,
+          chart: false,
+          rows: 8,
+        ),
       );
     } else if (_error != null) {
-      content = HydroMessage(
-        icon: Icons.cloud_off_rounded,
+      inner = _ReportsEmpty(
         title: 'No pudimos cargar los registros',
         message: _error!,
         action: ('Reintentar', _load),
       );
     } else if (_records.isEmpty) {
-      content = const HydroMessage(
-        icon: Icons.event_busy_rounded,
+      inner = const _ReportsEmpty(
         title: 'Sin lecturas en este período',
         message: 'Prueba con otro rango de fechas.',
       );
     } else {
-      content = Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      inner = Column(
         children: [
-          _ColumnsHeader(variables: v),
-          for (final entry in groups.entries) ...[
-            _DayHeader(day: entry.key, count: entry.value.length),
-            for (final r in entry.value) _RecordRow(record: r, variables: v),
-          ],
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+            child: _ColumnsHeader(variables: v),
+          ),
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+              itemCount: lines.length,
+              itemBuilder: (context, i) {
+                final line = lines[i];
+                if (line.day != null) {
+                  return _DayHeader(day: line.day!, count: line.count);
+                }
+                return _RecordRow(record: line.record!, variables: v);
+              },
+            ),
+          ),
         ],
       );
     }
-    children.add(
-      HydroSwap(
-        state: _loading
-            ? 'loading'
-            : _error != null
-            ? 'error'
-            : '$_pointId-${_range.start}-${_range.end}',
-        child: content,
+    return SizedBox.expand(
+      child: HydroGlassLight(
+        key: const ValueKey('reports-table'),
+        radius: 16,
+        padding: EdgeInsets.zero,
+        child: SizedBox.expand(child: inner),
       ),
-    );
-
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
-      children: children,
     );
   }
 }
 
-class _PeriodTabs extends StatelessWidget {
-  const _PeriodTabs({required this.selected, required this.onChanged});
+class _TableLine {
+  const _TableLine.day(this.day, this.count) : record = null;
+  const _TableLine.row(this.record) : day = null, count = 0;
 
-  final _Period selected;
+  final DateTime? day;
+  final int count;
+  final Map<String, dynamic>? record;
+}
+
+class _PulseStat extends StatelessWidget {
+  const _PulseStat({
+    required this.label,
+    required this.value,
+    required this.tone,
+  });
+
+  final String label;
+  final String value;
+  final Color tone;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        children: [
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: tone,
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.3,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: const TextStyle(
+              color: HydroTone.faint,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReportsEmpty extends StatelessWidget {
+  const _ReportsEmpty({
+    required this.title,
+    required this.message,
+    this.action,
+  });
+
+  final String title;
+  final String message;
+  final (String, VoidCallback)? action;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const HydroGlyph(
+              kind: HydroGlyphKind.registros,
+              color: _recordsGlyphColor,
+              size: 56,
+              keyPrefix: 'reports-empty',
+            ),
+            const SizedBox(height: 12),
+            Text(title, style: HydroText.section, textAlign: TextAlign.center),
+            const SizedBox(height: 6),
+            HydroHint(message),
+            if (action != null) ...[
+              const SizedBox(height: 14),
+              TextButton(
+                onPressed: action!.$2,
+                style: TextButton.styleFrom(
+                  foregroundColor: HydroTone.fog,
+                  backgroundColor: IkoluColors.cyan.withValues(alpha: 0.14),
+                  shape: const StadiumBorder(),
+                ),
+                child: Text(action!.$1),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReportsToolbar extends StatelessWidget {
+  const _ReportsToolbar({
+    required this.period,
+    required this.range,
+    required this.onChanged,
+  });
+
+  final _Period period;
+  final DateTimeRange range;
   final ValueChanged<_Period> onChanged;
 
   @override
@@ -448,62 +617,74 @@ class _PeriodTabs extends StatelessWidget {
       _Period.today: 'Hoy',
       _Period.week: '7 días',
       _Period.month: '31 días',
-      _Period.custom: 'Elegir fechas',
+      _Period.custom: 'Fechas',
     };
-    return Wrap(
-      spacing: 4,
-      children: [
-        for (final e in labels.entries)
-          InkWell(
-            borderRadius: BorderRadius.circular(10),
-            onTap: () => onChanged(e.key),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (e.key == _Period.custom) ...[
-                        Icon(
-                          Icons.date_range_rounded,
-                          size: 14,
-                          color: e.key == selected
-                              ? HydroTone.fog
-                              : HydroTone.faint,
-                        ),
-                        const SizedBox(width: 4),
-                      ],
-                      Text(
-                        e.value,
-                        style: TextStyle(
-                          color: e.key == selected
-                              ? HydroTone.fog
-                              : HydroTone.faint,
-                          fontSize: 12.5,
-                          fontWeight: e.key == selected
-                              ? FontWeight.w800
-                              : FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 240),
-                    width: e.key == selected ? 16 : 0,
-                    height: 2,
-                    decoration: BoxDecoration(
-                      color: HydroTone.accent,
-                      borderRadius: BorderRadius.circular(1),
-                    ),
-                  ),
-                ],
-              ),
+    return HydroGlassLight(
+      radius: 16,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          for (final e in labels.entries)
+            _PeriodPill(
+              label: e.value,
+              selected: period == e.key,
+              onTap: () => onChanged(e.key),
+            ),
+          Text(
+            '${_short(range.start)} – ${_short(range.end)}',
+            style: const TextStyle(
+              color: HydroTone.faint,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
             ),
           ),
-      ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PeriodPill extends StatelessWidget {
+  const _PeriodPill({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(99),
+        child: AnimatedContainer(
+          duration: HydroMotion.of(context, HydroMotion.fast),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: IkoluColors.cyan.withValues(alpha: selected ? 0.22 : 0.06),
+            borderRadius: BorderRadius.circular(99),
+            border: Border.all(
+              color: IkoluColors.cyan.withValues(alpha: selected ? 0.7 : 0.16),
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? HydroTone.fog : HydroTone.faint,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -557,13 +738,22 @@ class _DayHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(top: 14, bottom: 4),
+    padding: const EdgeInsets.fromLTRB(6, 12, 6, 4),
     child: Row(
       children: [
+        Container(
+          width: 6,
+          height: 6,
+          decoration: const BoxDecoration(
+            color: IkoluColors.cyan,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 8),
         Text(
           '${_weekdays[day.weekday - 1]} ${day.day} ${_monthsShort[day.month - 1]}',
           style: const TextStyle(
-            color: HydroTone.accent,
+            color: IkoluColors.cyanSoft,
             fontSize: 12,
             fontWeight: FontWeight.w800,
           ),
@@ -601,10 +791,14 @@ class _RecordRow extends StatelessWidget {
       fontFeatures: [FontFeature.tabularFigures()],
     );
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 7),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: HydroTone.hair)),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+      decoration: BoxDecoration(
+        color: error
+            ? IkoluColors.incident.withValues(alpha: 0.08)
+            : Colors.white.withValues(alpha: 0.02),
+        borderRadius: BorderRadius.circular(10),
       ),
+      margin: const EdgeInsets.only(bottom: 3),
       child: Row(
         children: [
           SizedBox(
@@ -639,30 +833,13 @@ class _RecordRow extends StatelessWidget {
                 style: style,
               ),
             ),
-          SizedBox(
-            width: 18,
-            child: error
-                ? const Tooltip(
-                    message: 'El equipo marcó esta lectura con error',
-                    child: Icon(
-                      Icons.error_outline_rounded,
-                      size: 13,
-                      color: Color(0xFFFF847A),
-                    ),
-                  )
-                : null,
-          ),
         ],
       ),
     );
   }
 }
 
-DateTime _dateOf(Map<String, dynamic> r) =>
-    DateTime.tryParse(
-      '${r['date_time'] ?? r['date_time_medition'] ?? ''}',
-    )?.toLocal() ??
-    DateTime.fromMillisecondsSinceEpoch(0);
+DateTime _dateOf(Map<String, dynamic> r) => reportsDateOf(r);
 
 String _two(int n) => n.toString().padLeft(2, '0');
 

@@ -28,6 +28,7 @@ class LiquidAppShortcut {
     this.subtitle = '',
     this.adornments = const [],
     this.comingSoon = false,
+    this.soonMessage = '',
   });
 
   final IconData icon;
@@ -36,6 +37,9 @@ class LiquidAppShortcut {
   final String subtitle;
   final List<String> adornments;
   final bool comingSoon;
+
+  /// Texto corto para la ficha «en preparación».
+  final String soonMessage;
 }
 
 /// Apps del escritorio — mismo orden que el hub Apps.
@@ -57,9 +61,13 @@ const liquidDesktopApps = <LiquidAppShortcut>[
   LiquidAppShortcut(
     icon: Icons.smart_toy_outlined,
     label: 'Asistente',
-    subtitle: 'Pregunta a N1 con el contexto de tus puntos',
-    adornments: ['N1', 'chat', 'por punto'],
+    subtitle: 'Lo estamos afinando · próximamente',
+    adornments: ['pronto'],
     color: IkoluColors.cyanSoft,
+    comingSoon: true,
+    soonMessage:
+        'Estamos afinando el chat para que lea bien tus puntos. '
+        'Aún no está listo; vuelve pronto.',
   ),
   LiquidAppShortcut(
     icon: Icons.support_agent_rounded,
@@ -82,6 +90,9 @@ const liquidDesktopApps = <LiquidAppShortcut>[
     adornments: ['pronto', 'red'],
     color: Color(0xFF7FD3FF),
     comingSoon: true,
+    soonMessage:
+        'Los resúmenes para compartir siguen en preparación. '
+        'Mientras tanto, Registros descarga las lecturas del período.',
   ),
 ];
 

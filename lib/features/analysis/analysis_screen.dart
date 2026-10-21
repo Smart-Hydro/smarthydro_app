@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/smarthydro_api.dart';
 import '../../core/brand.dart';
+import '../../shared/ui/capture_point_picker.dart';
 import '../../shared/ui/hydro_ui.dart';
 import '../dashboard/capture_stage.dart' show CaptureProfile, formatCl;
 import '../dashboard/point_meta.dart';
@@ -204,9 +205,9 @@ class _AnalysisScreenState extends State<AnalysisScreen>
       title: 'Análisis',
       showBack: widget.showBack,
       subtitle: widget.points.length > 1
-          ? _PointPicker(
+          ? CapturePointFilter(
               points: widget.points,
-              selected: _pointId,
+              selectedId: _pointId,
               onChanged: (id) {
                 setState(() => _pointId = id);
                 _load();
@@ -776,71 +777,6 @@ class _AnalysisScreenState extends State<AnalysisScreen>
 }
 
 // ------------------------------------------------------------- piezas
-
-class _PointPicker extends StatelessWidget {
-  const _PointPicker({
-    required this.points,
-    required this.selected,
-    required this.onChanged,
-  });
-
-  final List<Map<String, dynamic>> points;
-  final int? selected;
-  final ValueChanged<int> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    String title(int? id) {
-      for (final p in points) {
-        if (_toInt(p['id']) == id) return '${p['title'] ?? 'Punto'}';
-      }
-      return 'Elegir punto';
-    }
-
-    return PopupMenuButton<int>(
-      tooltip: 'Cambiar punto',
-      color: HydroTone.menu,
-      onSelected: onChanged,
-      itemBuilder: (_) => [
-        for (final p in points)
-          PopupMenuItem<int>(
-            value: _toInt(p['id']),
-            child: Text(
-              '${p['title'] ?? 'Punto'}',
-              style: TextStyle(
-                color: _toInt(p['id']) == selected
-                    ? HydroTone.accent
-                    : HydroTone.fog,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-      ],
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Flexible(
-            child: Text(
-              title(selected),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: HydroTone.accent,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          const Icon(
-            Icons.expand_more_rounded,
-            color: HydroTone.accent,
-            size: 16,
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 /// Estado general: anillo con el puntaje y un resumen de los hallazgos.
 class _Health extends StatelessWidget {

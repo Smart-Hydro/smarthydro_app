@@ -1520,9 +1520,10 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('Esquema de telemetría'), findsOneWidget);
+    expect(find.text('Esquema de telemetría'), findsNothing);
+    expect(find.text('Ubicaciones'), findsNothing);
     expect(find.text('En esta vista'), findsNothing);
-    expect(find.textContaining('conectados'), findsOneWidget);
+    expect(find.textContaining('conectados'), findsNothing);
     expect(find.text('Pozo Norte'), findsWidgets);
     expect(find.text('Canal Sur'), findsWidgets);
     expect(find.text('Pozo Este'), findsWidgets);
@@ -2117,14 +2118,21 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('Esquema de telemetría'), findsOneWidget);
+    expect(find.text('Esquema de telemetría'), findsNothing);
+    expect(find.text('Ubicaciones'), findsNothing);
+    expect(find.textContaining('Smart Hydro'), findsNothing);
     expect(find.byKey(const ValueKey('capture-node-7')), findsOneWidget);
     expect(find.byType(CaptureLocationMap), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('capture-location-toggle')));
     await tester.pump();
 
-    expect(find.text('Ubicaciones'), findsOneWidget);
+    expect(find.text('Ubicaciones'), findsNothing);
+    expect(find.text('Esquema de telemetría'), findsNothing);
+    expect(find.textContaining('puntos ·'), findsNothing);
+    expect(find.textContaining('en su lugar'), findsNothing);
+    expect(find.textContaining('Smart Hydro'), findsNothing);
+    expect(find.textContaining('última lectura'), findsNothing);
     expect(find.byType(CaptureLocationMap), findsOneWidget);
     expect(find.byType(FlutterMap), findsOneWidget);
     expect(find.text('© Esri © OpenStreetMap'), findsOneWidget);
@@ -2139,7 +2147,7 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('capture-location-toggle')));
     await tester.pump();
-    expect(find.text('Esquema de telemetría'), findsOneWidget);
+    expect(find.text('Esquema de telemetría'), findsNothing);
     expect(find.byKey(const ValueKey('capture-node-7')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -3220,7 +3228,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('sin barra de pregunta el mapa muestra el título de la red', (
+  testWidgets('sin barra de pregunta el mapa no pone título de red', (
     tester,
   ) async {
     _useDesktopSurface(tester);
@@ -3233,7 +3241,9 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(find.text('Esquema de telemetría'), findsOneWidget);
+    expect(find.text('Esquema de telemetría'), findsNothing);
+    expect(find.text('Ubicaciones'), findsNothing);
+    expect(find.textContaining('conectados'), findsNothing);
     expect(find.text('Pregunta rápida'), findsNothing);
     expect(find.byKey(const ValueKey('n1-quick-buddy')), findsNothing);
   });

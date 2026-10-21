@@ -200,17 +200,29 @@ class HydroHeader extends StatelessWidget {
           ],
           if (hasTitle || subtitle != null)
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   if (hasTitle)
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: HydroText.title,
+                    Flexible(
+                      fit: FlexFit.loose,
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: HydroText.title,
+                      ),
                     ),
-                  ?subtitle,
+                  if (hasTitle && subtitle != null) const SizedBox(width: 12),
+                  if (subtitle != null)
+                    Flexible(
+                      fit: FlexFit.loose,
+                      child: DefaultTextStyle.merge(
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        child: subtitle!,
+                      ),
+                    ),
                 ],
               ),
             )

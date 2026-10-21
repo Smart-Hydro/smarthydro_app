@@ -27,14 +27,19 @@ List<String> n1PointNamesOf(Iterable<Map<String, dynamic>> points) {
   return names;
 }
 
-/// Completa la pregunta con cliente, nombre y puntos si el texto aún no los trae.
-/// N1 (AppApi cliente) pide «qué cliente o punto» cuando el alcance viene vacío.
+/// Completa la pregunta con cliente y nombre si el texto aún no los trae.
+///
+/// N1 trata `text` como lookup de un punto: pegar títulos ahí hace que busque
+/// el bloque entero («riego chile soy … y 1 más») y responda «No ubiqué …».
+/// El alcance de captaciones va en `points_allowed`, no en el texto.
 String n1DecorateAskText(
   String text, {
   String? name,
   List<String> clients = const [],
   List<String> points = const [],
 }) {
+  // Firma estable: callers siguen pasando `points`; no se inyectan en `text`.
+  points;
   final ask = text.trim();
   if (ask.isEmpty) return ask;
   final lower = ask.toLowerCase();
@@ -50,14 +55,7 @@ String n1DecorateAskText(
   final namedWho =
       who.isNotEmpty &&
       lower.contains(who.split(RegExp(r'\s+')).first.toLowerCase());
-  final pointNames = <String>[];
-  final seenPoints = <String>{};
-  for (final point in points) {
-    final p = point.trim();
-    if (p.isEmpty) continue;
-    if (seenPoints.add(p.toLowerCase())) pointNames.add(p);
-  }
-  final namedPoint = pointNames.any((p) => lower.contains(p.toLowerCase()));
+  final whoIsClient = known.any((c) => c.toLowerCase() == who.toLowerCase());
 
   final bits = <String>[];
   if (!namedClient && known.isNotEmpty) {
@@ -67,14 +65,7 @@ String n1DecorateAskText(
           : 'clientes ${known.join(', ')}',
     );
   }
-  if (!namedWho && who.isNotEmpty) bits.add('soy $who');
-  if (!namedPoint && pointNames.isNotEmpty) {
-    final shown = pointNames.take(12).join(', ');
-    final extra = pointNames.length > 12
-        ? ' y ${pointNames.length - 12} más'
-        : '';
-    bits.add('puntos $shown$extra');
-  }
+  if (!namedWho && who.isNotEmpty && !whoIsClient) bits.add('soy $who');
   if (bits.isEmpty) return ask;
   return '$ask (${bits.join('; ')})';
 }

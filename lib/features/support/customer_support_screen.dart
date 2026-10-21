@@ -3,8 +3,89 @@ import 'package:flutter/material.dart';
 import '../../core/api/smarthydro_api.dart';
 import '../../core/brand.dart';
 import '../../shared/navigation/hydro_page_route.dart';
+import '../../shared/ui/capture_point_picker.dart';
 import '../../shared/ui/hydro_ui.dart';
 import '../../shared/widgets/hydro_glass.dart';
+import '../../shared/widgets/hydro_glyph.dart';
+
+String supportStatusLabel(dynamic raw) {
+  switch ('$raw'.trim().toUpperCase().replaceAll(' ', '_')) {
+    case 'ABIERTO':
+    case 'OPEN':
+      return 'Abierta';
+    case 'EN_PROCESO':
+    case 'IN_PROGRESS':
+      return 'En curso';
+    case 'CERRADO':
+    case 'CERRADA':
+    case 'RESUELTO':
+    case 'CLOSED':
+      return 'Cerrada';
+    default:
+      final text = '$raw'.trim();
+      if (text.isEmpty || text == 'null') return 'Pendiente';
+      return text;
+  }
+}
+
+String supportPriorityLabel(dynamic raw) {
+  switch ('$raw'.trim().toUpperCase()) {
+    case 'ALTA':
+    case 'HIGH':
+      return 'Alta';
+    case 'BAJA':
+    case 'LOW':
+      return 'Baja';
+    case 'MEDIA':
+    case 'MEDIUM':
+      return 'Media';
+    default:
+      final text = '$raw'.trim();
+      if (text.isEmpty || text == 'null') return 'Media';
+      return text;
+  }
+}
+
+Color supportPriorityTone(dynamic raw) {
+  switch ('$raw'.trim().toUpperCase()) {
+    case 'ALTA':
+    case 'HIGH':
+      return IkoluColors.incident;
+    case 'BAJA':
+    case 'LOW':
+      return IkoluColors.info;
+    default:
+      return IkoluColors.warning;
+  }
+}
+
+Color supportStatusTone(dynamic raw) {
+  switch (supportStatusLabel(raw)) {
+    case 'Cerrada':
+      return HydroTone.faint;
+    case 'En curso':
+      return IkoluColors.cyanSoft;
+    default:
+      return IkoluColors.connected;
+  }
+}
+
+bool supportTicketIsOpen(Map<String, dynamic> ticket) {
+  final status = '${ticket['status'] ?? ''}'.toUpperCase();
+  return !status.contains('CERRAD') &&
+      !status.contains('RESUELT') &&
+      status != 'CLOSED';
+}
+
+String supportTicketPointLabel(Map<String, dynamic> ticket) {
+  final points = ticket['points'];
+  if (points is List && points.isNotEmpty) {
+    final first = _asMap(points.first);
+    final title = first['title']?.toString().trim() ?? '';
+    if (title.isNotEmpty) return title;
+  }
+  return 'Sin punto';
+}
 
 Future<bool?> showSupportTicketSheet(
   BuildContext context, {
@@ -17,11 +98,14 @@ Future<bool?> showSupportTicketSheet(
   String? initialPriority,
   bool lockPoint = false,
 }) {
-  // Se abre al toque: la hoja carga sus categorías mientras se escribe.
   return showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
-    showDragHandle: true,
+    backgroundColor: const Color(0xFF0E1C20),
+    barrierColor: Colors.black.withValues(alpha: 0.54),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+    ),
     constraints: const BoxConstraints(maxWidth: 640),
     builder: (context) => SupportTicketSheet(
       api: api,
@@ -129,47 +213,57 @@ class _CustomerSupportScreenState extends State<CustomerSupportScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final wide = MediaQuery.sizeOf(context).width >= 980;
+    final open = _tickets.where(supportTicketIsOpen).length;
+    final high = _tickets
+        .where((t) => supportPriorityLabel(t['priority']) == 'Alta')
+        .length;
     return HydroPage(
       title: 'Soporte',
       showBack: widget.showBack,
+      subtitle: const Text(
+        'Tickets de tus puntos · seguimiento SLA',
+        style: HydroText.subtitle,
+      ),
+      titleLeading: const HydroGlyph(
+        kind: HydroGlyphKind.soporte,
+        color: IkoluColors.warning,
+        size: 40,
+        keyPrefix: 'support-glyph',
+      ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (wide)
-            TextButton.icon(
-              onPressed: _createTicket,
-              icon: const Icon(Icons.add_rounded),
-              label: const Text('Nueva solicitud'),
-            ),
           IconButton(
             onPressed: _load,
             tooltip: 'Actualizar solicitudes',
-            icon: const Icon(Icons.refresh_rounded),
+            icon: const Icon(Icons.refresh_rounded, color: HydroTone.faint),
+          ),
+          _SupportTextButton(
+            label: MediaQuery.sizeOf(context).width < 720
+                ? 'Nueva'
+                : 'Nueva solicitud',
+            onPressed: _createTicket,
           ),
         ],
       ),
-      floatingActionButton: wide
-          ? null
-          : FloatingActionButton.extended(
-              onPressed: _createTicket,
-              icon: const Icon(Icons.add_rounded),
-              label: const Text('Nueva solicitud'),
-            ),
       body: ListView(
-        padding: EdgeInsets.fromLTRB(20, 8, 20, wide ? 32 : 92),
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
         children: [
-            if (_loading && _tickets.isEmpty)
-              const HydroSkeletonCards(height: 72)
-            else if (_loading)
-              const HydroLinearBar(),
-            if (_error != null) _SupportError(message: _error!, onRetry: _load),
-            if (!_loading && _error == null && _tickets.isEmpty)
-              const _SupportEmpty(),
-            for (final ticket in _tickets) ...[
-              _TicketCard(ticket: ticket, onTap: () => _openTicket(ticket)),
-              const SizedBox(height: 10),
-            ],
+          if (!_loading && _error == null && _tickets.isNotEmpty) ...[
+            _SupportPulse(open: open, high: high, total: _tickets.length),
+            const SizedBox(height: 14),
+          ],
+          if (_loading && _tickets.isEmpty)
+            const HydroSkeletonCards(height: 88)
+          else if (_loading)
+            HydroLinearBar(),
+          if (_error != null) _SupportError(message: _error!, onRetry: _load),
+          if (!_loading && _error == null && _tickets.isEmpty)
+            _SupportEmpty(onCreate: _createTicket),
+          for (final ticket in _tickets) ...[
+            _TicketCard(ticket: ticket, onTap: () => _openTicket(ticket)),
+            const SizedBox(height: 10),
+          ],
         ],
       ),
     );
@@ -302,7 +396,7 @@ class _SupportTicketSheetState extends State<SupportTicketSheet> {
   Widget build(BuildContext context) => Padding(
     padding: EdgeInsets.fromLTRB(
       20,
-      8,
+      16,
       20,
       MediaQuery.viewInsetsOf(context).bottom + 22,
     ),
@@ -311,10 +405,28 @@ class _SupportTicketSheetState extends State<SupportTicketSheet> {
       child: ListView(
         shrinkWrap: true,
         children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text('Nueva solicitud', style: HydroText.title),
+          const SizedBox(height: 4),
+          const HydroHint(
+            'Queda ligada al punto. Cuéntanos qué ves en el logger o en la red.',
+          ),
+          const SizedBox(height: 16),
           TextFormField(
             controller: _titleController,
             enabled: !_submitting,
-            decoration: const InputDecoration(labelText: 'Asunto'),
+            style: const TextStyle(color: HydroTone.fog),
+            decoration: _supportField('Asunto'),
             validator: (value) => (value?.trim().isNotEmpty ?? false)
                 ? null
                 : 'Ingresa un asunto.',
@@ -325,74 +437,86 @@ class _SupportTicketSheetState extends State<SupportTicketSheet> {
             enabled: !_submitting,
             minLines: 3,
             maxLines: 5,
-            decoration: const InputDecoration(
-              labelText: 'Describe lo que ocurre',
-            ),
+            style: const TextStyle(color: HydroTone.fog),
+            decoration: _supportField('Describe lo que ocurre'),
             validator: (value) => (value?.trim().isNotEmpty ?? false)
                 ? null
                 : 'Describe brevemente el problema.',
           ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<int>(
-            initialValue: _pointId,
-            decoration: const InputDecoration(labelText: 'Punto'),
-            items: [
-              for (final point in widget.points)
-                DropdownMenuItem<int>(
-                  value: _asInt(point['id']),
-                  child: Text(point['title']?.toString() ?? 'Punto'),
-                ),
-            ],
-            onChanged: _submitting || widget.lockPoint
-                ? null
-                : (value) => setState(() => _pointId = value),
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<int?>(
-            // initialValue solo se lee al montar: al llegar las categorías
-            // se remonta para mostrar la elegida por defecto.
-            key: ValueKey(_categories.isEmpty),
-            initialValue: _categoryId,
-            decoration: const InputDecoration(labelText: 'Categoría'),
-            items: [
-              const DropdownMenuItem<int?>(
-                value: null,
-                child: Text('Sin categoría'),
+          const SizedBox(height: 16),
+          const Text('Punto', style: HydroText.sectionTrailing),
+          const SizedBox(height: 8),
+          IgnorePointer(
+            ignoring: _submitting || widget.lockPoint,
+            child: Opacity(
+              opacity: widget.lockPoint ? 0.72 : 1,
+              child: CapturePointFilter(
+                points: widget.points,
+                selectedId: _pointId,
+                onChanged: (id) => setState(() => _pointId = id),
               ),
-              for (final category in _categories)
-                DropdownMenuItem<int?>(
-                  value: _asInt(category['id']),
-                  child: Text(category['name']?.toString() ?? 'Categoría'),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text('Prioridad', style: HydroText.sectionTrailing),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final item in const [
+                ('BAJA', 'Baja'),
+                ('MEDIA', 'Media'),
+                ('ALTA', 'Alta'),
+              ])
+                _ChoicePill(
+                  label: item.$2,
+                  selected: _priority == item.$1,
+                  tone: supportPriorityTone(item.$1),
+                  onTap: _submitting
+                      ? null
+                      : () => setState(() => _priority = item.$1),
                 ),
             ],
-            onChanged: _submitting
-                ? null
-                : (value) => setState(() => _categoryId = value),
           ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: _priority,
-            decoration: const InputDecoration(labelText: 'Prioridad'),
-            items: const [
-              DropdownMenuItem(value: 'BAJA', child: Text('Baja')),
-              DropdownMenuItem(value: 'MEDIA', child: Text('Media')),
-              DropdownMenuItem(value: 'ALTA', child: Text('Alta')),
-            ],
-            onChanged: _submitting
-                ? null
-                : (value) => setState(() => _priority = value ?? 'MEDIA'),
-          ),
+          if (_categories.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            const Text('Categoría', style: HydroText.sectionTrailing),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final category in _categories)
+                  _ChoicePill(
+                    label: category['name']?.toString() ?? 'Categoría',
+                    selected: _categoryId == _asInt(category['id']),
+                    tone: IkoluColors.cyanSoft,
+                    onTap: _submitting
+                        ? null
+                        : () => setState(
+                            () => _categoryId = _asInt(category['id']),
+                          ),
+                  ),
+              ],
+            ),
+          ],
           if (_error != null) ...[
             const SizedBox(height: 12),
-            Text(_error!, style: const TextStyle(color: Color(0xFFFF847A))),
+            Text(_error!, style: const TextStyle(color: IkoluColors.incident)),
           ],
-          const SizedBox(height: 18),
-          FilledButton.icon(
+          const SizedBox(height: 20),
+          FilledButton(
             onPressed: _submitting ? null : _submit,
-            icon: _submitting
-                ? const HydroSpinner(size: 18)
-                : const Icon(Icons.send_rounded),
-            label: const Text('Enviar solicitud'),
+            style: FilledButton.styleFrom(
+              backgroundColor: IkoluColors.cyan,
+              foregroundColor: const Color(0xFF041014),
+              minimumSize: const Size.fromHeight(46),
+              shape: const StadiumBorder(),
+            ),
+            child: _submitting
+                ? HydroSpinner(size: 18)
+                : const Text('Enviar solicitud'),
           ),
         ],
       ),
@@ -486,51 +610,61 @@ class _TicketDetailScreenState extends State<_TicketDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final ticket = _detail.isEmpty ? widget.ticket : _detail;
-    final points = ticket['points'];
-    final pointLabel = points is List && points.isNotEmpty
-        ? _asMap(points.first)['title']?.toString() ?? 'Punto asociado'
-        : 'Solicitud general';
+    final pointLabel = supportTicketPointLabel(ticket);
     return HydroPage(
       title: 'Solicitud #${widget.ticket['id']}',
+      subtitle: Text(
+        pointLabel,
+        style: HydroText.subtitle,
+      ),
       body: Column(
         children: [
-          if (_loading && _comments.isNotEmpty) const HydroLinearBar(),
+          if (_loading && _comments.isNotEmpty) HydroLinearBar(),
           if (_error != null)
             Padding(
               padding: const EdgeInsets.all(12),
               child: Text(
                 _error!,
-                style: const TextStyle(color: Color(0xFFFF847A)),
+                style: const TextStyle(color: IkoluColors.incident),
               ),
             ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.all(18),
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 18),
               children: [
                 Text(
                   ticket['title']?.toString() ?? 'Solicitud',
-                  style: const TextStyle(
-                    fontSize: 21,
-                    fontWeight: FontWeight.w800,
+                  style: HydroText.title,
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    _ToneChip(
+                      label: supportStatusLabel(ticket['status']),
+                      tone: supportStatusTone(ticket['status']),
+                    ),
+                    _ToneChip(
+                      label: supportPriorityLabel(ticket['priority']),
+                      tone: supportPriorityTone(ticket['priority']),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                HydroGlassLight(
+                  radius: 16,
+                  child: Text(
+                    ticket['description']?.toString() ?? '',
+                    style: const TextStyle(
+                      color: HydroTone.fog,
+                      height: 1.4,
+                      fontSize: 14,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 7),
-                Text(
-                  '$pointLabel · ${ticket['status'] ?? 'Estado pendiente'} · ${ticket['priority'] ?? 'Prioridad'}',
-                  style: const TextStyle(
-                    color: Color(0xFF9AB0B1),
-                    fontSize: 12,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                _SupportCard(
-                  child: Text(ticket['description']?.toString() ?? ''),
-                ),
-                const SizedBox(height: 18),
-                const Text(
-                  'Conversación',
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
-                ),
+                const SizedBox(height: 20),
+                const HydroSectionTitle(title: 'Conversación'),
                 const SizedBox(height: 10),
                 if (_comments.isEmpty && _loading)
                   const HydroShimmer(
@@ -539,10 +673,7 @@ class _TicketDetailScreenState extends State<_TicketDetailScreen> {
                     ),
                   )
                 else if (_comments.isEmpty)
-                  const Text(
-                    'Todavía no hay respuestas.',
-                    style: TextStyle(color: Color(0xFF9AB0B1)),
-                  ),
+                  const HydroHint('Todavía no hay respuestas.'),
                 for (final comment in _comments)
                   _SupportComment(comment: comment),
               ],
@@ -551,7 +682,7 @@ class _TicketDetailScreenState extends State<_TicketDetailScreen> {
           SafeArea(
             top: false,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
               child: Row(
                 children: [
                   Expanded(
@@ -559,19 +690,18 @@ class _TicketDetailScreenState extends State<_TicketDetailScreen> {
                       controller: _commentController,
                       minLines: 1,
                       maxLines: 4,
-                      decoration: const InputDecoration(
+                      style: const TextStyle(color: HydroTone.fog),
+                      decoration: _supportField('Escribe un mensaje…').copyWith(
+                        labelText: null,
                         hintText: 'Escribe un mensaje…',
-                        border: OutlineInputBorder(),
+                        hintStyle: HydroText.hint,
                       ),
                     ),
                   ),
                   const SizedBox(width: 8),
-                  IconButton.filled(
-                    tooltip: 'Enviar respuesta',
+                  _SupportTextButton(
+                    label: _sending ? '…' : 'Enviar',
                     onPressed: _sending ? null : _sendComment,
-                    icon: _sending
-                        ? const HydroSpinner(size: 18)
-                        : const Icon(Icons.send_rounded),
                   ),
                 ],
               ),
@@ -590,43 +720,160 @@ class _TicketCard extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: const Color(0xFF112328),
-    borderRadius: BorderRadius.circular(15),
-    child: InkWell(
-      borderRadius: BorderRadius.circular(15),
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.all(15),
-        child: Row(
-          children: [
-            const Icon(Icons.support_agent_rounded, color: Color(0xFFFFC46B)),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    ticket['title']?.toString() ?? 'Solicitud',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'N° ${ticket['id']} · ${ticket['status'] ?? ''} · ${ticket['priority'] ?? ''}',
-                    style: const TextStyle(
-                      color: Color(0xFF9AB0B1),
-                      fontSize: 10,
-                    ),
-                  ),
-                ],
+  Widget build(BuildContext context) {
+    final priority = ticket['priority'];
+    final status = ticket['status'];
+    final tone = supportPriorityTone(priority);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: HydroGlassLight(
+          radius: 16,
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          child: Row(
+            children: [
+              Container(
+                width: 8,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: tone,
+                  borderRadius: BorderRadius.circular(99),
+                ),
               ),
-            ),
-            const Icon(Icons.chevron_right_rounded, color: Color(0xFF91A8AA)),
-          ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      ticket['title']?.toString() ?? 'Solicitud',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: HydroTone.fog,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      supportTicketPointLabel(ticket),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: tone,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        _ToneChip(
+                          label: supportStatusLabel(status),
+                          tone: supportStatusTone(status),
+                        ),
+                        _ToneChip(
+                          label: supportPriorityLabel(priority),
+                          tone: tone,
+                        ),
+                        _ToneChip(
+                          label: 'N° ${ticket['id']}',
+                          tone: HydroTone.faint,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-    ),
+    );
+  }
+}
+
+class _SupportPulse extends StatelessWidget {
+  const _SupportPulse({
+    required this.open,
+    required this.high,
+    required this.total,
+  });
+
+  final int open;
+  final int high;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    return HydroGlassLight(
+      key: const ValueKey('support-pulse'),
+      radius: 16,
+      strength: 0.85,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Row(
+        children: [
+          _PulseStat(label: 'Abiertas', value: '$open', tone: IkoluColors.connected),
+          _pulseDivider(),
+          _PulseStat(label: 'Alta', value: '$high', tone: IkoluColors.incident),
+          _pulseDivider(),
+          _PulseStat(label: 'Total', value: '$total', tone: IkoluColors.cyan),
+        ],
+      ),
+    );
+  }
+
+  Widget _pulseDivider() => Container(
+    width: 1,
+    height: 28,
+    margin: const EdgeInsets.symmetric(horizontal: 10),
+    color: Colors.white.withValues(alpha: 0.08),
   );
+}
+
+class _PulseStat extends StatelessWidget {
+  const _PulseStat({
+    required this.label,
+    required this.value,
+    required this.tone,
+  });
+
+  final String label;
+  final String value;
+  final Color tone;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              color: tone,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.4,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: const TextStyle(
+              color: HydroTone.faint,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _SupportComment extends StatelessWidget {
@@ -636,25 +883,36 @@ class _SupportComment extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 9),
-    child: _SupportCard(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: HydroGlassLight(
+      radius: 14,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             comment['author_name']?.toString() ?? 'Equipo SmartHydro',
-            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
+            style: const TextStyle(
+              color: HydroTone.fog,
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
           ),
-          const SizedBox(height: 5),
+          const SizedBox(height: 6),
           Text(
             comment['content']?.toString() ??
                 comment['message']?.toString() ??
                 '',
+            style: const TextStyle(
+              color: Color(0xFFD5E6E4),
+              height: 1.4,
+              fontSize: 13,
+            ),
           ),
-          const SizedBox(height: 5),
+          const SizedBox(height: 6),
           Text(
             _supportDate(comment['created']),
-            style: const TextStyle(color: Color(0xFF81999A), fontSize: 9),
+            style: const TextStyle(color: Color(0xFF81999A), fontSize: 10),
           ),
         ],
       ),
@@ -663,18 +921,38 @@ class _SupportComment extends StatelessWidget {
 }
 
 class _SupportEmpty extends StatelessWidget {
-  const _SupportEmpty();
+  const _SupportEmpty({required this.onCreate});
+
+  final VoidCallback onCreate;
 
   @override
-  Widget build(BuildContext context) => const _SupportCard(
-    child: Column(
-      children: [
-        Icon(Icons.inbox_outlined, color: IkoluColors.cyan, size: 30),
-        SizedBox(height: 9),
-        Text('No tienes solicitudes de soporte activas.'),
-      ],
-    ),
-  );
+  Widget build(BuildContext context) {
+    return HydroGlassLight(
+      radius: 18,
+      padding: const EdgeInsets.fromLTRB(20, 28, 20, 24),
+      child: Column(
+        children: [
+          const HydroGlyph(
+            kind: HydroGlyphKind.soporte,
+            color: IkoluColors.warning,
+            size: 56,
+            keyPrefix: 'support-empty',
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'Sin solicitudes',
+            style: HydroText.section,
+          ),
+          const SizedBox(height: 6),
+          const HydroHint(
+            'Cuando un logger o la red pida una mano, crea una solicitud. Queda ligada al punto.',
+          ),
+          const SizedBox(height: 16),
+          _SupportTextButton(label: 'Nueva solicitud', onPressed: onCreate),
+        ],
+      ),
+    );
+  }
 }
 
 class _SupportError extends StatelessWidget {
@@ -684,31 +962,128 @@ class _SupportError extends StatelessWidget {
   final VoidCallback onRetry;
 
   @override
-  Widget build(BuildContext context) => _SupportCard(
+  Widget build(BuildContext context) => HydroGlassLight(
     child: Row(
       children: [
-        Expanded(child: Text(message)),
-        TextButton(onPressed: onRetry, child: const Text('Reintentar')),
+        Expanded(
+          child: Text(message, style: const TextStyle(color: HydroTone.fog)),
+        ),
+        _SupportTextButton(label: 'Reintentar', onPressed: onRetry),
       ],
     ),
   );
 }
 
-class _SupportCard extends StatelessWidget {
-  const _SupportCard({required this.child});
+class _ToneChip extends StatelessWidget {
+  const _ToneChip({required this.label, required this.tone});
 
-  final Widget child;
+  final String label;
+  final Color tone;
 
   @override
-  Widget build(BuildContext context) => Container(
-    width: double.infinity,
-    padding: const EdgeInsets.all(15),
-    decoration: BoxDecoration(
-      color: const Color(0xFF112328),
-      borderRadius: BorderRadius.circular(15),
-      border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: tone.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: tone,
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _ChoicePill extends StatelessWidget {
+  const _ChoicePill({
+    required this.label,
+    required this.selected,
+    required this.tone,
+    this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final Color tone;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(99),
+        child: AnimatedContainer(
+          duration: HydroMotion.of(context, HydroMotion.fast),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: tone.withValues(alpha: selected ? 0.22 : 0.08),
+            borderRadius: BorderRadius.circular(99),
+            border: Border.all(
+              color: tone.withValues(alpha: selected ? 0.7 : 0.22),
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? tone : HydroTone.fog,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SupportTextButton extends StatelessWidget {
+  const _SupportTextButton({required this.label, this.onPressed});
+
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton(
+      onPressed: onPressed,
+      style: TextButton.styleFrom(
+        foregroundColor: HydroTone.fog,
+        backgroundColor: IkoluColors.cyan.withValues(alpha: 0.14),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        shape: const StadiumBorder(),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+      ),
+    );
+  }
+}
+
+InputDecoration _supportField(String label) {
+  final border = OutlineInputBorder(
+    borderRadius: BorderRadius.circular(14),
+    borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+  );
+  return InputDecoration(
+    labelText: label,
+    filled: true,
+    fillColor: Colors.white.withValues(alpha: 0.04),
+    labelStyle: const TextStyle(color: HydroTone.faint, fontSize: 13),
+    border: border,
+    enabledBorder: border,
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(14),
+      borderSide: const BorderSide(color: IkoluColors.cyanSoft),
     ),
-    child: child,
   );
 }
 

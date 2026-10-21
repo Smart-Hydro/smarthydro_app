@@ -162,6 +162,17 @@ void main() {
     expect(opened, 2);
   });
 
+  test('Asistente queda en preparación, como Informes', () {
+    final asistente = liquidDesktopApps.firstWhere((a) => a.label == 'Asistente');
+    final informes = liquidDesktopApps.firstWhere((a) => a.label == 'Informes');
+    expect(asistente.comingSoon, isTrue);
+    expect(informes.comingSoon, isTrue);
+    expect(asistente.adornments, contains('pronto'));
+    expect(asistente.subtitle.toLowerCase(), contains('próximamente'));
+    expect(asistente.soonMessage.toLowerCase(), contains('afinando'));
+    expect(asistente.soonMessage.toLowerCase(), contains('puntos'));
+  });
+
   testWidgets('si el rail no cabe muestra Ver todas y no hace scroll', (
     tester,
   ) async {

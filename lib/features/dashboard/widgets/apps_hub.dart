@@ -162,7 +162,7 @@ class AppsHub extends StatelessWidget {
       s.complianceWatchCount == 0
           ? 'Sin alertas DGA'
           : '${s.complianceWatchCount} en vigilancia',
-    2 => 'N1 · contexto de tus puntos',
+    2 => 'Pronto · lo estamos afinando',
     3 =>
       s.openTicketCount == 0
           ? 'Sin tickets abiertos'

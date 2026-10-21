@@ -11,6 +11,7 @@ import '../../core/n1/n1_identity.dart';
 import '../../core/n1/n1_providers.dart';
 import '../../core/prefs/home_view.dart';
 import '../../core/prefs/map_layers.dart';
+import '../../core/prefs/web_summary.dart';
 import '../../core/session/session_provider.dart';
 import '../analysis/analysis_screen.dart';
 import '../assistant/assistant_screen.dart';
@@ -35,6 +36,7 @@ import 'point_meta.dart';
 import 'widgets/apps_hub.dart';
 import 'widgets/capture_network_map.dart';
 import 'widgets/hydraulic_board.dart';
+import 'widgets/web_summary_dock.dart';
 
 class LiveDashboardScreen extends ConsumerStatefulWidget {
   const LiveDashboardScreen({required this.session, super.key});
@@ -369,7 +371,8 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
     );
 
     final isHome = tool == null && _selectedTab == 0;
-    final showAsk = tool != _ShellTool.asistente;
+    final assistantSoon = liquidDesktopApps[_ShellTool.asistente.index].comingSoon;
+    final showAsk = !assistantSoon && tool != _ShellTool.asistente;
     return Scaffold(
       backgroundColor: Colors.transparent,
       // Home: el cuerpo pasa DETRÁS del menú glass (mapa full-bleed).
@@ -457,6 +460,9 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
                 onViewChanged: (map) => ref
                     .read(homeViewProvider.notifier)
                     .set(map ? HomeView.map : HomeView.network),
+                summaryOpen: ref.watch(webSummaryProvider),
+                onSummaryOpenChanged: (open) =>
+                    ref.read(webSummaryProvider.notifier).set(open),
                 mapLayers: ref.watch(mapLayersProvider(_userId)),
                 onMapLayersChanged: (layers) =>
                     ref.read(mapLayersProvider(_userId).notifier).set(layers),
@@ -536,6 +542,14 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
   }
 
   void _openAssistant() {
+    final app = liquidDesktopApps[_ShellTool.asistente.index];
+    if (app.comingSoon) {
+      final note = app.soonMessage.trim().isEmpty
+          ? '${app.label}: pronto disponible.'
+          : app.soonMessage;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(note)));
+      return;
+    }
     Navigator.of(context).push<void>(
       hydroPageRoute(
         AssistantScreen(
@@ -624,6 +638,18 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
     );
   }
 
+  Widget _comingSoonPage(LiquidAppShortcut app) {
+    return HydroPage(
+      title: app.label,
+      showBack: false,
+      body: HydroMessage(
+        icon: app.icon,
+        title: 'En preparación',
+        message: app.soonMessage,
+      ),
+    );
+  }
+
   Widget _shellToolPage(_ShellTool tool) {
     switch (tool) {
       case _ShellTool.analisis:
@@ -641,12 +667,7 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
           seed: _compliance,
         );
       case _ShellTool.asistente:
-        return AssistantScreen(
-          n1Api: ref.read(n1ApiProvider),
-          session: widget.session,
-          points: _points,
-          showBack: false,
-        );
+        return _comingSoonPage(liquidDesktopApps[_ShellTool.asistente.index]);
       case _ShellTool.soporte:
         return CustomerSupportScreen(
           api: _api,
@@ -662,17 +683,7 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
           showBack: false,
         );
       case _ShellTool.informes:
-        return HydroPage(
-          title: 'Informes',
-          showBack: false,
-          body: const HydroMessage(
-            icon: Icons.description_outlined,
-            title: 'En preparación',
-            message:
-                'Los resúmenes para compartir siguen en preparación. '
-                'Mientras tanto, Registros descarga las lecturas del período.',
-          ),
-        );
+        return _comingSoonPage(liquidDesktopApps[_ShellTool.informes.index]);
     }
   }
 
@@ -690,9 +701,10 @@ class _LiveDashboardScreenState extends ConsumerState<LiveDashboardScreen>
       return;
     }
     if (app?.comingSoon == true) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${app!.label}: pronto disponible.')),
-      );
+      final note = app!.soonMessage.trim().isEmpty
+          ? '${app.label}: pronto disponible.'
+          : app.soonMessage;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(note)));
       return;
     }
     switch (index) {
@@ -743,6 +755,8 @@ class _DashboardTab extends StatefulWidget {
     required this.refreshing,
     required this.startOnMap,
     required this.onViewChanged,
+    required this.summaryOpen,
+    required this.onSummaryOpenChanged,
     required this.mapLayers,
     required this.onMapLayersChanged,
     required this.points,
@@ -763,6 +777,8 @@ class _DashboardTab extends StatefulWidget {
   final bool refreshing;
   final bool startOnMap;
   final ValueChanged<bool> onViewChanged;
+  final bool summaryOpen;
+  final ValueChanged<bool> onSummaryOpenChanged;
   final MapLayers mapLayers;
   final ValueChanged<MapLayers> onMapLayersChanged;
   final List<Map<String, dynamic>> points;
@@ -809,13 +825,11 @@ class _DashboardTabState extends State<_DashboardTab> {
         summary: (context, toMap) => _summaryView(toMap),
       );
     }
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Expanded(child: _mapView(null)),
-        const SizedBox(width: 1, child: ColoredBox(color: Color(0x1AFFFFFF))),
-        SizedBox(width: 380, child: _summaryList()),
-      ],
+    return WebSummaryDock(
+      open: widget.summaryOpen,
+      onOpenChanged: widget.onSummaryOpenChanged,
+      map: _mapView(null),
+      summary: _summaryList(),
     );
   }
 

@@ -118,4 +118,37 @@ void main() {
     await tester.pump();
     expect(opened, informesIndex);
   });
+
+  testWidgets('Asistente queda como pronto, con nota sutil', (tester) async {
+    var opened = -1;
+    await tester.binding.setSurfaceSize(const Size(1200, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      _hubApp(
+        child: AppsHub(
+          summary: _summary,
+          onOpenApp: (i) => opened = i,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.scrollUntilVisible(
+      find.text('Asistente'),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pump();
+
+    final asistente = liquidDesktopApps.firstWhere((a) => a.label == 'Asistente');
+    expect(asistente.comingSoon, isTrue);
+    expect(find.textContaining('Pronto'), findsWidgets);
+    expect(find.textContaining('lo estamos afinando'), findsWidgets);
+    expect(find.textContaining('próximamente'), findsWidgets);
+
+    await tester.tap(find.text('Asistente'));
+    await tester.pump();
+    expect(opened, liquidDesktopApps.indexWhere((a) => a.label == 'Asistente'));
+  });
 }

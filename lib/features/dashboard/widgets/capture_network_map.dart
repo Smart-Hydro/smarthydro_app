@@ -832,19 +832,16 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                   bottom: bottom,
                   child: _SeatedWell(motion: _motion, child: well),
                 ),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  top: widget.topInset + 10,
-                  child: KeyedSubtree(
-                    key: _headerKey,
-                    child: _NetworkHeader(
-                      points: widget.points,
-                      askBar: widget.askBar,
-                      locationMode: false,
+                if (widget.askBar != null)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    top: widget.topInset + 10,
+                    child: KeyedSubtree(
+                      key: _headerKey,
+                      child: widget.askBar!,
                     ),
                   ),
-                ),
               ],
             ),
           ),
@@ -863,10 +860,10 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
           _syncPanel();
         });
         final size = Size(constraints.maxWidth, constraints.maxHeight);
-        // El encabezado ocupa la franja de arriba. La red empieza debajo.
+        // Sin barra de pregunta no hay título: la red usa el alto completo.
         // Si la respuesta del agente crece, la franja crece con ella.
         final headerBand = widget.askBar == null
-            ? 84.0
+            ? 0.0
             : math.max(108.0, _askBand);
         final contentTop = widget.topInset + headerBand;
         final contentLeft = widget.leftInset;
@@ -1102,8 +1099,8 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                   ),
                 if (_showLocations)
                   Positioned(
-                    // Como el observatorio, el mapa va de borde a borde y el
-                    // encuadre deja libres el título, el rail y la barra.
+                    // El mapa va de borde a borde; el encuadre deja libres
+                    // el rail y la barra.
                     left: 0,
                     right: 0,
                     top: 0,
@@ -1168,21 +1165,16 @@ class _WaterViewState extends State<_WaterView> with TickerProviderStateMixin {
                       ],
                     ),
                   ),
-                // Después del mapa: con el mapa de borde a borde, el título
-                // y la pregunta quedan encima.
-                Positioned(
-                  left: stage.left,
-                  right: size.width - stage.right,
-                  top: widget.topInset + 10,
-                  child: KeyedSubtree(
-                    key: _headerKey,
-                    child: _NetworkHeader(
-                      points: widget.points,
-                      askBar: widget.askBar,
-                      locationMode: _showLocations,
+                if (widget.askBar != null)
+                  Positioned(
+                    left: stage.left,
+                    right: size.width - stage.right,
+                    top: widget.topInset + 10,
+                    child: KeyedSubtree(
+                      key: _headerKey,
+                      child: widget.askBar!,
                     ),
                   ),
-                ),
                 if (viewingScheme && pages > 1)
                   Positioned(
                     left: stage.left,
@@ -4276,72 +4268,6 @@ class _MetricBlock extends StatelessWidget {
   }
 }
 
-class _NetworkHeader extends StatelessWidget {
-  const _NetworkHeader({
-    required this.points,
-    required this.locationMode,
-    this.askBar,
-  });
-
-  final List<Map<String, dynamic>> points;
-  final bool locationMode;
-  final Widget? askBar;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: askBar != null
-              ? askBar!
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      locationMode ? 'Ubicaciones' : 'Esquema de telemetría',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFFF4F8F6),
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        height: 1.15,
-                        letterSpacing: -0.2,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      captureNetworkSubtitle(points),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF8FA3A4),
-                        fontSize: 12,
-                        height: 1.25,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      captureServicePulse(points),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFFC5D5D4),
-                        fontSize: 12,
-                        height: 1.3,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-        ),
-      ],
-    );
-  }
-}
-
 /// Red o Mapa, junto al zoom. Un toque cambia de modo.
 class _SchemeMode extends StatelessWidget {
   const _SchemeMode({required this.map, required this.onPressed});
@@ -6926,21 +6852,6 @@ String _readingAge(DateTime time, DateTime now) {
   }
   if (delta.inDays == 1) return 'ayer';
   return 'hace ${delta.inDays} días';
-}
-
-/// Línea bajo el título: cuántos puntos hay y si la vista usa GPS.
-@visibleForTesting
-String captureNetworkSubtitle(List<Map<String, dynamic>> points) {
-  if (points.isEmpty) return 'Cuando haya puntos, aparecen aquí';
-  final count = points.length;
-  final online = points
-      .where((point) => pointLinkOf(point) == PointLink.connected)
-      .length;
-  final noun = count == 1 ? 'punto' : 'puntos';
-  final where = points.any((point) => captureLatLng(point) != null)
-      ? 'en su lugar'
-      : 'sin coordenadas';
-  return '$count $noun · $online conectados · $where';
 }
 
 /// Conteos de enlace para el peek del resumen (móvil).
