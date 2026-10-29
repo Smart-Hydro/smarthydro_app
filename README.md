@@ -1,6 +1,40 @@
+# smarthydro_app
+
+## Descripción
+Aplicación web SmartHydro (staging/producción en Pages).
+
+## Arquitectura
+Carpetas principales: `android/`, `assets/`, `docs/`, `lib/`, `test/`, `tool/`, `web/`.
+
+
+## Setup local
+1. Clonar el repo y copiar `.env.example` a `.env` (no versionar `.env`).
+2. Completar las variables con valores de desarrollo (pedirlos a Felipe; nunca por chat ni en commits).
+3. Instalar dependencias () y levantar el servicio.
+
+## Variables de entorno
+Solo nombres; valores en el servidor o en GitHub Secrets:
+- `HOST`
+- `PORT`
+- `PORTS`
+- `SMART_HYDRO_PROXY_TARGET`
+
+## Deploy
+- Deploy **manual**; nada va a `production` sin aprobación de Felipe.
+- No usar `down`, `--volumes` ni `prune` en servidores de producción.
+
+## Runbook
+- Revisar logs del contenedor/servicio antes de reiniciar; avisar antes de reiniciar servicios productivos.
+- Ante un secreto filtrado: rotar, actualizar el servidor y ver `SECURITY.md`.
+- Ante errores de CI: un solo re-run por PR.
+
+---
+
+## Documentación previa
+
 <div align="center">
 
-# SmartHydro App
+### SmartHydro App
 
 ### Gestión inteligente de aguas subterráneas
 
@@ -111,16 +145,16 @@ git push origin dev:production
 ```bash
 flutter pub get
 
-# Web / PWA (Brave u otro navegador)
+### Web / PWA (Brave u otro navegador)
 flutter run -d web-server --web-hostname localhost --web-port 3001
-# → http://localhost:3001
+### → http://localhost:3001
 
-# Preview de la build web compilada (login real vía proxy same-origin)
+### Preview de la build web compilada (login real vía proxy same-origin)
 flutter build web
 python3 tool/serve_web_proxy.py
-# → http://localhost:3000  (usar "localhost", no "127.0.0.1")
+### → http://localhost:3000  (usar "localhost", no "127.0.0.1")
 
-# Android
+### Android
 flutter emulators --launch medium_phone
 flutter run -d emulator-5554
 ```
